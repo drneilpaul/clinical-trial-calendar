@@ -209,10 +209,8 @@ if patients_file and trials_file:
         
         # Round financial columns to 2 decimal places, but keep Monthly and FY totals as strings where empty
         financial_cols = [col for col in display_df.columns if "Income" in col or col == "Daily Total"]
-        for col in financial_cols + ["Monthly Total", "FY Total"]:
-    display_df[col] = display_df[col].apply(
-        lambda x: f'£{x:,.2f}' if pd.notna(x) and x != '' else ''
-    )
+        for col in financial_cols:
+            display_df[col] = display_df[col].round(2)
         
         # Format total columns - round only non-empty values
         for col in ["Monthly Total", "FY Total"]:
@@ -285,7 +283,7 @@ if patients_file and trials_file:
         
         with col3:
             total_income = calendar_df["Daily Total"].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")
+            st.metric("Total Income", f"${total_income:,.2f}")
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
