@@ -147,6 +147,7 @@ def convert_df_to_csv(df):
 # Main App
 def main():
     st.title("🏥 Clinical Trial Calendar Generator")
+st.caption("v1.3.2 | Version: 2025-09-11")
     st.markdown("Upload your patient and trial data to generate a comprehensive visit calendar with payment tracking.")
     
     # Sidebar for file uploads
