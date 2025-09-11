@@ -12,6 +12,13 @@ patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], ke
 trials_file = st.sidebar.file_uploader("Upload Trials CSV", type=['csv'], key="trials")
 
 if patients_file and trials_file:
+    # Check if openpyxl is available
+    try:
+        import openpyxl
+        excel_available = True
+    except ImportError:
+        excel_available = False
+        
     try:
         # Read CSV files
         patients_df = pd.read_csv(patients_file, dayfirst=True)
@@ -129,7 +136,7 @@ if patients_file and trials_file:
             for _, visit in visits_today.iterrows():
                 pid = str(visit["PatientID"])
                 visit_info = visit["Visit"]
-                payment = visit["Payment"]
+                payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
                 
                 # Update patient column
                 if calendar_df.at[i, pid] == "":
@@ -137,10 +144,16 @@ if patients_file and trials_file:
                 else:
                     calendar_df.at[i, pid] += f", {visit_info}"
                 
-                # Update study income
-                income_col = f"{visit['Study']} Income"
-                calendar_df.at[i, income_col] += payment
-                daily_total += payment
+                # Update study income (only for actual visits, not tolerance days)
+                if visit_info != "-" and visit_info != "+":
+                    income_col = f"{visit['Study']} Income"
+                    if income_col in calendar_df.columns:
+                        calendar_df.at[i, income_col] += payment
+                        daily_total += payment
+                        
+                        # Debug info
+                        if payment > 0:
+                            print(f"Added payment: {payment} for {visit_info} on {date}")
 
             calendar_df.at[i, "Daily Total"] = daily_total
 
@@ -214,7 +227,7 @@ if patients_file and trials_file:
         
         with col2:
             # Excel download (only if openpyxl is available)
-            if EXCEL_AVAILABLE:
+            if excel_available:
                 try:
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -269,7 +282,7 @@ if patients_file and trials_file:
             st.write("- VisitNo")
             st.write("- ToleranceBefore (optional)")
             st.write("- ToleranceAfter (optional)")
-            st.write("- Payment (optional)")
+            st.write("- Payment/Income (optional)")
 
 else:
     st.info("👆 Please upload both Patients and Trials CSV files to generate the calendar.")
