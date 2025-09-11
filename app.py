@@ -25,7 +25,7 @@ class TrialCalendarBuilder:
         
     def validate_data(self):
         """Validate input data structure."""
-        required_patient_cols = ["PatientID", "Study", "V1_Year", "V1_Month", "V1_Day"]
+        required_patient_cols = ["PatientID", "Study", "StartDate"]
         required_trial_cols = ["Study", "VisitNo", "Day"]
         
         missing_patient_cols = set(required_patient_cols) - set(self.patients.columns)
@@ -40,10 +40,8 @@ class TrialCalendarBuilder:
         return errors
             
     def prepare_patients(self):
-        """Build patient visit 1 dates."""
-        self.patients["V1_Date"] = pd.to_datetime(
-            self.patients[["V1_Year", "V1_Month", "V1_Day"]]
-        )
+        """Build patient visit 1 dates from StartDate column."""
+        self.patients["V1_Date"] = pd.to_datetime(self.patients["StartDate"], dayfirst=True, errors="coerce")
         
     def create_visit_record(self, patient_id, study, visit_date, visit_label, payment):
         """Create a single visit record."""
@@ -277,3 +275,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
