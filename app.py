@@ -278,15 +278,36 @@ if patients_file and trials_file:
                 format_map[col] = "£{:,.2f}"
 
         # Create Styler with numeric formatting and row highlighting
-        styled_df = display_df.style.format(format_map).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+        
+        # Remove helper/internal columns before display (they were used for computing totals)
+        helper_cols = [c for c in ["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"] if c in display_df.columns]
+        display_df_for_display = display_df.drop(columns=helper_cols).copy()
 
-        # Render styled HTML via Streamlit components for consistent styling (background colors + formats)
+        # Ensure numeric columns are numeric and rounded for display
+        for col in ["Daily Total", "Monthly Total", "FY Total"]:
+            if col in display_df_for_display.columns:
+                display_df_for_display[col] = pd.to_numeric(display_df_for_display[col], errors="coerce").round(2)
+
+        # Formatter functions to show currency only when value present (avoid '£nan')
+        def fmt_currency(v):
+            return "" if pd.isna(v) else f"£{v:,.2f}"
+
+        format_map_funcs = {}
+        for col in ["Daily Total", "Monthly Total", "FY Total"]:
+            if col in display_df_for_display.columns:
+                format_map_funcs[col] = fmt_currency
+
+        # Create Styler with format functions and apply highlights
+        styled_df = display_df_for_display.style.format(format_map_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+
+        # Render styled HTML inside a scrollable container (preserves background-color)
         try:
             import streamlit.components.v1 as components
-            components.html(f"<div style='max-height:700px; overflow:auto;'>" + styled_df.to_html() + "</div>", height=720, scrolling=True)
+            html_table = f"<div style='max-height:700px; overflow:auto;'>" + styled_df.to_html() + "</div>"
+            components.html(html_table, height=720, scrolling=True)
         except Exception:
-            # Fallback to st.dataframe (some Streamlit versions accept Styler)
-            st.dataframe(styled_df, use_container_width=True)
+            # Fallback to native dataframe display (no fancy CSS, but scrollable)
+            st.dataframe(display_df_for_display, use_container_width=True)
 
         # Provide download options
         col1, col2 = st.columns(2)
