@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.3 | Version: 2025-09-11")
+st.caption("v1.3.2 | Version: 2025-09-11")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -210,16 +210,32 @@ if patients_file and trials_file:
         # Round financial columns to 2 decimal places, but keep Monthly and FY totals as strings where empty
         financial_cols = [col for col in display_df.columns if "Income" in col or col == "Daily Total"]
         for col in financial_cols:
-            display_df[col] = display_df[col].apply(lambda x: f'£{x:,.2f}' if pd.notna(x) else '')
+            display_df[col] = display_df[col].round(2)
         
         # Format total columns - round only non-empty values
         for col in ["Monthly Total", "FY Total"]:
             display_df[col] = display_df[col].apply(
-                lambda x: f'£{float(x):,.2f}' if x != '' and pd.notna(x) else ''
+                lambda x: round(float(x), 2) if x != "" and pd.notna(x) else x
             )
         
         # Create styled dataframe with weekend highlighting
-        def highlight_weekends(row):
+        
+def highlight_special_days(row):
+    try:
+        date_obj = pd.to_datetime(row["Date"])
+        styles = [''] * len(row)
+        # End of month
+        next_day = date_obj + pd.Timedelta(days=1)
+        if next_day.month != date_obj.month:
+            styles = ['background-color: #d0e6f7'] * len(row)  # Light blue
+        # End of financial year (March 31)
+        if date_obj.month == 3 and date_obj.day == 31:
+            styles = ['background-color: #d7f7d0'] * len(row)  # Light green
+        return styles
+    except:
+        return [''] * len(row)
+
+def highlight_weekends(row):
             # Get the original date to check if it's weekend
             date_str = row["Date"]
             try:
@@ -231,7 +247,7 @@ if patients_file and trials_file:
             except:
                 return [''] * len(row)
         
-        styled_df = display_df.style.apply(highlight_weekends, axis=1)
+        styled_df = display_df.style.apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
         
         st.dataframe(styled_df, use_container_width=True)
 
@@ -283,7 +299,7 @@ if patients_file and trials_file:
         
         with col3:
             total_income = calendar_df["Daily Total"].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")
+            st.metric("Total Income", f"${total_income:,.2f}")
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
