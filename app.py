@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.2 | Version: 2025-09-11")
+st.caption("v1.3.3 | Version: 2025-09-11")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -210,12 +210,12 @@ if patients_file and trials_file:
         # Round financial columns to 2 decimal places, but keep Monthly and FY totals as strings where empty
         financial_cols = [col for col in display_df.columns if "Income" in col or col == "Daily Total"]
         for col in financial_cols:
-            display_df[col] = display_df[col].round(2)
+            display_df[col] = display_df[col].apply(lambda x: f'£{x:,.2f}' if pd.notna(x) else '')
         
         # Format total columns - round only non-empty values
         for col in ["Monthly Total", "FY Total"]:
             display_df[col] = display_df[col].apply(
-                lambda x: round(float(x), 2) if x != "" and pd.notna(x) else x
+                lambda x: f'£{float(x):,.2f}' if x != '' and pd.notna(x) else ''
             )
         
         # Create styled dataframe with weekend highlighting
@@ -283,7 +283,7 @@ if patients_file and trials_file:
         
         with col3:
             total_income = calendar_df["Daily Total"].sum()
-            st.metric("Total Income", f"${total_income:,.2f}")
+            st.metric("Total Income", f"£{total_income:,.2f}")
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
