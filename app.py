@@ -243,7 +243,10 @@ def main():
             **Patients CSV should contain:**
             - `PatientID`: Unique patient identifier
             - `Study`: Study name/code
-            - `V1_Year`, `V1_Month`, `V1_Day`: Visit 1 date components
+            - Date columns (flexible names accepted):
+              - Year: `V1_Year`, `Year`, `Yr`, etc.
+              - Month: `V1_Month`, `Month`, `Mon`, etc.  
+              - Day: `V1_Day`, `Day`, etc.
             
             **Trials CSV should contain:**
             - `Study`: Study name/code (matching patients)
@@ -252,6 +255,12 @@ def main():
             - `Payment`: Payment amount (optional)
             - `ToleranceBefore`, `ToleranceAfter`: Tolerance days (optional)
             """)
+            
+        with st.expander("🔍 Debug: Show My Column Names"):
+            if patients_file is not None:
+                st.write("**Your Patients columns:**", list(pd.read_csv(patients_file).columns))
+            if trials_file is not None:
+                st.write("**Your Trials columns:**", list(pd.read_csv(trials_file).columns))
 
 if __name__ == "__main__":
     main()
