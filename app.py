@@ -25,7 +25,7 @@ class TrialCalendarBuilder:
         
     def validate_data(self):
         """Validate input data structure."""
-        required_patient_cols = ["PatientID", "Study", "StartDate"]
+        required_patient_cols = ["PatientID", "Study", "V1_Year", "V1_Month", "V1_Day"]
         required_trial_cols = ["Study", "VisitNo", "Day"]
         
         missing_patient_cols = set(required_patient_cols) - set(self.patients.columns)
@@ -40,8 +40,10 @@ class TrialCalendarBuilder:
         return errors
             
     def prepare_patients(self):
-        """Build patient visit 1 dates from StartDate column."""
-        self.patients["V1_Date"] = pd.to_datetime(self.patients["StartDate"], dayfirst=True, errors="coerce")
+        """Build patient visit 1 dates."""
+        self.patients["V1_Date"] = pd.to_datetime(
+            self.patients[["V1_Year", "V1_Month", "V1_Day"]]
+        )
         
     def create_visit_record(self, patient_id, study, visit_date, visit_label, payment):
         """Create a single visit record."""
@@ -147,7 +149,6 @@ def convert_df_to_csv(df):
 # Main App
 def main():
     st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.2 | Version: 2025-09-11")
     st.markdown("Upload your patient and trial data to generate a comprehensive visit calendar with payment tracking.")
     
     # Sidebar for file uploads
@@ -251,7 +252,7 @@ st.caption("v1.3.2 | Version: 2025-09-11")
         st.info("👆 Please upload both CSV files to get started")
         
         with st.expander("📖 Required CSV Format"):
-            st.markdown("""
+    st.markdown("""
             **Patients CSV should contain:**
             - `PatientID`: Unique patient identifier
             - `Study`: Study name/code
@@ -276,4 +277,5 @@ st.caption("v1.3.2 | Version: 2025-09-11")
 
 if __name__ == "__main__":
     main()
+
 
