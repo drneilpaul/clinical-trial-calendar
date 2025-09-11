@@ -232,6 +232,7 @@ def highlight_special_days(row):
     except Exception:
         return [''] * len(row)
 
+
 def highlight_weekends(row):
             # Get the original date to check if it's weekend
             date_str = row["Date"]
