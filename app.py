@@ -335,4 +335,3 @@ else:
             "Payment": [500.0, 300.0, 750.0]
         })
         st.dataframe(example_trials)
-        
