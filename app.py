@@ -220,30 +220,30 @@ if patients_file and trials_file:
         
         # Create styled dataframe with weekend highlighting
         
-def highlight_special_days(row):
-    try:
-        date_obj = pd.to_datetime(row["Date"])
-        next_day = date_obj + pd.Timedelta(days=1)
-        if next_day.month != date_obj.month:
-            return ['background-color: #d0e6f7'] * len(row)  # Light blue for end of month
-        if date_obj.month == 3 and date_obj.day == 31:
-            return ['background-color: #d7f7d0'] * len(row)  # Light green for end of financial year
-        return [''] * len(row)
-    except Exception:
-        return [''] * len(row)
-
-
-def highlight_weekends(row):
-            # Get the original date to check if it's weekend
-            date_str = row["Date"]
+        def highlight_special_days(row):
             try:
-                date_obj = pd.to_datetime(date_str)
-                if date_obj.dayofweek in [5, 6]:  # Saturday or Sunday
-                    return ['background-color: #f0f0f0'] * len(row)
-                else:
-                    return [''] * len(row)
-            except:
+                date_obj = pd.to_datetime(row["Date"])
+                next_day = date_obj + pd.Timedelta(days=1)
+                if next_day.month != date_obj.month:
+                    return ['background-color: #d0e6f7'] * len(row)  # Light blue for end of month
+                if date_obj.month == 3 and date_obj.day == 31:
+                    return ['background-color: #d7f7d0'] * len(row)  # Light green for end of financial year
                 return [''] * len(row)
+            except Exception:
+                return [''] * len(row)
+
+
+        def highlight_weekends(row):
+                    # Get the original date to check if it's weekend
+                    date_str = row["Date"]
+                    try:
+                        date_obj = pd.to_datetime(date_str)
+                        if date_obj.dayofweek in [5, 6]:  # Saturday or Sunday
+                            return ['background-color: #f0f0f0'] * len(row)
+                        else:
+                            return [''] * len(row)
+                    except:
+                        return [''] * len(row)
         
         styled_df = display_df.style.apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
         
