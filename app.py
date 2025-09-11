@@ -187,6 +187,19 @@ def main():
                 st.info("Please check your CSV files have the required columns.")
                 return
             
+            # Debug section
+            with st.expander("🔍 Debug Info - Check Your Data"):
+                st.write("**Patients CSV columns:**", patients_df.columns.tolist())
+                st.write("**Trials CSV columns:**", trials_df.columns.tolist())
+                
+                # Show sample of date-related columns
+                date_cols = [col for col in patients_df.columns if any(term in col.lower() for term in ['year', 'month', 'day', 'date', 'yr', 'mon'])]
+                if date_cols:
+                    st.write("**Date-related columns in patients:**")
+                    st.dataframe(patients_df[date_cols].head(), use_container_width=True)
+                else:
+                    st.warning("No date columns found!")
+
             # Process button
             if st.button("🚀 Generate Calendar", type="primary", use_container_width=True):
                 with st.spinner("Generating calendar..."):
