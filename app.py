@@ -223,16 +223,13 @@ if patients_file and trials_file:
 def highlight_special_days(row):
     try:
         date_obj = pd.to_datetime(row["Date"])
-        styles = [''] * len(row)
-        # End of month
         next_day = date_obj + pd.Timedelta(days=1)
         if next_day.month != date_obj.month:
-            styles = ['background-color: #d0e6f7'] * len(row)  # Light blue
-        # End of financial year (March 31)
+            return ['background-color: #d0e6f7'] * len(row)  # Light blue for end of month
         if date_obj.month == 3 and date_obj.day == 31:
-            styles = ['background-color: #d7f7d0'] * len(row)  # Light green
-        return styles
-    except:
+            return ['background-color: #d7f7d0'] * len(row)  # Light green for end of financial year
+        return [''] * len(row)
+    except Exception:
         return [''] * len(row)
 
 def highlight_weekends(row):
