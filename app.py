@@ -209,13 +209,37 @@ if patients_file and trials_file:
             monthly_totals[month] += daily_total
             calendar_df.at[i, "Monthly Total"] = monthly_totals[month]
             
-            # Update FY total
-            if fy not in fy_totals:
-                fy_totals[fy] = 0.0
-            fy_totals[fy] += daily_total
-            calendar_df.at[i, "FY Total"] = fy_totals[fy]
+            
+        # --- Recompute Monthly and Fiscal Year totals so they only appear on the month/fy end day ---
+        # Ensure Date is datetime
+        calendar_df["Date"] = pd.to_datetime(calendar_df["Date"])
+        # Daily Total must be numeric
+        calendar_df["Daily Total"] = pd.to_numeric(calendar_df["Daily Total"], errors="coerce").fillna(0.0)
 
-        # Remove helper columns
+        # Monthly totals: sum of Daily Total per calendar month, show ONLY on the last calendar day of that month
+        calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
+        monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
+        # Mark month-end rows
+        calendar_df["IsMonthEnd"] = calendar_df["Date"].dt.is_month_end
+        # Assign Monthly Total only on month-end rows
+        calendar_df["Monthly Total"] = calendar_df.apply(
+            lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA,
+            axis=1
+        )
+
+        # Fiscal year totals: assume fiscal year runs Apr 1 - Mar 31. Show total only on the fiscal year end (31 March)
+        calendar_df["FYStart"] = calendar_df["Date"].apply(lambda d: d.year if d.month >= 4 else d.year - 1)
+        fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
+        # Assign FY Total only on 31 March rows
+        calendar_df["IsFYE"] = calendar_df["Date"].dt.month.eq(3) & calendar_df["Date"].dt.day.eq(31)
+        calendar_df["FY Total"] = calendar_df.apply(
+            lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA,
+            axis=1
+        )
+
+        # Optionally convert Monthly/FY totals to floats (they may be NA for non-end rows)
+        calendar_df["Monthly Total"] = pd.to_numeric(calendar_df["Monthly Total"], errors="coerce")
+        calendar_df["FY Total"] = pd.to_numeric(calendar_df["FY Total"], errors="coerce")
         calendar_df = calendar_df.drop(columns=["Month", "FY"])
 
         # Display the calendar
@@ -259,7 +283,7 @@ if patients_file and trials_file:
         # Render styled HTML via Streamlit components for consistent styling (background colors + formats)
         try:
             import streamlit.components.v1 as components
-            components.html(styled_df.to_html(), height=600)
+            components.html(f"<div style='max-height:700px; overflow:auto;'>" + styled_df.to_html() + "</div>", height=720, scrolling=True)
         except Exception:
             # Fallback to st.dataframe (some Streamlit versions accept Styler)
             st.dataframe(styled_df, use_container_width=True)
