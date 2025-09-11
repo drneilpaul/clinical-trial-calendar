@@ -252,7 +252,7 @@ def main():
         st.info("👆 Please upload both CSV files to get started")
         
         with st.expander("📖 Required CSV Format"):
-    st.markdown("""
+            st.markdown("""
             **Patients CSV should contain:**
             - `PatientID`: Unique patient identifier
             - `Study`: Study name/code
@@ -277,5 +277,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
