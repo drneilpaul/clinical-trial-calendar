@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.2 | Version: 2025-09-11")
+st.caption("v1.3.3 | Version: 2025-09-11")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -192,7 +192,7 @@ if patients_file and trials_file:
         
         # Debug information
         total_payments = visits_df[visits_df["Payment"] > 0]["Payment"].sum()
-        st.write(f"Debug: Total payments in visit records: ${total_payments:,.2f}")
+        st.write(f"Debug: Total payments in visit records: £{total_payments:,.2f}")
         st.write(f"Debug: Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
         
         # Show a sample of visit records with payments
