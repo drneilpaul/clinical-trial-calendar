@@ -17,6 +17,29 @@ if patients_file and trials_file:
         patients_df = pd.read_csv(patients_file, dayfirst=True)
         trials_df = pd.read_csv(trials_file)
         
+        # Debug: Show column names
+        st.write("**Debug - Trials CSV columns:**", list(trials_df.columns))
+        st.write("**Debug - Patients CSV columns:**", list(patients_df.columns))
+        
+        # Clean column names (remove extra spaces)
+        trials_df.columns = trials_df.columns.str.strip()
+        patients_df.columns = patients_df.columns.str.strip()
+        
+        # Map common alternative column names
+        column_mapping = {
+            'Income': 'Payment',
+            'Tolerance Before': 'ToleranceBefore',
+            'Tolerance After': 'ToleranceAfter',
+            'Visit No': 'VisitNo',
+            'VisitNumber': 'VisitNo'
+        }
+        
+        # Apply column mapping
+        trials_df = trials_df.rename(columns=column_mapping)
+        
+        # Show what columns we have after mapping
+        st.write("**Debug - After column mapping:**", list(trials_df.columns))
+        
         # Convert StartDate to datetime
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True)
 
