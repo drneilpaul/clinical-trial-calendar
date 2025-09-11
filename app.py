@@ -154,6 +154,17 @@ if patients_file and trials_file:
         # Display the calendar
         st.subheader("🗓️ Generated Visit Calendar")
         
+        # Debug information
+        total_payments = visits_df[visits_df["Payment"] > 0]["Payment"].sum()
+        st.write(f"Debug: Total payments in visit records: ${total_payments:,.2f}")
+        st.write(f"Debug: Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
+        
+        # Show a sample of visit records with payments
+        paid_visits = visits_df[visits_df["Payment"] > 0].head()
+        if not paid_visits.empty:
+            st.write("Sample of paid visits:")
+            st.dataframe(paid_visits)
+        
         # Format the dataframe for better display
         display_df = calendar_df.copy()
         display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
@@ -165,17 +176,39 @@ if patients_file and trials_file:
         
         st.dataframe(display_df, use_container_width=True)
 
-        # Provide download option
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            calendar_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+        # Provide download options
+        col1, col2 = st.columns(2)
         
-        st.download_button(
-            label="📥 Download Calendar Excel",
-            data=output.getvalue(),
-            file_name="VisitCalendar.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        with col1:
+            # CSV download (always available)
+            csv_data = calendar_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Calendar CSV",
+                data=csv_data,
+                file_name="VisitCalendar.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # Excel download (only if openpyxl is available)
+            if EXCEL_AVAILABLE:
+                try:
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        calendar_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+                    
+                    st.download_button(
+                        label="📥 Download Calendar Excel",
+                        data=output.getvalue(),
+                        file_name="VisitCalendar.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except Exception as e:
+                    st.warning(f"Excel export failed: {str(e)}")
+                    st.info("CSV download is still available above.")
+            else:
+                st.warning("⚠️ Excel download not available. Install openpyxl to enable Excel export.")
+                st.code("pip install openpyxl", language="bash")
 
         # Display summary statistics
         st.subheader("📊 Summary Statistics")
@@ -243,3 +276,4 @@ else:
             "Payment": [500.0, 300.0, 750.0]
         })
         st.dataframe(example_trials)
+        
