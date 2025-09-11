@@ -4,6 +4,37 @@ from datetime import timedelta
 import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
+
+def highlight_special_days(row):
+    """Return list of CSS styles for a row highlighting end-of-month and financial year end."""
+    try:
+        date_obj = pd.to_datetime(row.get("Date"))
+        if pd.isna(date_obj):
+            return [''] * len(row)
+        # If the next day is in a different month, highlight end of month
+        next_day = date_obj + pd.Timedelta(days=1)
+        if next_day.month != date_obj.month:
+            return ['background-color: #d0e6f7'] * len(row)  # Light blue
+        # Financial year end example (31 March)
+        if date_obj.month == 3 and date_obj.day == 31:
+            return ['background-color: #d7f7d0'] * len(row)  # Light green
+    except Exception:
+        pass
+    return [''] * len(row)
+
+
+def highlight_weekends(row):
+    """Return list of CSS styles for weekends (Saturday/Sunday)."""
+    try:
+        date_obj = pd.to_datetime(row.get("Date"))
+        if pd.isna(date_obj):
+            return [''] * len(row)
+        if date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
+            return ['background-color: #f0f0f0'] * len(row)
+    except Exception:
+        pass
+    return [''] * len(row)
+
 st.title("🏥 Clinical Trial Calendar Generator")
 st.caption("v1.3.2 | Version: 2025-09-11")
 
@@ -205,49 +236,33 @@ if patients_file and trials_file:
         
         # Format the dataframe for better display
         display_df = calendar_df.copy()
-        display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
-        
-        # Round financial columns to 2 decimal places, but keep Monthly and FY totals as strings where empty
-        financial_cols = [col for col in display_df.columns if "Income" in col or col == "Daily Total"]
+        # Ensure Date is a datetime for reliable checks; keep a display string for neatness
+        display_df["Date"] = pd.to_datetime(display_df["Date"])
+        display_df["Date_str"] = display_df["Date"].dt.strftime("%Y-%m-%d")
+        display_df["Date"] = display_df["Date_str"]
+        display_df = display_df.drop(columns=["Date_str"])
+
+        # Round financial columns to 2 decimal places
+        financial_cols = [col for col in display_df.columns if "Income" in col or col.endswith("Total")]
         for col in financial_cols:
-            display_df[col] = display_df[col].round(2)
-        
-        # Format total columns - round only non-empty values
-        for col in ["Monthly Total", "FY Total"]:
-            display_df[col] = display_df[col].apply(
-                lambda x: round(float(x), 2) if x != "" and pd.notna(x) else x
-            )
-        
-        # Create styled dataframe with weekend highlighting
-        
-        def highlight_special_days(row):
-            try:
-                date_obj = pd.to_datetime(row["Date"])
-                next_day = date_obj + pd.Timedelta(days=1)
-                if next_day.month != date_obj.month:
-                    return ['background-color: #d0e6f7'] * len(row)  # Light blue for end of month
-                if date_obj.month == 3 and date_obj.day == 31:
-                    return ['background-color: #d7f7d0'] * len(row)  # Light green for end of financial year
-                return [''] * len(row)
-            except Exception:
-                return [''] * len(row)
+            display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
 
+        # Prepare format mapping for Styler (use currency where appropriate)
+        format_map = {}
+        for col in ["Daily Total", "Monthly Total", "FY Total"]:
+            if col in display_df.columns:
+                format_map[col] = "£{:,.2f}"
 
-        def highlight_weekends(row):
-                    # Get the original date to check if it's weekend
-                    date_str = row["Date"]
-                    try:
-                        date_obj = pd.to_datetime(date_str)
-                        if date_obj.dayofweek in [5, 6]:  # Saturday or Sunday
-                            return ['background-color: #f0f0f0'] * len(row)
-                        else:
-                            return [''] * len(row)
-                    except:
-                        return [''] * len(row)
-        
-        styled_df = display_df.style.apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
-        
-        st.dataframe(styled_df, use_container_width=True)
+        # Create Styler with numeric formatting and row highlighting
+        styled_df = display_df.style.format(format_map).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+
+        # Render styled HTML via Streamlit components for consistent styling (background colors + formats)
+        try:
+            import streamlit.components.v1 as components
+            components.html(styled_df.to_html(), height=600)
+        except Exception:
+            # Fallback to st.dataframe (some Streamlit versions accept Styler)
+            st.dataframe(styled_df, use_container_width=True)
 
         # Provide download options
         col1, col2 = st.columns(2)
