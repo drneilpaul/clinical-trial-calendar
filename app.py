@@ -205,12 +205,33 @@ if patients_file and trials_file:
         display_df = calendar_df.copy()
         display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
         
-        # Round financial columns to 2 decimal places
-        financial_cols = [col for col in display_df.columns if "Income" in col or "Total" in col]
+        # Round financial columns to 2 decimal places, but keep Monthly and FY totals as strings where empty
+        financial_cols = [col for col in display_df.columns if "Income" in col or col == "Daily Total"]
         for col in financial_cols:
             display_df[col] = display_df[col].round(2)
         
-        st.dataframe(display_df, use_container_width=True)
+        # Format total columns - round only non-empty values
+        for col in ["Monthly Total", "FY Total"]:
+            display_df[col] = display_df[col].apply(
+                lambda x: round(float(x), 2) if x != "" and pd.notna(x) else x
+            )
+        
+        # Create styled dataframe with weekend highlighting
+        def highlight_weekends(row):
+            # Get the original date to check if it's weekend
+            date_str = row["Date"]
+            try:
+                date_obj = pd.to_datetime(date_str)
+                if date_obj.dayofweek in [5, 6]:  # Saturday or Sunday
+                    return ['background-color: #f0f0f0'] * len(row)
+                else:
+                    return [''] * len(row)
+            except:
+                return [''] * len(row)
+        
+        styled_df = display_df.style.apply(highlight_weekends, axis=1)
+        
+        st.dataframe(styled_df, use_container_width=True)
 
         # Provide download options
         col1, col2 = st.columns(2)
