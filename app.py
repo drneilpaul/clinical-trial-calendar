@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.3 | Version: 2025-09-11")
+st.caption("v1.3.2 | Version: 2025-09-11")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -196,9 +196,11 @@ if patients_file and trials_file:
         st.write(f"Debug: Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
         
         # Show a sample of visit records with payments
-        paid_visits = visits_df[visits_df["Payment"] > 0].head()
+        paid_visits = visits_df[visits_df["Payment"] > 0].head().copy()
         if not paid_visits.empty:
             st.write("Sample of paid visits:")
+            # Format the payment column in the sample
+            paid_visits["Payment"] = paid_visits["Payment"].apply(lambda x: f"£{x:,.2f}")
             st.dataframe(paid_visits)
         
         # Format the dataframe for better display
