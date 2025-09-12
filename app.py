@@ -263,35 +263,92 @@ if patients_file and trials_file:
             st.dataframe(display_df, use_container_width=True)
 
         # Download options
-        col1, col2 = st.columns(2)
+        st.subheader("📥 Download Options")
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             csv_data = calendar_df.to_csv(index=False)
             st.download_button(
-                label="📥 Download Calendar CSV",
+                label="📄 Download Full CSV",
                 data=csv_data,
-                file_name="VisitCalendar.csv",
+                file_name="VisitCalendar_Full.csv",
                 mime="text/csv"
             )
         
         with col2:
             if excel_available:
                 try:
+                    # Full Excel with financial data
+                    excel_df = display_df.copy()
+                    
+                    # Format financial columns for Excel
+                    financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [col for col in excel_df.columns if "Income" in col]
+                    
+                    for col in financial_cols:
+                        if col in excel_df.columns:
+                            if col in ["Monthly Total", "FY Total"]:
+                                excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
+                            else:
+                                excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
+                    
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        calendar_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+                        excel_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+                        
+                        worksheet = writer.sheets["VisitCalendar"]
+                        worksheet.column_dimensions['A'].width = 12
+                        worksheet.column_dimensions['B'].width = 10
+                        
+                        for idx, col in enumerate(excel_df.columns, 1):
+                            if any(keyword in col for keyword in ["Income", "Total"]):
+                                worksheet.column_dimensions[chr(64 + idx)].width = 15
+                            elif col not in ["Date", "Day"]:
+                                worksheet.column_dimensions[chr(64 + idx)].width = 10
                     
                     st.download_button(
-                        label="📥 Download Calendar Excel",
+                        label="💰 Excel with Finances",
                         data=output.getvalue(),
-                        file_name="VisitCalendar.xlsx",
+                        file_name="VisitCalendar_WithFinances.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 except Exception as e:
                     st.warning(f"Excel export failed: {str(e)}")
-                    st.info("CSV download is available above.")
             else:
-                st.warning("⚠️ Excel download not available. Install openpyxl to enable.")
+                st.warning("⚠️ Excel not available")
+        
+        with col3:
+            if excel_available:
+                try:
+                    # Schedule-only Excel (no financial data)
+                    schedule_df = display_df.copy()
+                    
+                    # Remove all financial columns
+                    financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [col for col in schedule_df.columns if "Income" in col]
+                    schedule_df = schedule_df.drop(columns=[col for col in financial_cols if col in schedule_df.columns])
+                    
+                    output_schedule = io.BytesIO()
+                    with pd.ExcelWriter(output_schedule, engine='openpyxl') as writer:
+                        schedule_df.to_excel(writer, index=False, sheet_name="VisitSchedule")
+                        
+                        worksheet = writer.sheets["VisitSchedule"]
+                        worksheet.column_dimensions['A'].width = 12  # Date
+                        worksheet.column_dimensions['B'].width = 10  # Day
+                        
+                        # Set patient columns width
+                        for idx, col in enumerate(schedule_df.columns, 1):
+                            if col not in ["Date", "Day"]:
+                                worksheet.column_dimensions[chr(64 + idx)].width = 12
+                    
+                    st.download_button(
+                        label="📅 Excel Schedule Only",
+                        data=output_schedule.getvalue(),
+                        file_name="VisitSchedule_Only.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except Exception as e:
+                    st.warning(f"Schedule export failed: {str(e)}")
+            else:
+                st.warning("⚠️ Excel not available")
 
         # Summary statistics with correct currency
         st.subheader("📊 Summary Statistics")
