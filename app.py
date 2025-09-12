@@ -11,17 +11,18 @@ def highlight_special_days(row):
         date_obj = pd.to_datetime(row.get("Date"))
         if pd.isna(date_obj):
             return [''] * len(row)
-        # If the next day is in a different month, highlight end of month
-        next_day = date_obj + pd.Timedelta(days=1)
-        if next_day.month != date_obj.month:
-            return ['background-color: #d0e6f7'] * len(row)  # Light blue
-        # Financial year end example (31 March)
+        
+        # Check if it's FY end (31 March)
         if date_obj.month == 3 and date_obj.day == 31:
-            return ['background-color: #d7f7d0'] * len(row)  # Light green
+            return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)  # Dark blue for FY end
+        
+        # Check if it's month end
+        if date_obj == date_obj + pd.offsets.MonthEnd(0):  # More reliable month end check
+            return ['background-color: #3b82f6; color: white; font-weight: bold'] * len(row)  # Blue for month end
+            
     except Exception:
         pass
     return [''] * len(row)
-
 
 def highlight_weekends(row):
     """Return list of CSS styles for weekends (Saturday/Sunday)."""
@@ -30,13 +31,13 @@ def highlight_weekends(row):
         if pd.isna(date_obj):
             return [''] * len(row)
         if date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-            return ['background-color: #f0f0f0'] * len(row)
+            return ['background-color: #f3f4f6'] * len(row)  # Light gray
     except Exception:
         pass
     return [''] * len(row)
 
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.3.2 | Version: 2025-09-11")
+st.caption("v1.4.0 | Version: 2025-09-12")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -55,10 +56,6 @@ if patients_file and trials_file:
         patients_df = pd.read_csv(patients_file, dayfirst=True)
         trials_df = pd.read_csv(trials_file)
         
-        # Debug: Show column names
-        st.write("**Debug - Trials CSV columns:**", list(trials_df.columns))
-        st.write("**Debug - Patients CSV columns:**", list(patients_df.columns))
-        
         # Clean column names (remove extra spaces)
         trials_df.columns = trials_df.columns.str.strip()
         patients_df.columns = patients_df.columns.str.strip()
@@ -74,9 +71,6 @@ if patients_file and trials_file:
         
         # Apply column mapping
         trials_df = trials_df.rename(columns=column_mapping)
-        
-        # Show what columns we have after mapping
-        st.write("**Debug - After column mapping:**", list(trials_df.columns))
         
         # Convert StartDate to datetime
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True)
@@ -150,8 +144,6 @@ if patients_file and trials_file:
             calendar_df[f"{study} Income"] = 0.0
 
         calendar_df["Daily Total"] = 0.0
-        calendar_df["Monthly Total"] = 0.0
-        calendar_df["FY Total"] = 0.0
 
         # Convert visit records to DataFrame for easier processing
         visits_df = pd.DataFrame(visit_records)
@@ -181,139 +173,99 @@ if patients_file and trials_file:
                     if income_col in calendar_df.columns:
                         calendar_df.at[i, income_col] += payment
                         daily_total += payment
-                        
-                        # Debug info
-                        if payment > 0:
-                            print(f"Added payment: {payment} for {visit_info} on {date}")
 
             calendar_df.at[i, "Daily Total"] = daily_total
 
-        # Calculate monthly and FY totals
-        calendar_df["Month"] = calendar_df["Date"].dt.to_period("M")
-        calendar_df["FY"] = calendar_df["Date"].apply(
-            lambda x: x.year if x.month >= 4 else x.year - 1
-        )
-
-        # Calculate cumulative totals
-        monthly_totals = {}
-        fy_totals = {}
-
-        for i, row in calendar_df.iterrows():
-            month = row["Month"]
-            fy = row["FY"]
-            daily_total = row["Daily Total"]
-            
-            # Update monthly total
-            if month not in monthly_totals:
-                monthly_totals[month] = 0.0
-            monthly_totals[month] += daily_total
-            calendar_df.at[i, "Monthly Total"] = monthly_totals[month]
-            
-            
-        # --- Recompute Monthly and Fiscal Year totals so they only appear on the month/fy end day ---
-        # Ensure Date is datetime
+        # Calculate period totals - only show on last day of period
         calendar_df["Date"] = pd.to_datetime(calendar_df["Date"])
-        # Daily Total must be numeric
         calendar_df["Daily Total"] = pd.to_numeric(calendar_df["Daily Total"], errors="coerce").fillna(0.0)
 
-        # Monthly totals: sum of Daily Total per calendar month, show ONLY on the last calendar day of that month
+        # Monthly totals: show only on month end
         calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
         monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
-        # Mark month-end rows
-        calendar_df["IsMonthEnd"] = calendar_df["Date"].dt.is_month_end
-        # Assign Monthly Total only on month-end rows
+        calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
         calendar_df["Monthly Total"] = calendar_df.apply(
             lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA,
             axis=1
         )
 
-        # Fiscal year totals: assume fiscal year runs Apr 1 - Mar 31. Show total only on the fiscal year end (31 March)
+        # Fiscal year totals: show only on FY end (31 March)
         calendar_df["FYStart"] = calendar_df["Date"].apply(lambda d: d.year if d.month >= 4 else d.year - 1)
         fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
-        # Assign FY Total only on 31 March rows
-        calendar_df["IsFYE"] = calendar_df["Date"].dt.month.eq(3) & calendar_df["Date"].dt.day.eq(31)
+        calendar_df["IsFYE"] = (calendar_df["Date"].dt.month == 3) & (calendar_df["Date"].dt.day == 31)
         calendar_df["FY Total"] = calendar_df.apply(
             lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA,
             axis=1
         )
 
-        # Optionally convert Monthly/FY totals to floats (they may be NA for non-end rows)
+        # Convert totals to numeric
         calendar_df["Monthly Total"] = pd.to_numeric(calendar_df["Monthly Total"], errors="coerce")
         calendar_df["FY Total"] = pd.to_numeric(calendar_df["FY Total"], errors="coerce")
-        calendar_df = calendar_df.drop(columns=["Month", "FY"])
 
         # Display the calendar
         st.subheader("🗓️ Generated Visit Calendar")
         
-        # Debug information
+        # Debug information with correct currency
         total_payments = visits_df[visits_df["Payment"] > 0]["Payment"].sum()
         st.write(f"Debug: Total payments in visit records: £{total_payments:,.2f}")
         st.write(f"Debug: Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
         
-        # Show a sample of visit records with payments
+        # Show sample of paid visits
         paid_visits = visits_df[visits_df["Payment"] > 0].head().copy()
         if not paid_visits.empty:
             st.write("Sample of paid visits:")
-            # Format the payment column in the sample
             paid_visits["Payment"] = paid_visits["Payment"].apply(lambda x: f"£{x:,.2f}")
             st.dataframe(paid_visits)
         
-        # Format the dataframe for better display
+        # Prepare display dataframe
         display_df = calendar_df.copy()
-        # Ensure Date is a datetime for reliable checks; keep a display string for neatness
-        display_df["Date"] = pd.to_datetime(display_df["Date"])
         display_df["Date_str"] = display_df["Date"].dt.strftime("%Y-%m-%d")
         display_df["Date"] = display_df["Date_str"]
         display_df = display_df.drop(columns=["Date_str"])
 
-        # Round financial columns to 2 decimal places
-        financial_cols = [col for col in display_df.columns if "Income" in col or col.endswith("Total")]
-        for col in financial_cols:
-            display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
+        # Remove helper columns
+        helper_cols = ["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"]
+        display_df = display_df.drop(columns=[col for col in helper_cols if col in display_df.columns])
 
-        # Prepare format mapping for Styler (use currency where appropriate)
-        format_map = {}
-        for col in ["Daily Total", "Monthly Total", "FY Total"]:
-            if col in display_df.columns:
-                format_map[col] = "£{:,.2f}"
-
-        # Create Styler with numeric formatting and row highlighting
-        
-        # Remove helper/internal columns before display (they were used for computing totals)
-        helper_cols = [c for c in ["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"] if c in display_df.columns]
-        display_df_for_display = display_df.drop(columns=helper_cols).copy()
-
-        # Ensure numeric columns are numeric and rounded for display
-        for col in ["Daily Total", "Monthly Total", "FY Total"]:
-            if col in display_df_for_display.columns:
-                display_df_for_display[col] = pd.to_numeric(display_df_for_display[col], errors="coerce").round(2)
-
-        # Formatter functions to show currency only when value present (avoid '£nan')
+        # Currency formatter function
         def fmt_currency(v):
-            return "" if pd.isna(v) else f"£{v:,.2f}"
+            if pd.isna(v) or v == 0:
+                return ""
+            return f"£{v:,.2f}"
 
-        format_map_funcs = {}
-        for col in ["Daily Total", "Monthly Total", "FY Total"]:
-            if col in display_df_for_display.columns:
-                format_map_funcs[col] = fmt_currency
+        # Format financial columns
+        format_funcs = {}
+        financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [col for col in display_df.columns if "Income" in col]
+        
+        for col in financial_cols:
+            if col in display_df.columns:
+                if col in ["Monthly Total", "FY Total"]:
+                    format_funcs[col] = fmt_currency  # Shows blank for zeros/NaN
+                else:
+                    format_funcs[col] = lambda v: f"£{v:,.2f}" if not pd.isna(v) else "£0.00"
 
-        # Create Styler with format functions and apply highlights
-        styled_df = display_df_for_display.style.format(format_map_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
-
-        # Render styled HTML inside a scrollable container (preserves background-color)
+        # Create styled dataframe
         try:
+            styled_df = display_df.style.format(format_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+            
+            # Try HTML rendering for better styling
             import streamlit.components.v1 as components
-            html_table = f"<div style='max-height:700px; overflow:auto;'>" + styled_df.to_html() + "</div>"
+            html_table = f"""
+            <div style='max-height: 700px; overflow: auto; border: 1px solid #ddd;'>
+                {styled_df.to_html(escape=False)}
+            </div>
+            """
             components.html(html_table, height=720, scrolling=True)
-        except Exception:
-            # Fallback to native dataframe display (no fancy CSS, but scrollable)
-            st.dataframe(display_df_for_display, use_container_width=True)
+            
+        except Exception as e:
+            # Fallback to regular dataframe
+            st.warning(f"Advanced styling failed ({e}), showing basic table:")
+            st.dataframe(display_df, use_container_width=True)
 
-        # Provide download options
+        # Download options
         col1, col2 = st.columns(2)
         
         with col1:
-            # CSV download (always available)
             csv_data = calendar_df.to_csv(index=False)
             st.download_button(
                 label="📥 Download Calendar CSV",
@@ -323,7 +275,6 @@ if patients_file and trials_file:
             )
         
         with col2:
-            # Excel download (only if openpyxl is available)
             if excel_available:
                 try:
                     output = io.BytesIO()
@@ -338,18 +289,16 @@ if patients_file and trials_file:
                     )
                 except Exception as e:
                     st.warning(f"Excel export failed: {str(e)}")
-                    st.info("CSV download is still available above.")
+                    st.info("CSV download is available above.")
             else:
-                st.warning("⚠️ Excel download not available. Install openpyxl to enable Excel export.")
-                st.code("pip install openpyxl", language="bash")
+                st.warning("⚠️ Excel download not available. Install openpyxl to enable.")
 
-        # Display summary statistics
+        # Summary statistics with correct currency
         st.subheader("📊 Summary Statistics")
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            total_patients = len(patients_df)
-            st.metric("Total Patients", total_patients)
+            st.metric("Total Patients", len(patients_df))
         
         with col2:
             total_visits = len(visits_df[visits_df["Visit"].str.contains("Visit")])
@@ -357,36 +306,29 @@ if patients_file and trials_file:
         
         with col3:
             total_income = calendar_df["Daily Total"].sum()
-            st.metric("Total Income", f"${total_income:,.2f}")
+            st.metric("Total Income", f"£{total_income:,.2f}")  # Fixed currency
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
-        st.error("Please check that your CSV files have the correct format and column names.")
+        st.error("Please check your CSV file formats and column names.")
         
+        # Show expected formats...
         st.subheader("Expected CSV Format:")
-        
         col1, col2 = st.columns(2)
+        
         with col1:
-            st.write("**Patients CSV should contain:**")
-            st.write("- PatientID")
-            st.write("- Study") 
-            st.write("- StartDate")
+            st.write("**Patients CSV:**")
+            st.write("- PatientID, Study, StartDate")
             
         with col2:
-            st.write("**Trials CSV should contain:**")
-            st.write("- Study")
-            st.write("- Day")
-            st.write("- VisitNo")
-            st.write("- ToleranceBefore (optional)")
-            st.write("- ToleranceAfter (optional)")
-            st.write("- Payment/Income (optional)")
+            st.write("**Trials CSV:**")
+            st.write("- Study, Day, VisitNo, ToleranceBefore, ToleranceAfter, Payment/Income")
 
 else:
-    st.info("👆 Please upload both Patients and Trials CSV files to generate the calendar.")
+    st.info("👆 Please upload both CSV files to generate the calendar.")
     
-    # Show example of expected file formats
+    # Example formats
     st.subheader("📋 Expected File Formats")
-    
     col1, col2 = st.columns(2)
     
     with col1:
