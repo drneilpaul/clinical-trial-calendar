@@ -154,8 +154,12 @@ if patients_file and trials_file:
         calendar_df["Day"] = calendar_df["Date"].dt.day_name()
 
         # Add patient columns
-        for pid in patients_df["PatientID"]:
-            calendar_df[str(pid)] = ""
+        # Create combined column names and map them for later use
+        patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
+
+        for col_id in patients_df["ColumnID"]:
+            calendar_df[col_id] = ""
+
 
         # Add study income columns
         for study in trials_df["Study"].unique():
@@ -171,16 +175,20 @@ if patients_file and trials_file:
             visits_today = visits_df[visits_df["Date"] == date]
             daily_total = 0.0
             
-            for _, visit in visits_today.iterrows():
+           for _, visit in visits_today.iterrows():
+                study = str(visit["Study"])
                 pid = str(visit["PatientID"])
+                col_id = f"{study}_{pid}"  # New column name
                 visit_info = visit["Visit"]
                 payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
-                
-                # Update patient column
-                if calendar_df.at[i, pid] == "":
-                    calendar_df.at[i, pid] = visit_info
-                else:
-                    calendar_df.at[i, pid] += f", {visit_info}"
+
+    # Update the correct column
+    if col_id in calendar_df.columns:
+        if calendar_df.at[i, col_id] == "":
+            calendar_df.at[i, col_id] = visit_info
+        else:
+            calendar_df.at[i, col_id] += f", {visit_info}"
+
                 
                 # Update study income (only for actual visits, not tolerance days)
                 if visit_info != "-" and visit_info != "+":
