@@ -344,8 +344,48 @@ if patients_file and trials_file:
                         
                         # Set patient columns width
                         for idx, col in enumerate(schedule_df.columns, 1):
-                            if col not in ["Date", "Day"]:
+                            if col not in ["Date", "Day"] and ":" in col:  # Patient columns with study:id format
+                                worksheet.column_dimensions[chr(64 + idx)].width = 14
+                            elif col not in ["Date", "Day"]:
                                 worksheet.column_dimensions[chr(64 + idx)].width = 12
+                        
+                        # Add Excel formatting for highlighting
+                        from openpyxl.styles import PatternFill, Font
+                        
+                        # Define fill styles
+                        weekend_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
+                        month_end_fill = PatternFill(start_color="3B82F6", end_color="3B82F6", fill_type="solid")
+                        fy_end_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+                        white_font = Font(color="FFFFFF", bold=True)
+                        
+                        # Apply formatting to data rows (skip header)
+                        for row_idx, (_, row_data) in enumerate(schedule_df.iterrows(), 2):  # Start from row 2 (after header)
+                            try:
+                                date_str = row_data["Date"]
+                                date_obj = pd.to_datetime(date_str)
+                                
+                                # Check if it's FY end (31 March) - highest priority
+                                if date_obj.month == 3 and date_obj.day == 31:
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                                        cell.fill = fy_end_fill
+                                        cell.font = white_font
+                                
+                                # Check if it's month end
+                                elif date_obj == date_obj + pd.offsets.MonthEnd(0):
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                                        cell.fill = month_end_fill
+                                        cell.font = white_font
+                                
+                                # Check if it's weekend
+                                elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                                        cell.fill = weekend_fill
+                                        
+                            except Exception:
+                                continue  # Skip rows with invalid dates
                     
                     st.download_button(
                         label="📅 Excel Schedule Only",
