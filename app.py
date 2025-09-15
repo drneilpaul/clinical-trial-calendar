@@ -314,35 +314,26 @@ if patients_file and trials_file:
         format_funcs = {col: fmt_currency for col in financial_cols if col in display_df_for_view.columns}
 
         # Create site header row for display
-        site_header_row = ["", ""]  # Date and Day columns
-        current_site_index = 0
-        sites_list = list(unique_sites)
-        
-        for col in display_df_for_view.columns[2:]:  # Skip Date and Day
-            if col in financial_cols:
-                site_header_row.append("")
+        site_header_row = {}
+        for col in display_df_for_view.columns:
+            if col in ["Date", "Day"] or col in financial_cols:
+                site_header_row[col] = ""
             else:
-                # Check if this column belongs to current site
-                found_in_current_site = False
-                if current_site_index < len(sites_list):
-                    current_site = sites_list[current_site_index]
-                    if col in site_column_mapping.get(current_site, []):
-                        site_header_row.append(current_site)
-                        found_in_current_site = True
-                    else:
-                        # Move to next site
-                        for next_site_idx in range(current_site_index + 1, len(sites_list)):
-                            next_site = sites_list[next_site_idx]
-                            if col in site_column_mapping.get(next_site, []):
-                                current_site_index = next_site_idx
-                                site_header_row.append(next_site)
-                                found_in_current_site = True
-                                break
-                
-                if not found_in_current_site:
-                    site_header_row.append("")
+                # Find which site this column belongs to
+                site_found = ""
+                for site in unique_sites:
+                    if col in site_column_mapping.get(site, []):
+                        site_found = site
+                        break
+                site_header_row[col] = site_found
 
-        # Display site header information
+        # Create a DataFrame with the site header as the first row
+        site_header_df = pd.DataFrame([site_header_row])
+        
+        # Combine site header with the main data
+        display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
+
+        # Display site header information (keep this for reference)
         st.write("**Site Organization:**")
         for site, columns in site_column_mapping.items():
             patient_info = []
@@ -352,7 +343,42 @@ if patients_file and trials_file:
             st.write(f"**{site}:** {', '.join(patient_info)}")
 
         try:
-            styled_df = display_df_for_view.style.format(format_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+            # Apply styling function that handles the header row differently
+            def highlight_with_header(row):
+                if row.name == 0:  # First row is site header
+                    # Style site header row
+                    styles = []
+                    for col_name in row.index:
+                        if row[col_name] != "":  # Site name present
+                            styles.append('background-color: #e6f3ff; font-weight: bold; text-align: center; border: 1px solid #ccc;')
+                        else:
+                            styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
+                    return styles
+                else:
+                    # Apply normal styling to data rows
+                    try:
+                        date_obj = pd.to_datetime(row.get("Date"))
+                        if pd.isna(date_obj):
+                            return [''] * len(row)
+
+                        # Financial year end (31 March)
+                        if date_obj.month == 3 and date_obj.day == 31:
+                            return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
+
+                        # Month end
+                        if date_obj == date_obj + pd.offsets.MonthEnd(0):
+                            return ['background-color: #3b82f6; color: white; font-weight: bold'] * len(row)
+
+                        # Weekend
+                        if date_obj.weekday() in (5, 6):
+                            return ['background-color: #f3f4f6'] * len(row)
+
+                    except Exception:
+                        pass
+                    return [''] * len(row)
+
+            styled_df = display_with_header.style.format(format_funcs).apply(highlight_with_header, axis=1)
+            
             import streamlit.components.v1 as components
             html_table = f"""
             <div style='max-height: 700px; overflow: auto; border: 1px solid #ddd;'>
@@ -360,8 +386,10 @@ if patients_file and trials_file:
             </div>
             """
             components.html(html_table, height=720, scrolling=True)
-        except Exception:
-            st.dataframe(display_df_for_view, use_container_width=True)
+        except Exception as e:
+            st.write(f"Styling error: {e}")
+            # Fallback to regular dataframe display
+            st.dataframe(display_with_header, use_container_width=True)
 
         # Chart
         st.subheader("📈 Daily Income Chart")
