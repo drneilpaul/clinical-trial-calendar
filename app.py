@@ -334,7 +334,7 @@ if patients_file and trials_file:
         # Different formatting for summary columns vs daily totals
         format_funcs = {}
         for col in financial_cols:
-            if col in display_with_header.columns:  # Use display_with_header instead of display_df_for_view
+            if col in display_df_for_view.columns:
                 if col in ["Monthly Total", "FY Total"]:
                     format_funcs[col] = fmt_currency_summary
                 else:
