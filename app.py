@@ -133,8 +133,21 @@ if patients_file and trials_file:
             else:
                 patient_site_mapping[patient_id] = "Unknown Site"
 
-        # Add site information to patients dataframe for reference
-        patients_df["Site"] = patients_df["PatientID"].map(patient_site_mapping)
+        # Check for patient origin site column
+        patient_origin_col = None
+        possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
+        for col in possible_origin_cols:
+            if col in patients_df.columns:
+                patient_origin_col = col
+                break
+        
+        if patient_origin_col:
+            st.info(f"ℹ️ Using '{patient_origin_col}' column for patient origin site.")
+            patients_df['OriginSite'] = patients_df[patient_origin_col].astype(str)
+        else:
+            st.warning("⚠️ No patient origin site column found. Add a column like 'PatientSite', 'Practice', or 'OriginSite' to track where patients come from.")
+            # For now, assume patient origin is same as visit site for demonstration
+            patients_df['OriginSite'] = patients_df['Site']
 
         # Build visit records
         visit_records = []
@@ -161,13 +174,15 @@ if patients_file and trials_file:
                 site = visit.get("SiteforVisit", "Unknown Site")
 
                 # Main visit
+                # Main visit
                 visit_records.append({
                     "Date": visit_date,
                     "PatientID": patient_id,
                     "Visit": f"Visit {visit_no}",
                     "Study": study,
                     "Payment": payment,
-                    "Site": site
+                    "SiteofVisit": site,
+                    "PatientOrigin": patient_origin
                 })
 
                 # Tolerance before
@@ -178,7 +193,8 @@ if patients_file and trials_file:
                         "Visit": "-",
                         "Study": study,
                         "Payment": 0,
-                        "Site": site
+                        "SiteofVisit": site,
+                        "PatientOrigin": patient_origin
                     })
 
                 # Tolerance after
@@ -189,7 +205,8 @@ if patients_file and trials_file:
                         "Visit": "+",
                         "Study": study,
                         "Payment": 0,
-                        "Site": site
+                        "SiteofVisit": site,
+                        "PatientOrigin": patient_origin
                     })
 
         visits_df = pd.DataFrame(visit_records)
@@ -628,41 +645,51 @@ if patients_file and trials_file:
         # Filter only actual visits (not tolerance periods)
         actual_visits = visits_df[visits_df['Visit'].str.contains('Visit', na=False)]
         
-        # Count visits per site per month
-        visits_by_site_month = actual_visits.groupby(['Site', 'MonthYear']).size().reset_index(name='Visits')
-        visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='Site', values='Visits').fillna(0)
+        # Analysis 1: Visits by Site of Visit (where visits happen)
+        st.write("**Analysis by Visit Location (Where visits occur)**")
+        visits_by_site_month = actual_visits.groupby(['SiteofVisit', 'MonthYear']).size().reset_index(name='Visits')
+        visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Visits').fillna(0)
         
         # Calculate visit ratios
         visits_pivot['Total_Visits'] = visits_pivot.sum(axis=1)
-        for site in unique_sites:
-            if site in visits_pivot.columns:
-                visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
+        visit_sites = [col for col in visits_pivot.columns if col != 'Total_Visits']
+        for site in visit_sites:
+            visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
         
-        # Count unique patients per site per month
-        patients_by_site_month = actual_visits.groupby(['Site', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
-        patients_pivot = patients_by_site_month.pivot(index='MonthYear', columns='Site', values='Patients').fillna(0)
+        # Count unique patients by visit site per month
+        patients_by_visit_site_month = actual_visits.groupby(['SiteofVisit', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
+        patients_visit_pivot = patients_by_visit_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Patients').fillna(0)
         
-        # Calculate patient ratios
-        patients_pivot['Total_Patients'] = patients_pivot.sum(axis=1)
-        for site in unique_sites:
-            if site in patients_pivot.columns:
-                patients_pivot[f'{site}_Ratio'] = (patients_pivot[site] / patients_pivot['Total_Patients'] * 100).round(1)
+        # Calculate patient ratios for visit site
+        patients_visit_pivot['Total_Patients'] = patients_visit_pivot.sum(axis=1)
+        for site in visit_sites:
+            if site in patients_visit_pivot.columns:
+                patients_visit_pivot[f'{site}_Ratio'] = (patients_visit_pivot[site] / patients_visit_pivot['Total_Patients'] * 100).round(1)
         
-        # Create combined display table
+        # Analysis 2: Patients by Origin Site (where patients come from)
+        st.write("**Analysis by Patient Origin (Where patients come from)**")
+        patients_by_origin_month = actual_visits.groupby(['PatientOrigin', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
+        patients_origin_pivot = patients_by_origin_month.pivot(index='MonthYear', columns='PatientOrigin', values='Patients').fillna(0)
+        
+        # Calculate patient origin ratios
+        patients_origin_pivot['Total_Patients'] = patients_origin_pivot.sum(axis=1)
+        origin_sites = [col for col in patients_origin_pivot.columns if col != 'Total_Patients']
+        for site in origin_sites:
+            patients_origin_pivot[f'{site}_Ratio'] = (patients_origin_pivot[site] / patients_origin_pivot['Total_Patients'] * 100).round(1)
+        
+        # Display tables
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("**Monthly Visits by Site**")
-            # Prepare visits display table
+            st.write("**Monthly Visits by Visit Site**")
             visits_display = visits_pivot.copy()
             visits_display.index = visits_display.index.astype(str)
             
-            # Reorder columns: sites first, then ratios, then total
+            # Reorder columns
             display_cols = []
-            for site in sorted(unique_sites):
-                if site in visits_display.columns:
-                    display_cols.append(site)
-            for site in sorted(unique_sites):
+            for site in sorted(visit_sites):
+                display_cols.append(site)
+            for site in sorted(visit_sites):
                 ratio_col = f'{site}_Ratio'
                 if ratio_col in visits_display.columns:
                     display_cols.append(ratio_col)
@@ -670,13 +697,11 @@ if patients_file and trials_file:
             
             visits_display = visits_display[display_cols]
             
-            # Format ratio columns to show as percentages
+            # Format columns
             format_dict = {}
             for col in visits_display.columns:
                 if '_Ratio' in col:
                     format_dict[col] = lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else "0.0%"
-                elif col == 'Total_Visits':
-                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
                 else:
                     format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
             
@@ -686,90 +711,102 @@ if patients_file and trials_file:
                 st.dataframe(visits_display, use_container_width=True)
         
         with col2:
-            st.write("**Monthly Patients by Site**")
-            # Prepare patients display table
-            patients_display = patients_pivot.copy()
-            patients_display.index = patients_display.index.astype(str)
+            st.write("**Monthly Patients by Visit Site**")
+            patients_visit_display = patients_visit_pivot.copy()
+            patients_visit_display.index = patients_visit_display.index.astype(str)
             
-            # Reorder columns: sites first, then ratios, then total
+            # Reorder columns
             display_cols = []
-            for site in sorted(unique_sites):
-                if site in patients_display.columns:
+            for site in sorted(visit_sites):
+                if site in patients_visit_display.columns:
                     display_cols.append(site)
-            for site in sorted(unique_sites):
+            for site in sorted(visit_sites):
                 ratio_col = f'{site}_Ratio'
-                if ratio_col in patients_display.columns:
+                if ratio_col in patients_visit_display.columns:
                     display_cols.append(ratio_col)
             display_cols.append('Total_Patients')
             
-            patients_display = patients_display[display_cols]
+            patients_visit_display = patients_visit_display[display_cols]
             
-            # Format ratio columns to show as percentages
+            # Format columns
             format_dict = {}
-            for col in patients_display.columns:
+            for col in patients_visit_display.columns:
                 if '_Ratio' in col:
                     format_dict[col] = lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else "0.0%"
-                elif col == 'Total_Patients':
-                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
                 else:
                     format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
             
             try:
-                st.dataframe(patients_display.style.format(format_dict), use_container_width=True)
+                st.dataframe(patients_visit_display.style.format(format_dict), use_container_width=True)
             except:
-                st.dataframe(patients_display, use_container_width=True)
+                st.dataframe(patients_visit_display, use_container_width=True)
         
-        # Combined summary table
-        st.write("**Combined Monthly Summary**")
+        # Patient Origin Analysis
+        st.write("**Monthly Patients by Origin Site (Where patients come from)**")
+        patients_origin_display = patients_origin_pivot.copy()
+        patients_origin_display.index = patients_origin_display.index.astype(str)
         
-        # Create a comprehensive summary
-        monthly_summary = []
-        for month in sorted(set(list(visits_pivot.index) + list(patients_pivot.index))):
-            month_str = str(month)
-            row_data = {'Month': month_str}
-            
-            total_visits = visits_pivot.loc[month, 'Total_Visits'] if month in visits_pivot.index else 0
-            total_patients = patients_pivot.loc[month, 'Total_Patients'] if month in patients_pivot.index else 0
-            
-            row_data['Total_Visits'] = int(total_visits)
-            row_data['Total_Patients'] = int(total_patients)
-            
-            # Add site-specific data
-            for site in sorted(unique_sites):
-                site_visits = visits_pivot.loc[month, site] if month in visits_pivot.index and site in visits_pivot.columns else 0
-                site_patients = patients_pivot.loc[month, site] if month in patients_pivot.index and site in patients_pivot.columns else 0
-                site_visit_ratio = visits_pivot.loc[month, f'{site}_Ratio'] if month in visits_pivot.index and f'{site}_Ratio' in visits_pivot.columns else 0
-                site_patient_ratio = patients_pivot.loc[month, f'{site}_Ratio'] if month in patients_pivot.index and f'{site}_Ratio' in patients_pivot.columns else 0
-                
-                row_data[f'{site}_Visits'] = int(site_visits)
-                row_data[f'{site}_V_%'] = f"{site_visit_ratio:.1f}%"
-                row_data[f'{site}_Patients'] = int(site_patients)
-                row_data[f'{site}_P_%'] = f"{site_patient_ratio:.1f}%"
-            
-            monthly_summary.append(row_data)
+        # Reorder columns
+        display_cols = []
+        for site in sorted(origin_sites):
+            display_cols.append(site)
+        for site in sorted(origin_sites):
+            ratio_col = f'{site}_Ratio'
+            if ratio_col in patients_origin_display.columns:
+                display_cols.append(ratio_col)
+        display_cols.append('Total_Patients')
         
-        if monthly_summary:
-            summary_df = pd.DataFrame(monthly_summary)
-            st.dataframe(summary_df, use_container_width=True)
+        patients_origin_display = patients_origin_display[display_cols]
         
-        # Add monthly charts
+        # Format columns
+        format_dict = {}
+        for col in patients_origin_display.columns:
+            if '_Ratio' in col:
+                format_dict[col] = lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else "0.0%"
+            else:
+                format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
+        
+        try:
+            st.dataframe(patients_origin_display.style.format(format_dict), use_container_width=True)
+        except:
+            st.dataframe(patients_origin_display, use_container_width=True)
+        
+        # Cross-tabulation: Origin vs Visit Site
+        st.write("**Cross-Analysis: Patient Origin vs Visit Site**")
+        cross_tab = actual_visits.groupby(['PatientOrigin', 'SiteofVisit'])['PatientID'].nunique().reset_index(name='Patients')
+        cross_pivot = cross_tab.pivot(index='PatientOrigin', columns='SiteofVisit', values='Patients').fillna(0)
+        cross_pivot['Total'] = cross_pivot.sum(axis=1)
+        
+        # Add row percentages
+        for col in cross_pivot.columns:
+            if col != 'Total':
+                cross_pivot[f'{col}_%'] = (cross_pivot[col] / cross_pivot['Total'] * 100).round(1)
+        
+        st.dataframe(cross_pivot, use_container_width=True)
+        
+        # Charts
         st.subheader("📊 Monthly Trends")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.write("**Monthly Visits by Site**")
+            st.write("**Visits by Visit Site**")
             if not visits_pivot.empty:
-                # Prepare data for chart (exclude ratio and total columns)
                 chart_data = visits_pivot[[col for col in visits_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Visits']]
                 chart_data.index = chart_data.index.astype(str)
                 st.bar_chart(chart_data)
         
         with col2:
-            st.write("**Monthly Patients by Site**") 
-            if not patients_pivot.empty:
-                # Prepare data for chart (exclude ratio and total columns)
-                chart_data = patients_pivot[[col for col in patients_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
+            st.write("**Patients by Visit Site**") 
+            if not patients_visit_pivot.empty:
+                chart_data = patients_visit_pivot[[col for col in patients_visit_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
+                chart_data.index = chart_data.index.astype(str)
+                st.bar_chart(chart_data)
+        
+        with col3:
+            st.write("**Patients by Origin Site**")
+            if not patients_origin_pivot.empty:
+                chart_data = patients_origin_pivot[[col for col in patients_origin_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
                 chart_data.index = chart_data.index.astype(str)
                 st.bar_chart(chart_data)
 
