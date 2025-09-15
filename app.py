@@ -170,32 +170,35 @@ if patients_file and trials_file:
         # Process each date
         for i, row in calendar_df.iterrows():
             date = row["Date"]
-            
+    
             # Get visits for this date
             visits_today = visits_df[visits_df["Date"] == date]
             daily_total = 0.0
-            
-           for _, visit in visits_today.iterrows():
+
+            for _, visit in visits_today.iterrows():
                 study = str(visit["Study"])
                 pid = str(visit["PatientID"])
-                col_id = f"{study}_{pid}"  # New column name
+                col_id = f"{study}_{pid}"  # Combine Study and PatientID
                 visit_info = visit["Visit"]
                 payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
 
-    # Update the correct column
-    if col_id in calendar_df.columns:
-        if calendar_df.at[i, col_id] == "":
-            calendar_df.at[i, col_id] = visit_info
-        else:
-            calendar_df.at[i, col_id] += f", {visit_info}"
+        # ✅ Update patient column
+        if col_id in calendar_df.columns:
+            if calendar_df.at[i, col_id] == "":
+                calendar_df.at[i, col_id] = visit_info
+            else:
+                calendar_df.at[i, col_id] += f", {visit_info}"
 
-                
-                # Update study income (only for actual visits, not tolerance days)
-                if visit_info != "-" and visit_info != "+":
-                    income_col = f"{visit['Study']} Income"
-                    if income_col in calendar_df.columns:
-                        calendar_df.at[i, income_col] += payment
-                        daily_total += payment
+        # ✅ Update study income (for actual visits only)
+        if visit_info != "-" and visit_info != "+":
+            income_col = f"{study} Income"
+            if income_col in calendar_df.columns:
+                calendar_df.at[i, income_col] += payment
+                daily_total += payment
+
+    # ✅ Set the daily total
+    calendar_df.at[i, "Daily Total"] = daily_total
+
 
             calendar_df.at[i, "Daily Total"] = daily_total
 
