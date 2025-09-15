@@ -418,10 +418,6 @@ if patients_file and trials_file:
             # Fallback to regular dataframe display
             st.dataframe(display_with_header, use_container_width=True)
 
-        # Chart
-        st.subheader("📈 Daily Income Chart")
-        st.line_chart(calendar_df.set_index("Date")["Daily Total"])
-
         # Financial Analysis Section
         st.subheader("💰 Financial Analysis")
         
@@ -445,6 +441,12 @@ if patients_file and trials_file:
         quarterly_income_by_site = financial_df.groupby(['SiteofVisit', 'QuarterYear'])['Payment'].sum().reset_index()
         quarterly_pivot = quarterly_income_by_site.pivot(index='QuarterYear', columns='SiteofVisit', values='Payment').fillna(0)
         quarterly_pivot['Total'] = quarterly_pivot.sum(axis=1)
+        
+        # Monthly Income Bar Chart
+        st.subheader("📊 Monthly Income Chart")
+        monthly_chart_data = monthly_pivot[[col for col in monthly_pivot.columns if not col.endswith('_Running')]]
+        monthly_chart_data.index = monthly_chart_data.index.astype(str)
+        st.bar_chart(monthly_chart_data)
         
         # Display financial tables
         col1, col2 = st.columns(2)
