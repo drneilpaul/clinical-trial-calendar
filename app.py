@@ -444,7 +444,7 @@ if patients_file and trials_file:
         
         # Monthly Income Bar Chart
         st.subheader("📊 Monthly Income Chart")
-        monthly_chart_data = monthly_pivot[[col for col in monthly_pivot.columns if not col.endswith('_Running')]]
+        monthly_chart_data = monthly_pivot[[col for col in monthly_pivot.columns if not col.endswith('_Running') and col != 'Total']]
         monthly_chart_data.index = monthly_chart_data.index.astype(str)
         st.bar_chart(monthly_chart_data)
         
@@ -888,3 +888,4 @@ else:
     - Income/Payment (optional)
     - ToleranceBefore, ToleranceAfter (optional)
     """)
+    
