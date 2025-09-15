@@ -306,23 +306,35 @@ if patients_file and trials_file:
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
         def fmt_currency(v):
+            # Skip formatting for non-numeric values (like site headers)
+            if isinstance(v, str) and not v.replace('.', '').replace('-', '').isdigit():
+                return v
             if pd.isna(v) or v == 0:
                 return "£0.00"
-            return f"£{v:,.2f}"
+            try:
+                return f"£{float(v):,.2f}"
+            except (ValueError, TypeError):
+                return v
 
         def fmt_currency_summary(v):
+            # Skip formatting for non-numeric values (like site headers)
+            if isinstance(v, str) and not v.replace('.', '').replace('-', '').isdigit():
+                return v
             if pd.isna(v):
                 return ""
             if v == 0:
                 return "£0.00"
-            return f"£{v:,.2f}"
+            try:
+                return f"£{float(v):,.2f}"
+            except (ValueError, TypeError):
+                return v
 
         financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df_for_view.columns if "Income" in c]
         
         # Different formatting for summary columns vs daily totals
         format_funcs = {}
         for col in financial_cols:
-            if col in display_df_for_view.columns:
+            if col in display_with_header.columns:  # Use display_with_header instead of display_df_for_view
                 if col in ["Monthly Total", "FY Total"]:
                     format_funcs[col] = fmt_currency_summary
                 else:
