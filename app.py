@@ -360,15 +360,6 @@ if patients_file and trials_file:
         # Combine site header with the main data
         display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
 
-        # Display site header information (keep this for reference)
-        st.write("**Site Organization:**")
-        for site, columns in site_column_mapping.items():
-            patient_info = []
-            for col in columns:
-                study, patient_id = col.split("_", 1)
-                patient_info.append(f"{study}_{patient_id}")
-            st.write(f"**{site}:** {', '.join(patient_info)}")
-
         try:
             # Apply styling function that handles the header row differently
             def highlight_with_header(row):
@@ -627,6 +618,160 @@ if patients_file and trials_file:
         
         site_stats_df = pd.DataFrame(site_stats)
         st.dataframe(site_stats_df, use_container_width=True)
+
+        # Monthly analysis by site
+        st.subheader("📅 Monthly Analysis by Site")
+        
+        # Create month-year period for analysis
+        visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
+        
+        # Filter only actual visits (not tolerance periods)
+        actual_visits = visits_df[visits_df['Visit'].str.contains('Visit', na=False)]
+        
+        # Count visits per site per month
+        visits_by_site_month = actual_visits.groupby(['Site', 'MonthYear']).size().reset_index(name='Visits')
+        visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='Site', values='Visits').fillna(0)
+        
+        # Calculate visit ratios
+        visits_pivot['Total_Visits'] = visits_pivot.sum(axis=1)
+        for site in unique_sites:
+            if site in visits_pivot.columns:
+                visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
+        
+        # Count unique patients per site per month
+        patients_by_site_month = actual_visits.groupby(['Site', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
+        patients_pivot = patients_by_site_month.pivot(index='MonthYear', columns='Site', values='Patients').fillna(0)
+        
+        # Calculate patient ratios
+        patients_pivot['Total_Patients'] = patients_pivot.sum(axis=1)
+        for site in unique_sites:
+            if site in patients_pivot.columns:
+                patients_pivot[f'{site}_Ratio'] = (patients_pivot[site] / patients_pivot['Total_Patients'] * 100).round(1)
+        
+        # Create combined display table
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Monthly Visits by Site**")
+            # Prepare visits display table
+            visits_display = visits_pivot.copy()
+            visits_display.index = visits_display.index.astype(str)
+            
+            # Reorder columns: sites first, then ratios, then total
+            display_cols = []
+            for site in sorted(unique_sites):
+                if site in visits_display.columns:
+                    display_cols.append(site)
+            for site in sorted(unique_sites):
+                ratio_col = f'{site}_Ratio'
+                if ratio_col in visits_display.columns:
+                    display_cols.append(ratio_col)
+            display_cols.append('Total_Visits')
+            
+            visits_display = visits_display[display_cols]
+            
+            # Format ratio columns to show as percentages
+            format_dict = {}
+            for col in visits_display.columns:
+                if '_Ratio' in col:
+                    format_dict[col] = lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else "0.0%"
+                elif col == 'Total_Visits':
+                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
+                else:
+                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
+            
+            try:
+                st.dataframe(visits_display.style.format(format_dict), use_container_width=True)
+            except:
+                st.dataframe(visits_display, use_container_width=True)
+        
+        with col2:
+            st.write("**Monthly Patients by Site**")
+            # Prepare patients display table
+            patients_display = patients_pivot.copy()
+            patients_display.index = patients_display.index.astype(str)
+            
+            # Reorder columns: sites first, then ratios, then total
+            display_cols = []
+            for site in sorted(unique_sites):
+                if site in patients_display.columns:
+                    display_cols.append(site)
+            for site in sorted(unique_sites):
+                ratio_col = f'{site}_Ratio'
+                if ratio_col in patients_display.columns:
+                    display_cols.append(ratio_col)
+            display_cols.append('Total_Patients')
+            
+            patients_display = patients_display[display_cols]
+            
+            # Format ratio columns to show as percentages
+            format_dict = {}
+            for col in patients_display.columns:
+                if '_Ratio' in col:
+                    format_dict[col] = lambda x: f"{x:.1f}%" if pd.notna(x) and x > 0 else "0.0%"
+                elif col == 'Total_Patients':
+                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
+                else:
+                    format_dict[col] = lambda x: f"{int(x)}" if pd.notna(x) else "0"
+            
+            try:
+                st.dataframe(patients_display.style.format(format_dict), use_container_width=True)
+            except:
+                st.dataframe(patients_display, use_container_width=True)
+        
+        # Combined summary table
+        st.write("**Combined Monthly Summary**")
+        
+        # Create a comprehensive summary
+        monthly_summary = []
+        for month in sorted(set(list(visits_pivot.index) + list(patients_pivot.index))):
+            month_str = str(month)
+            row_data = {'Month': month_str}
+            
+            total_visits = visits_pivot.loc[month, 'Total_Visits'] if month in visits_pivot.index else 0
+            total_patients = patients_pivot.loc[month, 'Total_Patients'] if month in patients_pivot.index else 0
+            
+            row_data['Total_Visits'] = int(total_visits)
+            row_data['Total_Patients'] = int(total_patients)
+            
+            # Add site-specific data
+            for site in sorted(unique_sites):
+                site_visits = visits_pivot.loc[month, site] if month in visits_pivot.index and site in visits_pivot.columns else 0
+                site_patients = patients_pivot.loc[month, site] if month in patients_pivot.index and site in patients_pivot.columns else 0
+                site_visit_ratio = visits_pivot.loc[month, f'{site}_Ratio'] if month in visits_pivot.index and f'{site}_Ratio' in visits_pivot.columns else 0
+                site_patient_ratio = patients_pivot.loc[month, f'{site}_Ratio'] if month in patients_pivot.index and f'{site}_Ratio' in patients_pivot.columns else 0
+                
+                row_data[f'{site}_Visits'] = int(site_visits)
+                row_data[f'{site}_V_%'] = f"{site_visit_ratio:.1f}%"
+                row_data[f'{site}_Patients'] = int(site_patients)
+                row_data[f'{site}_P_%'] = f"{site_patient_ratio:.1f}%"
+            
+            monthly_summary.append(row_data)
+        
+        if monthly_summary:
+            summary_df = pd.DataFrame(monthly_summary)
+            st.dataframe(summary_df, use_container_width=True)
+        
+        # Add monthly charts
+        st.subheader("📊 Monthly Trends")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Monthly Visits by Site**")
+            if not visits_pivot.empty:
+                # Prepare data for chart (exclude ratio and total columns)
+                chart_data = visits_pivot[[col for col in visits_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Visits']]
+                chart_data.index = chart_data.index.astype(str)
+                st.bar_chart(chart_data)
+        
+        with col2:
+            st.write("**Monthly Patients by Site**") 
+            if not patients_pivot.empty:
+                # Prepare data for chart (exclude ratio and total columns)
+                chart_data = patients_pivot[[col for col in patients_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
+                chart_data.index = chart_data.index.astype(str)
+                st.bar_chart(chart_data)
 
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
