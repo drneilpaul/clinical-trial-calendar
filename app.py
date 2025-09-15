@@ -307,11 +307,26 @@ if patients_file and trials_file:
 
         def fmt_currency(v):
             if pd.isna(v) or v == 0:
+                return "£0.00"
+            return f"£{v:,.2f}"
+
+        def fmt_currency_summary(v):
+            if pd.isna(v):
                 return ""
+            if v == 0:
+                return "£0.00"
             return f"£{v:,.2f}"
 
         financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df_for_view.columns if "Income" in c]
-        format_funcs = {col: fmt_currency for col in financial_cols if col in display_df_for_view.columns}
+        
+        # Different formatting for summary columns vs daily totals
+        format_funcs = {}
+        for col in financial_cols:
+            if col in display_df_for_view.columns:
+                if col in ["Monthly Total", "FY Total"]:
+                    format_funcs[col] = fmt_currency_summary
+                else:
+                    format_funcs[col] = fmt_currency
 
         # Create site header row for display
         site_header_row = {}
@@ -414,6 +429,10 @@ if patients_file and trials_file:
         if excel_available:
             # Prepare excel-friendly df for writing
             excel_df = display_df.copy()
+            
+            # Format the Date column for UK short date format
+            excel_df["Date"] = excel_df["Date"].dt.strftime("%d/%m/%Y")
+            
             for col in financial_cols:
                 if col in excel_df.columns:
                     if col in ["Monthly Total", "FY Total"]:
@@ -498,6 +517,12 @@ if patients_file and trials_file:
 
             # Schedule-only Excel with site headers
             schedule_df = excel_df.drop(columns=[c for c in financial_cols if c in excel_df.columns])
+            
+            # Ensure Date is formatted consistently for schedule-only version too
+            if "Date" in schedule_df.columns:
+                schedule_df = schedule_df.copy()  # Avoid SettingWithCopyWarning
+                schedule_df["Date"] = excel_df["Date"]  # Use the already formatted date
+                
             output2 = io.BytesIO()
             with pd.ExcelWriter(output2, engine='openpyxl') as writer:
                 schedule_df.to_excel(writer, index=False, sheet_name="VisitSchedule", startrow=1)
