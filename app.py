@@ -41,11 +41,24 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.5.1 | Updated: Excel row-formatting for weekends/month-end/FY-end")
+st.caption("v1.6.0 | Updated: Site grouping using SiteforVisit column with headers above patient columns")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
 trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'], key="trials")
+
+# Information about required columns
+with st.sidebar.expander("ℹ️ Required Columns"):
+    st.write("**Patients File:**")
+    st.write("- PatientID")
+    st.write("- Study") 
+    st.write("- StartDate")
+    st.write("")
+    st.write("**Trials File:**")
+    st.write("- Study")
+    st.write("- Day")
+    st.write("- VisitNo")
+    st.write("- SiteforVisit (used for grouping)")
 
 
 # === File Loading Helper ===
@@ -86,6 +99,11 @@ if patients_file and trials_file:
             st.error(f"❌ Trials file missing required columns: {required_trials}")
             st.stop()
 
+        # Check for SiteforVisit column
+        if "SiteforVisit" not in trials_df.columns:
+            st.warning("⚠️ No 'SiteforVisit' column found in trials file. Using default site grouping.")
+            trials_df["SiteforVisit"] = "Default Site"
+
         # Normalise columns (common alternates)
         column_mapping = {
             'Income': 'Payment',
@@ -101,6 +119,22 @@ if patients_file and trials_file:
         patients_df["Study"] = patients_df["Study"].astype(str)
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
         trials_df["Study"] = trials_df["Study"].astype(str)
+        trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str)
+
+        # Create patient-site mapping based on their studies and trial sites
+        patient_site_mapping = {}
+        for _, patient in patients_df.iterrows():
+            patient_id = patient["PatientID"]
+            study = patient["Study"]
+            # Find the site for this study from trials data
+            study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
+            if len(study_sites) > 0:
+                patient_site_mapping[patient_id] = study_sites[0]  # Take the first site if multiple
+            else:
+                patient_site_mapping[patient_id] = "Unknown Site"
+
+        # Add site information to patients dataframe for reference
+        patients_df["Site"] = patients_df["PatientID"].map(patient_site_mapping)
 
         # Build visit records
         visit_records = []
@@ -108,6 +142,7 @@ if patients_file and trials_file:
             patient_id = patient["PatientID"]
             study = patient["Study"]
             start_date = patient["StartDate"]
+            patient_site = patient["Site"]
 
             if pd.isna(start_date):
                 continue
@@ -123,6 +158,7 @@ if patients_file and trials_file:
                 tol_before = int(visit.get("ToleranceBefore", 0) or 0)
                 tol_after = int(visit.get("ToleranceAfter", 0) or 0)
                 payment = float(visit.get("Payment", 0) or 0.0)
+                site = visit.get("SiteforVisit", "Unknown Site")
 
                 # Main visit
                 visit_records.append({
@@ -130,7 +166,8 @@ if patients_file and trials_file:
                     "PatientID": patient_id,
                     "Visit": f"Visit {visit_no}",
                     "Study": study,
-                    "Payment": payment
+                    "Payment": payment,
+                    "Site": site
                 })
 
                 # Tolerance before
@@ -140,7 +177,8 @@ if patients_file and trials_file:
                         "PatientID": patient_id,
                         "Visit": "-",
                         "Study": study,
-                        "Payment": 0
+                        "Payment": 0,
+                        "Site": site
                     })
 
                 # Tolerance after
@@ -150,7 +188,8 @@ if patients_file and trials_file:
                         "PatientID": patient_id,
                         "Visit": "+",
                         "Study": study,
-                        "Payment": 0
+                        "Payment": 0,
+                        "Site": site
                     })
 
         visits_df = pd.DataFrame(visit_records)
@@ -166,14 +205,34 @@ if patients_file and trials_file:
         calendar_df = pd.DataFrame({"Date": calendar_dates})
         calendar_df["Day"] = calendar_df["Date"].dt.day_name()
 
-        # Patient columns
+        # Group patients by site and create ordered column structure
         patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
-        for col_id in patients_df["ColumnID"]:
-            calendar_df[col_id] = ""
+        
+        # Get unique sites and sort them
+        unique_sites = sorted(patients_df["Site"].unique())
+        
+        # Create ordered column list: Date, Day, then patients grouped by site
+        ordered_columns = ["Date", "Day"]
+        site_column_mapping = {}  # Track which columns belong to which site
+        
+        for site in unique_sites:
+            site_patients = patients_df[patients_df["Site"] == site].sort_values(["Study", "PatientID"])
+            site_columns = []
+            for _, patient in site_patients.iterrows():
+                col_id = patient["ColumnID"]
+                ordered_columns.append(col_id)
+                site_columns.append(col_id)
+                calendar_df[col_id] = ""
+            site_column_mapping[site] = site_columns
 
-        # Study income
+        # Add income columns after patient columns
+        study_sites = trials_df.groupby("Study")["SiteforVisit"].first().to_dict()
         for study in trials_df["Study"].unique():
-            calendar_df[f"{study} Income"] = 0.0
+            income_col = f"{study} Income"
+            ordered_columns.append(income_col)
+            calendar_df[income_col] = 0.0
+        
+        ordered_columns.extend(["Daily Total", "Monthly Total", "FY Total"])
         calendar_df["Daily Total"] = 0.0
 
         # Fill calendar
@@ -218,10 +277,27 @@ if patients_file and trials_file:
             lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
         )
 
-        # Display table
+        # Reorder columns according to site grouping
+        calendar_df = calendar_df[ordered_columns]
+
+        # Display site information
+        st.subheader("🏢 Site Summary")
+        site_summary_data = []
+        for site in unique_sites:
+            site_patients = patients_df[patients_df["Site"] == site]
+            site_studies = site_patients["Study"].unique()
+            site_summary_data.append({
+                "Site": site,
+                "Patients": len(site_patients),
+                "Studies": ", ".join(sorted(site_studies))
+            })
+        
+        site_summary_df = pd.DataFrame(site_summary_data)
+        st.dataframe(site_summary_df, use_container_width=True)
+
+        # Display table with site headers
         st.subheader("🗓️ Generated Visit Calendar")
         display_df = calendar_df.drop(columns=["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"])
-        # Keep calendar_df (datetime) for Excel formatting below
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
@@ -232,6 +308,44 @@ if patients_file and trials_file:
 
         financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df_for_view.columns if "Income" in c]
         format_funcs = {col: fmt_currency for col in financial_cols if col in display_df_for_view.columns}
+
+        # Create site header row for display
+        site_header_row = ["", ""]  # Date and Day columns
+        current_site_index = 0
+        sites_list = list(unique_sites)
+        
+        for col in display_df_for_view.columns[2:]:  # Skip Date and Day
+            if col in financial_cols:
+                site_header_row.append("")
+            else:
+                # Check if this column belongs to current site
+                found_in_current_site = False
+                if current_site_index < len(sites_list):
+                    current_site = sites_list[current_site_index]
+                    if col in site_column_mapping.get(current_site, []):
+                        site_header_row.append(current_site)
+                        found_in_current_site = True
+                    else:
+                        # Move to next site
+                        for next_site_idx in range(current_site_index + 1, len(sites_list)):
+                            next_site = sites_list[next_site_idx]
+                            if col in site_column_mapping.get(next_site, []):
+                                current_site_index = next_site_idx
+                                site_header_row.append(next_site)
+                                found_in_current_site = True
+                                break
+                
+                if not found_in_current_site:
+                    site_header_row.append("")
+
+        # Display site header information
+        st.write("**Site Organization:**")
+        for site, columns in site_column_mapping.items():
+            patient_info = []
+            for col in columns:
+                study, patient_id = col.split("_", 1)
+                patient_info.append(f"{study}_{patient_id}")
+            st.write(f"**{site}:** {', '.join(patient_info)}")
 
         try:
             styled_df = display_df_for_view.style.format(format_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
@@ -250,24 +364,24 @@ if patients_file and trials_file:
         st.line_chart(calendar_df.set_index("Date")["Daily Total"])
 
         # Downloads
-        st.subheader("📥 Download Options")
+        st.subheader("💾 Download Options")
         csv_data = calendar_df.to_csv(index=False)
         st.download_button("📄 Download Full CSV", csv_data, "VisitCalendar_Full.csv", "text/csv")
 
-        # Excel exports with formatting
+        # Excel exports with formatting and site headers
         try:
             import openpyxl
-            from openpyxl.styles import PatternFill, Font
+            from openpyxl.styles import PatternFill, Font, Alignment
             from openpyxl.utils import get_column_letter
+            from openpyxl.styles.borders import Border, Side
 
             excel_available = True
         except ImportError:
             excel_available = False
 
         if excel_available:
-            # Prepare excel-friendly df for writing (format financial columns as strings)
+            # Prepare excel-friendly df for writing
             excel_df = display_df.copy()
-            # Format financial columns for Excel
             for col in financial_cols:
                 if col in excel_df.columns:
                     if col in ["Monthly Total", "FY Total"]:
@@ -275,11 +389,33 @@ if patients_file and trials_file:
                     else:
                         excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
 
-            # Excel with finances (apply row formatting)
+            # Excel with finances and site headers
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                excel_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+                excel_df.to_excel(writer, index=False, sheet_name="VisitCalendar", startrow=1)  # Start at row 2 to leave room for site headers
                 ws = writer.sheets["VisitCalendar"]
+
+                # Add site headers in row 1
+                current_site_index = 0
+                sites_list = list(unique_sites)
+                
+                for col_idx, col_name in enumerate(excel_df.columns, 1):
+                    col_letter = get_column_letter(col_idx)
+                    
+                    if col_name in ["Date", "Day"] or col_name in financial_cols:
+                        # Leave these cells empty or add appropriate headers
+                        continue
+                    else:
+                        # Find which site this column belongs to
+                        site_found = False
+                        for site in unique_sites:
+                            if col_name in site_column_mapping.get(site, []):
+                                ws[f"{col_letter}1"] = site
+                                ws[f"{col_letter}1"].font = Font(bold=True, size=12)
+                                ws[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
+                                ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
+                                site_found = True
+                                break
 
                 # Auto-adjust col widths
                 for idx, col in enumerate(excel_df.columns, 1):
@@ -289,34 +425,30 @@ if patients_file and trials_file:
                     )
                     ws.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Define fills / fonts (use FF prefix for alpha)
+                # Define fills / fonts
                 weekend_fill = PatternFill(start_color="FFF3F4F6", end_color="FFF3F4F6", fill_type="solid")
                 month_end_fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
                 fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
                 white_font = Font(color="FFFFFFFF", bold=True)
 
-                # Apply formatting row-by-row using calendar_df's Date (datetime)
-                for row_idx, date_obj in enumerate(calendar_df["Date"], start=2):  # excel rows start at 2 (after header)
+                # Apply formatting row-by-row (starting from row 3 due to headers)
+                for row_idx, date_obj in enumerate(calendar_df["Date"], start=3):
                     try:
                         if pd.isna(date_obj):
                             continue
 
-                        # Fiscal year end (31 March)
                         if date_obj.month == 3 and date_obj.day == 31:
                             for col_idx in range(1, len(excel_df.columns) + 1):
                                 cell = ws.cell(row=row_idx, column=col_idx)
                                 cell.fill = fy_end_fill
                                 cell.font = white_font
-
                         else:
-                            # Month end detection using calendar.monthrange
                             last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
                             if date_obj.day == last_day:
                                 for col_idx in range(1, len(excel_df.columns) + 1):
                                     cell = ws.cell(row=row_idx, column=col_idx)
                                     cell.fill = month_end_fill
                                     cell.font = white_font
-                            # Weekend
                             elif date_obj.weekday() in (5, 6):
                                 for col_idx in range(1, len(excel_df.columns) + 1):
                                     cell = ws.cell(row=row_idx, column=col_idx)
@@ -326,18 +458,31 @@ if patients_file and trials_file:
                         continue
 
             st.download_button(
-                "💰 Excel with Finances",
+                "💰 Excel with Finances & Site Headers",
                 data=output.getvalue(),
-                file_name="VisitCalendar_WithFinances.xlsx",
+                file_name="VisitCalendar_WithFinances_SiteGrouped.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # Schedule-only Excel (no financial columns) with same formatting
+            # Schedule-only Excel with site headers
             schedule_df = excel_df.drop(columns=[c for c in financial_cols if c in excel_df.columns])
             output2 = io.BytesIO()
             with pd.ExcelWriter(output2, engine='openpyxl') as writer:
-                schedule_df.to_excel(writer, index=False, sheet_name="VisitSchedule")
+                schedule_df.to_excel(writer, index=False, sheet_name="VisitSchedule", startrow=1)
                 ws2 = writer.sheets["VisitSchedule"]
+
+                # Add site headers
+                for col_idx, col_name in enumerate(schedule_df.columns, 1):
+                    col_letter = get_column_letter(col_idx)
+                    
+                    if col_name not in ["Date", "Day"]:
+                        for site in unique_sites:
+                            if col_name in site_column_mapping.get(site, []):
+                                ws2[f"{col_letter}1"] = site
+                                ws2[f"{col_letter}1"].font = Font(bold=True, size=12)
+                                ws2[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
+                                ws2[f"{col_letter}1"].alignment = Alignment(horizontal="center")
+                                break
 
                 # Set widths
                 for idx, col in enumerate(schedule_df.columns, 1):
@@ -348,7 +493,7 @@ if patients_file and trials_file:
                     ws2.column_dimensions[col_letter].width = max(10, max_length + 2)
 
                 # Apply same row formatting
-                for row_idx, date_obj in enumerate(calendar_df["Date"], start=2):
+                for row_idx, date_obj in enumerate(calendar_df["Date"], start=3):
                     try:
                         if pd.isna(date_obj):
                             continue
@@ -358,7 +503,6 @@ if patients_file and trials_file:
                                 cell = ws2.cell(row=row_idx, column=col_idx)
                                 cell.fill = fy_end_fill
                                 cell.font = white_font
-
                         else:
                             last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
                             if date_obj.day == last_day:
@@ -375,9 +519,9 @@ if patients_file and trials_file:
                         continue
 
             st.download_button(
-                "📅 Excel Schedule Only",
+                "📅 Excel Schedule Only with Site Headers",
                 data=output2.getvalue(),
-                file_name="VisitSchedule_Only.xlsx",
+                file_name="VisitSchedule_Only_SiteGrouped.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
@@ -385,17 +529,54 @@ if patients_file and trials_file:
 
         # Summary stats
         st.subheader("📊 Summary Statistics")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Patients", len(patients_df))
+            st.metric("Total Sites", len(unique_sites))
         with col2:
+            st.metric("Total Patients", len(patients_df))
+        with col3:
             total_visits = len(visits_df[visits_df["Visit"].str.contains("Visit")])
             st.metric("Total Visits", total_visits)
-        with col3:
+        with col4:
             total_income = calendar_df["Daily Total"].sum()
             st.metric("Total Income", f"£{total_income:,.2f}")
 
+        # Site-wise breakdown
+        st.subheader("🏢 Site-wise Statistics")
+        site_stats = []
+        for site in unique_sites:
+            site_patients = patients_df[patients_df["Site"] == site]
+            site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & (visits_df["Visit"].str.contains("Visit"))]
+            site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
+            
+            site_stats.append({
+                "Site": site,
+                "Patients": len(site_patients),
+                "Visits": len(site_visits),
+                "Total Income": f"£{site_income:,.2f}"
+            })
+        
+        site_stats_df = pd.DataFrame(site_stats)
+        st.dataframe(site_stats_df, use_container_width=True)
+
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
+        st.exception(e)  # This will show the full error traceback for debugging
 else:
     st.info("👆 Please upload both Patients and Trials files (CSV or Excel).")
+    st.markdown("""
+    ### Expected File Structure:
+    
+    **Patients File should contain:**
+    - PatientID
+    - Study 
+    - StartDate
+    
+    **Trials File should contain:**
+    - Study
+    - Day
+    - VisitNo  
+    - SiteforVisit (used for site grouping)
+    - Income/Payment (optional)
+    - ToleranceBefore, ToleranceAfter (optional)
+    """)
