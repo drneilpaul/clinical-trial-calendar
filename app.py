@@ -60,6 +60,15 @@ if patients_file and trials_file:
         trials_df.columns = trials_df.columns.str.strip()
         patients_df.columns = patients_df.columns.str.strip()
         
+        # Ensure key columns are strings to prevent numeric conversion issues
+        patients_df["PatientID"] = patients_df["PatientID"].astype(str)
+        patients_df["Study"] = patients_df["Study"].astype(str)
+        trials_df["Study"] = trials_df["Study"].astype(str)
+        
+        st.write("**Debug: After type conversion:**")
+        st.write("Patient IDs:", patients_df["PatientID"].tolist())
+        st.write("Patient Studies:", patients_df["Study"].tolist())
+        
         # Map common alternative column names
         column_mapping = {
             'Income': 'Payment',
