@@ -415,18 +415,18 @@ if patients_file and trials_file:
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
-        st.error("Please check your file formats and column names.")
+        st.error("Please check your CSV file formats and column names.")
         
         # Show expected formats...
-        st.subheader("Expected File Format:")
+        st.subheader("Expected CSV Format:")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("**Patients File:**")
+            st.write("**Patients CSV:**")
             st.write("- PatientID, Study, StartDate")
             
         with col2:
-            st.write("**Trials File:**")
+            st.write("**Trials CSV:**")
             st.write("- Study, Day, VisitNo, ToleranceBefore, ToleranceAfter, Payment/Income")
 
 else:
