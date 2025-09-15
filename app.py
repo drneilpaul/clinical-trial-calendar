@@ -119,6 +119,15 @@ if patients_file and trials_file:
         patients_df["PatientID"] = patients_df["PatientID"].astype(str)
         patients_df["Study"] = patients_df["Study"].astype(str)
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
+        
+        # Handle StopDate if present
+        if "StopDate" in patients_df.columns:
+            st.info("ℹ️ StopDate column found - visits will be excluded after patient stop dates.")
+            patients_df["StopDate"] = pd.to_datetime(patients_df["StopDate"], dayfirst=True, errors="coerce")
+        else:
+            st.info("ℹ️ No StopDate column found - all scheduled visits will be included.")
+            patients_df["StopDate"] = pd.NaT  # Set all to NaT (Not a Time)
+            
         trials_df["Study"] = trials_df["Study"].astype(str)
         trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str)
 
@@ -156,10 +165,13 @@ if patients_file and trials_file:
 
         # Build visit records
         visit_records = []
+        excluded_visits_count = 0  # Track excluded visits for reporting
+        
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
             study = patient["Study"]
             start_date = patient["StartDate"]
+            stop_date = patient["StopDate"]
             patient_origin = patient["OriginSite"]
 
             if pd.isna(start_date):
@@ -172,6 +184,12 @@ if patients_file and trials_file:
                 except Exception:
                     continue
                 visit_date = start_date + timedelta(days=visit_day)
+                
+                # Check if visit date is after stop date
+                if pd.notna(stop_date) and visit_date > stop_date:
+                    excluded_visits_count += 1
+                    continue  # Skip this visit - it's after the patient's stop date
+                
                 visit_no = visit.get("VisitNo", "")
                 tol_before = int(visit.get("ToleranceBefore", 0) or 0)
                 tol_after = int(visit.get("ToleranceAfter", 0) or 0)
@@ -189,10 +207,13 @@ if patients_file and trials_file:
                     "PatientOrigin": patient_origin
                 })
 
-                # Tolerance before
+                # Tolerance before - also check stop date for tolerance periods
                 for i in range(1, tol_before + 1):
+                    tolerance_date = visit_date - timedelta(days=i)
+                    if pd.notna(stop_date) and tolerance_date > stop_date:
+                        continue  # Skip tolerance period if after stop date
                     visit_records.append({
-                        "Date": visit_date - timedelta(days=i),
+                        "Date": tolerance_date,
                         "PatientID": patient_id,
                         "Visit": "-",
                         "Study": study,
@@ -201,10 +222,13 @@ if patients_file and trials_file:
                         "PatientOrigin": patient_origin
                     })
 
-                # Tolerance after
+                # Tolerance after - also check stop date for tolerance periods
                 for i in range(1, tol_after + 1):
+                    tolerance_date = visit_date + timedelta(days=i)
+                    if pd.notna(stop_date) and tolerance_date > stop_date:
+                        continue  # Skip tolerance period if after stop date
                     visit_records.append({
-                        "Date": visit_date + timedelta(days=i),
+                        "Date": tolerance_date,
                         "PatientID": patient_id,
                         "Visit": "+",
                         "Study": study,
@@ -212,6 +236,10 @@ if patients_file and trials_file:
                         "SiteofVisit": site,
                         "PatientOrigin": patient_origin
                     })
+
+        # Report on excluded visits
+        if excluded_visits_count > 0:
+            st.warning(f"⚠️ {excluded_visits_count} visits were excluded because they occur after patient stop dates.")
 
         visits_df = pd.DataFrame(visit_records)
 
@@ -682,9 +710,15 @@ if patients_file and trials_file:
             site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & (visits_df["Visit"].str.contains("Visit"))]
             site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
             
+            # Count active vs stopped patients
+            active_patients = len(site_patients[pd.isna(site_patients["StopDate"])])
+            stopped_patients = len(site_patients[pd.notna(site_patients["StopDate"])])
+            
             site_stats.append({
                 "Site": site,
-                "Patients": len(site_patients),
+                "Total Patients": len(site_patients),
+                "Active Patients": active_patients,
+                "Stopped Patients": stopped_patients,
                 "Visits": len(site_visits),
                 "Total Income": f"£{site_income:,.2f}"
             })
@@ -878,6 +912,7 @@ else:
     - PatientID
     - Study 
     - StartDate
+    - StopDate (optional - visits excluded after this date)
     - Site/PatientSite/Practice (optional - for patient origin)
     
     **Trials File should contain:**
