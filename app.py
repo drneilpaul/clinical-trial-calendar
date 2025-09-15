@@ -277,8 +277,12 @@ if patients_file and trials_file:
             lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
         )
 
-        # Reorder columns according to site grouping
-        calendar_df = calendar_df[ordered_columns]
+        # Store helper columns before reordering
+        helper_columns = ["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"]
+        
+        # Reorder columns according to site grouping (excluding helper columns)
+        final_ordered_columns = [col for col in ordered_columns if col in calendar_df.columns]
+        calendar_df_display = calendar_df[final_ordered_columns].copy()
 
         # Display site information
         st.subheader("🏢 Site Summary")
@@ -297,7 +301,7 @@ if patients_file and trials_file:
 
         # Display table with site headers
         st.subheader("🗓️ Generated Visit Calendar")
-        display_df = calendar_df.drop(columns=["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"])
+        display_df = calendar_df_display.copy()
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
@@ -365,7 +369,7 @@ if patients_file and trials_file:
 
         # Downloads
         st.subheader("💾 Download Options")
-        csv_data = calendar_df.to_csv(index=False)
+        csv_data = calendar_df_display.to_csv(index=False)
         st.download_button("📄 Download Full CSV", csv_data, "VisitCalendar_Full.csv", "text/csv")
 
         # Excel exports with formatting and site headers
