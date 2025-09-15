@@ -37,7 +37,7 @@ def highlight_weekends(row):
     return [''] * len(row)
 
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.4.0 | Version: 2025-09-12")
+st.caption("v1.4.1 | Version: 2025-09-15 | Fixed dynamic date range")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients CSV", type=['csv'], key="patients")
@@ -126,9 +126,18 @@ if patients_file and trials_file:
                         "Payment": 0
                     })
 
+        # Convert to DataFrame for easier date calculations
+        visits_df = pd.DataFrame(visit_records)
+        
+        # FIXED: Calculate date range based on actual visit dates, not hardcoded 60 days
+        min_date = visits_df["Date"].min()
+        max_date = visits_df["Date"].max()
+        
+        # Add a small buffer to ensure we capture all dates
+        min_date = min_date - timedelta(days=1)
+        max_date = max_date + timedelta(days=1)
+        
         # Create date range for calendar
-        min_date = patients_df["StartDate"].min()
-        max_date = patients_df["StartDate"].max() + timedelta(days=60)
         calendar_dates = pd.date_range(start=min_date, end=max_date)
 
         # Initialize calendar dataframe
@@ -144,9 +153,6 @@ if patients_file and trials_file:
             calendar_df[f"{study} Income"] = 0.0
 
         calendar_df["Daily Total"] = 0.0
-
-        # Convert visit records to DataFrame for easier processing
-        visits_df = pd.DataFrame(visit_records)
         
         # Process each date
         for i, row in calendar_df.iterrows():
@@ -205,10 +211,12 @@ if patients_file and trials_file:
         # Display the calendar
         st.subheader("🗓️ Generated Visit Calendar")
         
-        # Debug information with correct currency
+        # Debug information with date range
         total_payments = visits_df[visits_df["Payment"] > 0]["Payment"].sum()
-        st.write(f"Debug: Total payments in visit records: £{total_payments:,.2f}")
-        st.write(f"Debug: Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
+        st.write(f"📊 Calendar spans from {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}")
+        st.write(f"📈 Total calendar rows: {len(calendar_df)}")
+        st.write(f"💰 Total payments in visit records: £{total_payments:,.2f}")
+        st.write(f"🏥 Number of paid visits: {len(visits_df[visits_df['Payment'] > 0])}")
         
         # Show sample of paid visits
         paid_visits = visits_df[visits_df["Payment"] > 0].head().copy()
@@ -363,7 +371,7 @@ if patients_file and trials_file:
         
         with col3:
             total_income = calendar_df["Daily Total"].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")  # Fixed currency
+            st.metric("Total Income", f"£{total_income:,.2f}")
 
     except Exception as e:
         st.error(f"Error processing files: {str(e)}")
