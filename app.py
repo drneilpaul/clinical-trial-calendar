@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import calendar as cal
 from datetime import timedelta
 import io
 
@@ -17,12 +18,14 @@ def highlight_special_days(row):
             return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
 
         # Month end
+        # Using pandas offset check
         if date_obj == date_obj + pd.offsets.MonthEnd(0):
             return ['background-color: #3b82f6; color: white; font-weight: bold'] * len(row)
 
     except Exception:
         pass
     return [''] * len(row)
+
 
 def highlight_weekends(row):
     try:
@@ -38,7 +41,7 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.5 | Updated: Excel support, safer error handling, no matplotlib")
+st.caption("v1.5.1 | Updated: Excel row-formatting for weekends/month-end/FY-end")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
@@ -52,7 +55,14 @@ def load_file(uploaded_file):
     if uploaded_file.name.endswith(".csv"):
         return pd.read_csv(uploaded_file, dayfirst=True)
     else:
+        # Use engine='openpyxl' for modern Excel files
         return pd.read_excel(uploaded_file, engine="openpyxl")
+
+
+# === Excel column letter helper ===
+def excel_col_letter(idx):
+    from openpyxl.utils import get_column_letter
+    return get_column_letter(idx)
 
 
 # === Main Logic ===
@@ -76,7 +86,7 @@ if patients_file and trials_file:
             st.error(f"❌ Trials file missing required columns: {required_trials}")
             st.stop()
 
-        # Normalise columns
+        # Normalise columns (common alternates)
         column_mapping = {
             'Income': 'Payment',
             'Tolerance Before': 'ToleranceBefore',
@@ -86,7 +96,7 @@ if patients_file and trials_file:
         }
         trials_df = trials_df.rename(columns=column_mapping)
 
-        # Types
+        # Types & parsing
         patients_df["PatientID"] = patients_df["PatientID"].astype(str)
         patients_df["Study"] = patients_df["Study"].astype(str)
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
@@ -146,7 +156,7 @@ if patients_file and trials_file:
         visits_df = pd.DataFrame(visit_records)
 
         if visits_df.empty:
-            st.error("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values.")
+            st.error("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
             st.stop()
 
         # Build calendar range
@@ -211,18 +221,20 @@ if patients_file and trials_file:
         # Display table
         st.subheader("🗓️ Generated Visit Calendar")
         display_df = calendar_df.drop(columns=["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"])
-        display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
+        # Keep calendar_df (datetime) for Excel formatting below
+        display_df_for_view = display_df.copy()
+        display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
         def fmt_currency(v):
             if pd.isna(v) or v == 0:
                 return ""
             return f"£{v:,.2f}"
 
-        financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df.columns if "Income" in c]
-        format_funcs = {col: fmt_currency for col in financial_cols if col in display_df.columns}
+        financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df_for_view.columns if "Income" in c]
+        format_funcs = {col: fmt_currency for col in financial_cols if col in display_df_for_view.columns}
 
         try:
-            styled_df = display_df.style.format(format_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
+            styled_df = display_df_for_view.style.format(format_funcs).apply(highlight_weekends, axis=1).apply(highlight_special_days, axis=1)
             import streamlit.components.v1 as components
             html_table = f"""
             <div style='max-height: 700px; overflow: auto; border: 1px solid #ddd;'>
@@ -230,8 +242,8 @@ if patients_file and trials_file:
             </div>
             """
             components.html(html_table, height=720, scrolling=True)
-        except Exception as e:
-            st.dataframe(display_df, use_container_width=True)
+        except Exception:
+            st.dataframe(display_df_for_view, use_container_width=True)
 
         # Chart
         st.subheader("📈 Daily Income Chart")
@@ -242,29 +254,134 @@ if patients_file and trials_file:
         csv_data = calendar_df.to_csv(index=False)
         st.download_button("📄 Download Full CSV", csv_data, "VisitCalendar_Full.csv", "text/csv")
 
+        # Excel exports with formatting
         try:
             import openpyxl
+            from openpyxl.styles import PatternFill, Font
+            from openpyxl.utils import get_column_letter
+
             excel_available = True
         except ImportError:
             excel_available = False
 
         if excel_available:
-            # Excel with finances
+            # Prepare excel-friendly df for writing (format financial columns as strings)
+            excel_df = display_df.copy()
+            # Format financial columns for Excel
+            for col in financial_cols:
+                if col in excel_df.columns:
+                    if col in ["Monthly Total", "FY Total"]:
+                        excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
+                    else:
+                        excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
+
+            # Excel with finances (apply row formatting)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                display_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
-            st.download_button("💰 Excel with Finances", output.getvalue(),
-                               "VisitCalendar_WithFinances.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                excel_df.to_excel(writer, index=False, sheet_name="VisitCalendar")
+                ws = writer.sheets["VisitCalendar"]
 
-            # Excel schedule only
-            schedule_df = display_df.drop(columns=[c for c in financial_cols if c in display_df.columns])
+                # Auto-adjust col widths
+                for idx, col in enumerate(excel_df.columns, 1):
+                    col_letter = get_column_letter(idx)
+                    max_length = max(
+                        [len(str(cell)) if cell is not None else 0 for cell in excel_df[col].tolist()] + [len(col)]
+                    )
+                    ws.column_dimensions[col_letter].width = max(10, max_length + 2)
+
+                # Define fills / fonts (use FF prefix for alpha)
+                weekend_fill = PatternFill(start_color="FFF3F4F6", end_color="FFF3F4F6", fill_type="solid")
+                month_end_fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
+                fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
+                white_font = Font(color="FFFFFFFF", bold=True)
+
+                # Apply formatting row-by-row using calendar_df's Date (datetime)
+                for row_idx, date_obj in enumerate(calendar_df["Date"], start=2):  # excel rows start at 2 (after header)
+                    try:
+                        if pd.isna(date_obj):
+                            continue
+
+                        # Fiscal year end (31 March)
+                        if date_obj.month == 3 and date_obj.day == 31:
+                            for col_idx in range(1, len(excel_df.columns) + 1):
+                                cell = ws.cell(row=row_idx, column=col_idx)
+                                cell.fill = fy_end_fill
+                                cell.font = white_font
+
+                        else:
+                            # Month end detection using calendar.monthrange
+                            last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
+                            if date_obj.day == last_day:
+                                for col_idx in range(1, len(excel_df.columns) + 1):
+                                    cell = ws.cell(row=row_idx, column=col_idx)
+                                    cell.fill = month_end_fill
+                                    cell.font = white_font
+                            # Weekend
+                            elif date_obj.weekday() in (5, 6):
+                                for col_idx in range(1, len(excel_df.columns) + 1):
+                                    cell = ws.cell(row=row_idx, column=col_idx)
+                                    cell.fill = weekend_fill
+
+                    except Exception:
+                        continue
+
+            st.download_button(
+                "💰 Excel with Finances",
+                data=output.getvalue(),
+                file_name="VisitCalendar_WithFinances.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # Schedule-only Excel (no financial columns) with same formatting
+            schedule_df = excel_df.drop(columns=[c for c in financial_cols if c in excel_df.columns])
             output2 = io.BytesIO()
             with pd.ExcelWriter(output2, engine='openpyxl') as writer:
                 schedule_df.to_excel(writer, index=False, sheet_name="VisitSchedule")
-            st.download_button("📅 Excel Schedule Only", output2.getvalue(),
-                               "VisitSchedule_Only.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                ws2 = writer.sheets["VisitSchedule"]
+
+                # Set widths
+                for idx, col in enumerate(schedule_df.columns, 1):
+                    col_letter = get_column_letter(idx)
+                    max_length = max(
+                        [len(str(cell)) if cell is not None else 0 for cell in schedule_df[col].tolist()] + [len(col)]
+                    )
+                    ws2.column_dimensions[col_letter].width = max(10, max_length + 2)
+
+                # Apply same row formatting
+                for row_idx, date_obj in enumerate(calendar_df["Date"], start=2):
+                    try:
+                        if pd.isna(date_obj):
+                            continue
+
+                        if date_obj.month == 3 and date_obj.day == 31:
+                            for col_idx in range(1, len(schedule_df.columns) + 1):
+                                cell = ws2.cell(row=row_idx, column=col_idx)
+                                cell.fill = fy_end_fill
+                                cell.font = white_font
+
+                        else:
+                            last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
+                            if date_obj.day == last_day:
+                                for col_idx in range(1, len(schedule_df.columns) + 1):
+                                    cell = ws2.cell(row=row_idx, column=col_idx)
+                                    cell.fill = month_end_fill
+                                    cell.font = white_font
+                            elif date_obj.weekday() in (5, 6):
+                                for col_idx in range(1, len(schedule_df.columns) + 1):
+                                    cell = ws2.cell(row=row_idx, column=col_idx)
+                                    cell.fill = weekend_fill
+
+                    except Exception:
+                        continue
+
+            st.download_button(
+                "📅 Excel Schedule Only",
+                data=output2.getvalue(),
+                file_name="VisitSchedule_Only.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.warning("⚠️ Excel formatting unavailable because openpyxl is not installed in this environment.")
 
         # Summary stats
         st.subheader("📊 Summary Statistics")
