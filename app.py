@@ -1,4 +1,18 @@
-import streamlit as st
+# Check for patient origin site column
+        patient_origin_col = None
+        possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite']
+        for col in possible_origin_cols:
+            if col in patients_df.columns:
+                patient_origin_col = col
+                break
+        
+        if patient_origin_col:
+            st.info(f"ℹ️ Using '{patient_origin_col}' column for patient origin site.")
+            patients_df['OriginSite'] = patients_df[patient_origin_col].astype(str)
+        else:
+            st.warning("⚠️ No patient origin site column found. Add a column like 'PatientSite', 'Practice', or 'OriginSite' to track where patients come from.")
+            # For now, assume patient origin is same as visit site for demonstration
+            patients_df['OriginSite'] = "Unknown Origin"import streamlit as st
 import pandas as pd
 import calendar as cal
 from datetime import timedelta
@@ -831,4 +845,3 @@ else:
     - Income/Payment (optional)
     - ToleranceBefore, ToleranceAfter (optional)
     """)
-    
