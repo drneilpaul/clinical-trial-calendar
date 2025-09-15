@@ -246,13 +246,11 @@ if patients_file and trials_file:
                 calendar_df[col_id] = ""
             site_column_mapping[site] = site_columns
 
-        # Add income columns after patient columns
+        # Create income tracking columns (but don't add to display)
         for study in trials_df["Study"].unique():
             income_col = f"{study} Income"
-            ordered_columns.append(income_col)
             calendar_df[income_col] = 0.0
         
-        ordered_columns.extend(["Daily Total", "Monthly Total", "FY Total"])
         calendar_df["Daily Total"] = 0.0
 
         # Fill calendar
@@ -300,8 +298,9 @@ if patients_file and trials_file:
         # Store helper columns before reordering
         helper_columns = ["MonthPeriod", "IsMonthEnd", "FYStart", "IsFYE"]
         
-        # Reorder columns according to site grouping (excluding helper columns)
-        final_ordered_columns = [col for col in ordered_columns if col in calendar_df.columns]
+        # Reorder columns for display (exclude financial columns)
+        final_ordered_columns = [col for col in ordered_columns if col in calendar_df.columns and 
+                                not any(x in col for x in ["Income", "Total"])]
         calendar_df_display = calendar_df[final_ordered_columns].copy()
 
         # Display site information
@@ -337,9 +336,6 @@ if patients_file and trials_file:
                 return v
 
         def fmt_currency_summary(v):
-            # Skip formatting for non-numeric values (like site headers)
-            if isinstance(v, str) and not v.replace('.', '').replace('-', '').isdigit():
-                return v
             if pd.isna(v):
                 return ""
             if v == 0:
@@ -349,21 +345,14 @@ if patients_file and trials_file:
             except (ValueError, TypeError):
                 return v
 
-        financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in display_df_for_view.columns if "Income" in c]
-        
-        # Different formatting for summary columns vs daily totals
+        # No financial columns in main display
+        financial_cols = []
         format_funcs = {}
-        for col in financial_cols:
-            if col in display_df_for_view.columns:
-                if col in ["Monthly Total", "FY Total"]:
-                    format_funcs[col] = fmt_currency_summary
-                else:
-                    format_funcs[col] = fmt_currency
 
         # Create site header row for display
         site_header_row = {}
         for col in display_df_for_view.columns:
-            if col in ["Date", "Day"] or col in financial_cols:
+            if col in ["Date", "Day"]:
                 site_header_row[col] = ""
             else:
                 # Find which site this column belongs to
@@ -433,6 +422,78 @@ if patients_file and trials_file:
         st.subheader("📈 Daily Income Chart")
         st.line_chart(calendar_df.set_index("Date")["Daily Total"])
 
+        # Financial Analysis Section
+        st.subheader("💰 Financial Analysis")
+        
+        # Calculate monthly income by visit site
+        financial_df = visits_df[visits_df['Visit'].str.contains('Visit', na=False)].copy()
+        financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
+        financial_df['Quarter'] = financial_df['Date'].dt.quarter
+        financial_df['Year'] = financial_df['Date'].dt.year
+        financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
+        
+        # Monthly income by site
+        monthly_income_by_site = financial_df.groupby(['SiteofVisit', 'MonthYear'])['Payment'].sum().reset_index()
+        monthly_pivot = monthly_income_by_site.pivot(index='MonthYear', columns='SiteofVisit', values='Payment').fillna(0)
+        monthly_pivot['Total'] = monthly_pivot.sum(axis=1)
+        
+        # Running totals
+        for col in monthly_pivot.columns:
+            monthly_pivot[f'{col}_Running'] = monthly_pivot[col].cumsum()
+        
+        # Quarterly totals by site
+        quarterly_income_by_site = financial_df.groupby(['SiteofVisit', 'QuarterYear'])['Payment'].sum().reset_index()
+        quarterly_pivot = quarterly_income_by_site.pivot(index='QuarterYear', columns='SiteofVisit', values='Payment').fillna(0)
+        quarterly_pivot['Total'] = quarterly_pivot.sum(axis=1)
+        
+        # Display financial tables
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Monthly Income by Visit Site**")
+            monthly_display = monthly_pivot.copy()
+            monthly_display.index = monthly_display.index.astype(str)
+            
+            # Format as currency
+            for col in monthly_display.columns:
+                monthly_display[col] = monthly_display[col].apply(lambda x: f"£{x:,.2f}" if x != 0 else "£0.00")
+            
+            st.dataframe(monthly_display, use_container_width=True)
+        
+        with col2:
+            st.write("**Quarterly Income by Visit Site**")
+            quarterly_display = quarterly_pivot.copy()
+            
+            # Format as currency
+            for col in quarterly_display.columns:
+                quarterly_display[col] = quarterly_display[col].apply(lambda x: f"£{x:,.2f}" if x != 0 else "£0.00")
+            
+            st.dataframe(quarterly_display, use_container_width=True)
+        
+        # Running totals chart
+        st.write("**Running Totals by Site**")
+        running_totals_chart_data = monthly_pivot[[col for col in monthly_pivot.columns if col.endswith('_Running')]]
+        running_totals_chart_data.columns = [col.replace('_Running', '') for col in running_totals_chart_data.columns]
+        running_totals_chart_data.index = running_totals_chart_data.index.astype(str)
+        st.line_chart(running_totals_chart_data)
+        
+        # Summary totals
+        st.write("**Financial Summary**")
+        total_by_site = financial_df.groupby('SiteofVisit')['Payment'].sum()
+        summary_data = []
+        for site in total_by_site.index:
+            summary_data.append({
+                "Site": site,
+                "Total Income": f"£{total_by_site[site]:,.2f}"
+            })
+        summary_data.append({
+            "Site": "**GRAND TOTAL**",
+            "Total Income": f"**£{total_by_site.sum():,.2f}**"
+        })
+        
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True)
+
         # Downloads
         st.subheader("💾 Download Options")
         csv_data = calendar_df_display.to_csv(index=False)
@@ -450,34 +511,33 @@ if patients_file and trials_file:
             excel_available = False
 
         if excel_available:
-            # Prepare excel-friendly df for writing
-            excel_df = display_df.copy()
+            # Create full df with financial columns for Excel export
+            excel_financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in calendar_df.columns if "Income" in c]
+            excel_full_df = calendar_df[final_ordered_columns + [col for col in excel_financial_cols if col in calendar_df.columns]].copy()
             
             # Format the Date column for UK short date format
-            excel_df["Date"] = excel_df["Date"].dt.strftime("%d/%m/%Y")
+            excel_full_df["Date"] = excel_full_df["Date"].dt.strftime("%d/%m/%Y")
             
-            for col in financial_cols:
-                if col in excel_df.columns:
+            for col in excel_financial_cols:
+                if col in excel_full_df.columns:
                     if col in ["Monthly Total", "FY Total"]:
-                        excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
+                        excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
                     else:
-                        excel_df[col] = excel_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
+                        excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
 
             # Excel with finances and site headers
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                excel_df.to_excel(writer, index=False, sheet_name="VisitCalendar", startrow=1)  # Start at row 2 to leave room for site headers
+                excel_full_df.to_excel(writer, index=False, sheet_name="VisitCalendar", startrow=1)
                 ws = writer.sheets["VisitCalendar"]
 
                 # Add site headers in row 1
-                for col_idx, col_name in enumerate(excel_df.columns, 1):
+                for col_idx, col_name in enumerate(excel_full_df.columns, 1):
                     col_letter = get_column_letter(col_idx)
                     
-                    if col_name in ["Date", "Day"] or col_name in financial_cols:
-                        # Leave these cells empty or add appropriate headers
+                    if col_name in ["Date", "Day"] or col_name in excel_financial_cols:
                         continue
                     else:
-                        # Find which site this column belongs to
                         for site in unique_sites:
                             if col_name in site_column_mapping.get(site, []):
                                 ws[f"{col_letter}1"] = site
@@ -487,10 +547,10 @@ if patients_file and trials_file:
                                 break
 
                 # Auto-adjust col widths
-                for idx, col in enumerate(excel_df.columns, 1):
+                for idx, col in enumerate(excel_full_df.columns, 1):
                     col_letter = get_column_letter(idx)
                     max_length = max(
-                        [len(str(cell)) if cell is not None else 0 for cell in excel_df[col].tolist()] + [len(col)]
+                        [len(str(cell)) if cell is not None else 0 for cell in excel_full_df[col].tolist()] + [len(col)]
                     )
                     ws.column_dimensions[col_letter].width = max(10, max_length + 2)
 
@@ -507,19 +567,19 @@ if patients_file and trials_file:
                             continue
 
                         if date_obj.month == 3 and date_obj.day == 31:
-                            for col_idx in range(1, len(excel_df.columns) + 1):
+                            for col_idx in range(1, len(excel_full_df.columns) + 1):
                                 cell = ws.cell(row=row_idx, column=col_idx)
                                 cell.fill = fy_end_fill
                                 cell.font = white_font
                         else:
                             last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
                             if date_obj.day == last_day:
-                                for col_idx in range(1, len(excel_df.columns) + 1):
+                                for col_idx in range(1, len(excel_full_df.columns) + 1):
                                     cell = ws.cell(row=row_idx, column=col_idx)
                                     cell.fill = month_end_fill
                                     cell.font = white_font
                             elif date_obj.weekday() in (5, 6):
-                                for col_idx in range(1, len(excel_df.columns) + 1):
+                                for col_idx in range(1, len(excel_full_df.columns) + 1):
                                     cell = ws.cell(row=row_idx, column=col_idx)
                                     cell.fill = weekend_fill
 
@@ -533,13 +593,9 @@ if patients_file and trials_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # Schedule-only Excel with site headers
-            schedule_df = excel_df.drop(columns=[c for c in financial_cols if c in excel_df.columns])
-            
-            # Ensure Date is formatted consistently for schedule-only version too
-            if "Date" in schedule_df.columns:
-                schedule_df = schedule_df.copy()  # Avoid SettingWithCopyWarning
-                schedule_df["Date"] = excel_df["Date"]  # Use the already formatted date
+            # Schedule-only Excel with site headers (using display df)
+            schedule_df = display_df.copy()
+            schedule_df["Date"] = schedule_df["Date"].dt.strftime("%d/%m/%Y")
                 
             output2 = io.BytesIO()
             with pd.ExcelWriter(output2, engine='openpyxl') as writer:
