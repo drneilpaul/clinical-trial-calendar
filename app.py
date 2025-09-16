@@ -263,34 +263,28 @@ if patients_file and trials_file:
                         actual_visits_used += 1
                 
                 # Determine visit details based on whether we have actual data
+                tol_before = int(visit.get("ToleranceBefore", 0) or 0)
+                tol_after = int(visit.get("ToleranceAfter", 0) or 0)
+                site = visit.get("SiteforVisit", "Unknown Site")
+                
                 if actual_visit_data is not None:
-                    # Use actual visit data
+                    # Use actual visit data - this replaces the scheduled visit entirely
                     visit_date = actual_visit_data["ActualDate"]
                     payment = float(actual_visit_data.get("ActualPayment") or visit.get("Payment", 0) or 0.0)
                     notes = actual_visit_data.get("Notes", "")
                     
-                    # Mark visit status based on notes
+                    # Mark visit status based on notes, include visit number
                     if "ScreenFail" in str(notes):
-                        visit_status = "❌ Screen Fail"
+                        visit_status = f"❌ Screen Fail {visit_no}"
                     else:
-                        visit_status = "✓"  # Mark as completed
+                        visit_status = f"✓ Visit {visit_no}"  # Include visit number with tick
                     
                     # Check if actual visit is after screen failure (shouldn't happen but safety check)
                     if screen_fail_date is not None and visit_date > screen_fail_date:
                         screen_fail_exclusions += 1
                         continue
-                else:
-                    # Use scheduled data with tolerance
-                    visit_date = scheduled_date
-                    payment = float(visit.get("Payment", 0) or 0.0)
-                    visit_status = f"Visit {visit_no}"
-                
-                tol_before = int(visit.get("ToleranceBefore", 0) or 0)
-                tol_after = int(visit.get("ToleranceAfter", 0) or 0)
-                site = visit.get("SiteforVisit", "Unknown Site")
-
-                if actual_visit_data is not None:
-                    # For actual visits, just add the main visit record
+                    
+                    # For actual visits, only add the main visit record (no tolerance periods)
                     visit_records.append({
                         "Date": visit_date,
                         "PatientID": patient_id,
@@ -303,6 +297,11 @@ if patients_file and trials_file:
                         "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", ""))
                     })
                 else:
+                    # Use scheduled data with tolerance - only if no actual visit exists
+                    visit_date = scheduled_date
+                    payment = float(visit.get("Payment", 0) or 0.0)
+                    visit_status = f"Visit {visit_no}"
+                    
                     # For scheduled visits, add main visit + tolerance periods
                     visit_records.append({
                         "Date": visit_date,
@@ -479,7 +478,7 @@ if patients_file and trials_file:
 
         # Display legend for visit markers
         if actual_visits_df is not None:
-            st.info("**Legend:** ✓ = Completed Visit, ❌ Screen Fail = Screen failure (no future visits), Visit X = Scheduled Visit, - = Before tolerance, + = After tolerance")
+            st.info("**Legend:** ✓ Visit X = Completed Visit (actual date), ❌ Screen Fail X = Screen failure (no future visits), Visit X = Scheduled Visit, - = Before tolerance, + = After tolerance")
 
         # Display table with site headers
         st.subheader("🗓️ Generated Visit Calendar")
@@ -560,8 +559,8 @@ if patients_file and trials_file:
         # Calculate financial data using only actual visits and scheduled main visits
         # Exclude screen failures from projected income but include them in actual income
         financial_df = visits_df[
-            (visits_df['Visit'] == "✓") |  # Actual completed visits (non-screen fail)
-            (visits_df['Visit'] == "❌ Screen Fail") |  # Screen failure visits (actual)
+            (visits_df['Visit'].str.startswith("✓")) |  # Actual completed visits (includes visit number)
+            (visits_df['Visit'].str.startswith("❌ Screen Fail")) |  # Screen failure visits (actual)
             (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
         ].copy()
         
@@ -852,7 +851,8 @@ if patients_file and trials_file:
         for site in unique_sites:
             site_patients = patients_df[patients_df["Site"] == site]
             site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & 
-                                  ((visits_df["Visit"] == "✓") | (visits_df["Visit"] == "❌ Screen Fail") | 
+                                  ((visits_df["Visit"].str.startswith("✓")) | 
+                                   (visits_df["Visit"].str.startswith("❌ Screen Fail")) | 
                                    (visits_df["Visit"].str.contains("Visit")))]
             site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
             
@@ -866,8 +866,8 @@ if patients_file and trials_file:
             active_patients = len(site_patients) - site_screen_fails
             
             # Count completed vs pending visits for this site
-            completed_visits = len(site_visits[site_visits["Visit"] == "✓"]) if actual_visits_df is not None else 0
-            screen_fail_visits = len(site_visits[site_visits["Visit"] == "❌ Screen Fail"]) if actual_visits_df is not None else 0
+            completed_visits = len(site_visits[site_visits["Visit"].str.startswith("✓")]) if actual_visits_df is not None else 0
+            screen_fail_visits = len(site_visits[site_visits["Visit"].str.startswith("❌ Screen Fail")]) if actual_visits_df is not None else 0
             total_visits = len(site_visits)
             pending_visits = total_visits - completed_visits - screen_fail_visits
             
@@ -894,8 +894,8 @@ if patients_file and trials_file:
         
         # Filter only actual visits and main scheduled visits
         analysis_visits = visits_df[
-            (visits_df['Visit'] == "✓") |  # Actual completed visits
-            (visits_df['Visit'] == "❌ Screen Fail") |  # Screen failure visits
+            (visits_df['Visit'].str.startswith("✓")) |  # Actual completed visits (includes visit number)
+            (visits_df['Visit'].str.startswith("❌ Screen Fail")) |  # Screen failure visits
             (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
         ]
         
