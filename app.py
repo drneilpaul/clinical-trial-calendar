@@ -57,25 +57,7 @@ st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
 trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'], key="trials")
 actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'], key="actual_visits")
-                file_name=f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            st.success(f"✅ Patient {new_patient_id} added! Download the updated file and re-upload to see changes.")
-        
-        # Show preview of what would be added
-        if new_patient_id and new_study and new_start_date and new_site and not validation_errors:
-            st.write("**Preview:**")
-            preview_data = {
-                "PatientID": [new_patient_id],
-                "Study": [new_study], 
-                "StartDate": [new_start_date.strftime('%Y-%m-%d')],
-                (patient_origin_col or "PatientPractice"): [new_site]
-            }
-            preview_df = pd.DataFrame(preview_data)
-            st.dataframe(preview_df, use_container_width=True)
-
-# Information about required columns
+                # Information about required columns
 with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("**Patients File:**")
     st.write("- PatientID, Study, StartDate")
