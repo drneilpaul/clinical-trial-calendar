@@ -176,9 +176,23 @@ if patients_file and trials_file:
                 if st.button("✅ Add Patient", 
                             disabled=bool(validation_errors) or not all([new_patient_id, new_study, new_start_date, new_site]),
                             use_container_width=True):
+                    # Determine the correct data type for PatientID based on existing data
+                    existing_patient_ids = existing_patients["PatientID"]
+                    
+                    # Check if existing IDs are numeric
+                    if existing_patient_ids.dtype in ['int64', 'float64'] or all(pd.to_numeric(existing_patient_ids, errors='coerce').notna()):
+                        # Convert new ID to numeric to match existing format
+                        try:
+                            processed_patient_id = int(new_patient_id) if new_patient_id.isdigit() else float(new_patient_id)
+                        except:
+                            processed_patient_id = new_patient_id  # Keep as string if conversion fails
+                    else:
+                        # Keep as string to match existing format
+                        processed_patient_id = new_patient_id
+                    
                     # Create new patient record
                     new_patient_data = {
-                        "PatientID": new_patient_id,
+                        "PatientID": processed_patient_id,  # Use processed ID with correct data type
                         "Study": new_study,
                         "StartDate": new_start_date,
                     }
@@ -188,10 +202,18 @@ if patients_file and trials_file:
                     else:
                         new_patient_data["PatientPractice"] = new_site
                     
-                    # Add any other columns with empty values
+                    # Add any other columns with empty values, preserving data types
                     for col in existing_patients.columns:
                         if col not in new_patient_data:
-                            new_patient_data[col] = ""
+                            # Try to preserve the data type of existing columns
+                            if len(existing_patients[col].dropna()) > 0:
+                                sample_value = existing_patients[col].dropna().iloc[0]
+                                if isinstance(sample_value, (int, float)):
+                                    new_patient_data[col] = 0 if isinstance(sample_value, int) else 0.0
+                                else:
+                                    new_patient_data[col] = ""
+                            else:
+                                new_patient_data[col] = ""
                     
                     # Add to existing dataframe
                     new_row_df = pd.DataFrame([new_patient_data])
