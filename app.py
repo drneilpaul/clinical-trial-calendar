@@ -41,7 +41,7 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.7.0 | Updated: Added actual visits tracking functionality")
+st.caption("v1.8.0 | Updated: Screen failure detection from actual visits, removed StopDate from patients file")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
@@ -55,6 +55,7 @@ with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("- Study") 
     st.write("- StartDate")
     st.write("- Site/PatientSite/Practice (optional - for patient origin)")
+    st.write("- Note: StopDate no longer used - screen failures detected from actual visits")
     st.write("")
     st.write("**Trials File:**")
     st.write("- Study")
@@ -68,7 +69,7 @@ with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("- VisitNo")
     st.write("- ActualDate")
     st.write("- ActualPayment (optional)")
-    st.write("- Notes (optional)")
+    st.write("- Notes (optional - 'ScreenFail' stops future visits)")
 
 
 # === File Loading Helper ===
@@ -112,7 +113,9 @@ if patients_file and trials_file:
             st.error(f"❌ Trials file missing required columns: {required_trials}")
             st.stop()
 
-        # Check actual visits file if provided
+        # Process screen failures from actual visits
+        screen_failures = {}  # {patient_id_study: screen_fail_date}
+        
         if actual_visits_df is not None:
             required_actual = {"PatientID", "Study", "VisitNo", "ActualDate"}
             if not required_actual.issubset(actual_visits_df.columns):
@@ -127,6 +130,26 @@ if patients_file and trials_file:
             # Handle ActualPayment column
             if "ActualPayment" not in actual_visits_df.columns:
                 actual_visits_df["ActualPayment"] = None
+            
+            # Handle Notes column
+            if "Notes" not in actual_visits_df.columns:
+                actual_visits_df["Notes"] = ""
+            else:
+                actual_visits_df["Notes"] = actual_visits_df["Notes"].fillna("").astype(str)
+            
+            # Detect screen failures
+            screen_fail_visits = actual_visits_df[
+                actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
+            ]
+            
+            for _, visit in screen_fail_visits.iterrows():
+                patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+                screen_fail_date = visit['ActualDate']
+                if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
+                    screen_failures[patient_study_key] = screen_fail_date
+            
+            if len(screen_failures) > 0:
+                st.info(f"📋 Detected {len(screen_failures)} screen failure(s) - future visits will be excluded after these dates")
             
             # Create lookup key for actual visits
             actual_visits_df["VisitKey"] = (
@@ -159,13 +182,9 @@ if patients_file and trials_file:
         patients_df["Study"] = patients_df["Study"].astype(str)
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
         
-        # Handle StopDate if present
+        # Remove StopDate processing since we're getting it from actual visits now
         if "StopDate" in patients_df.columns:
-            st.info("ℹ️ StopDate column found - visits will be excluded after patient stop dates.")
-            patients_df["StopDate"] = pd.to_datetime(patients_df["StopDate"], dayfirst=True, errors="coerce")
-        else:
-            st.info("ℹ️ No StopDate column found - all scheduled visits will be included.")
-            patients_df["StopDate"] = pd.NaT  # Set all to NaT (Not a Time)
+            st.warning("⚠️ StopDate column found in patients file but will be ignored. Screen failures are now detected from actual visits Notes field.")
             
         trials_df["Study"] = trials_df["Study"].astype(str)
         trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str)
@@ -183,7 +202,6 @@ if patients_file and trials_file:
             patients_df['OriginSite'] = patients_df[patient_origin_col].astype(str)
         else:
             st.warning("⚠️ No patient origin site column found. Add a column like 'PatientSite', 'Practice', or 'OriginSite' to track where patients come from.")
-            # For now, use a default value
             patients_df['OriginSite'] = "Unknown Origin"
 
         # Create patient-site mapping based on their studies and trial sites
@@ -191,27 +209,30 @@ if patients_file and trials_file:
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
             study = patient["Study"]
-            # Find the site for this study from trials data
             study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
             if len(study_sites) > 0:
-                patient_site_mapping[patient_id] = study_sites[0]  # Take the first site if multiple
+                patient_site_mapping[patient_id] = study_sites[0]
             else:
                 patient_site_mapping[patient_id] = "Unknown Site"
 
-        # Add Site column to patients_df for grouping (this is different from OriginSite)
+        # Add Site column to patients_df for grouping
         patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
 
         # Build visit records
         visit_records = []
         excluded_visits_count = 0
+        screen_fail_exclusions = 0
         actual_visits_used = 0
         
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
             study = patient["Study"]
             start_date = patient["StartDate"]
-            stop_date = patient["StopDate"]
             patient_origin = patient["OriginSite"]
+            
+            # Check if this patient has a screen failure
+            patient_study_key = f"{patient_id}_{study}"
+            screen_fail_date = screen_failures.get(patient_study_key)
 
             if pd.isna(start_date):
                 continue
@@ -226,9 +247,9 @@ if patients_file and trials_file:
                 visit_no = visit.get("VisitNo", "")
                 scheduled_date = start_date + timedelta(days=visit_day)
                 
-                # Check if visit date is after stop date
-                if pd.notna(stop_date) and scheduled_date > stop_date:
-                    excluded_visits_count += 1
+                # Check if visit date is after screen failure date
+                if screen_fail_date is not None and scheduled_date > screen_fail_date:
+                    screen_fail_exclusions += 1
                     continue
                 
                 # Check if we have actual visit data for this visit
@@ -246,11 +267,17 @@ if patients_file and trials_file:
                     # Use actual visit data
                     visit_date = actual_visit_data["ActualDate"]
                     payment = float(actual_visit_data.get("ActualPayment") or visit.get("Payment", 0) or 0.0)
-                    visit_status = "✓"  # Mark as completed
+                    notes = actual_visit_data.get("Notes", "")
                     
-                    # Check if actual visit is after stop date
-                    if pd.notna(stop_date) and visit_date > stop_date:
-                        excluded_visits_count += 1
+                    # Mark visit status based on notes
+                    if "ScreenFail" in str(notes):
+                        visit_status = "❌ Screen Fail"
+                    else:
+                        visit_status = "✓"  # Mark as completed
+                    
+                    # Check if actual visit is after screen failure (shouldn't happen but safety check)
+                    if screen_fail_date is not None and visit_date > screen_fail_date:
+                        screen_fail_exclusions += 1
                         continue
                 else:
                     # Use scheduled data with tolerance
@@ -272,7 +299,8 @@ if patients_file and trials_file:
                         "Payment": payment,
                         "SiteofVisit": site,
                         "PatientOrigin": patient_origin,
-                        "IsActual": True
+                        "IsActual": True,
+                        "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", ""))
                     })
                 else:
                     # For scheduled visits, add main visit + tolerance periods
@@ -284,13 +312,14 @@ if patients_file and trials_file:
                         "Payment": payment,
                         "SiteofVisit": site,
                         "PatientOrigin": patient_origin,
-                        "IsActual": False
+                        "IsActual": False,
+                        "IsScreenFail": False
                     })
 
                     # Tolerance before - only for scheduled visits
                     for i in range(1, tol_before + 1):
                         tolerance_date = visit_date - timedelta(days=i)
-                        if pd.notna(stop_date) and tolerance_date > stop_date:
+                        if screen_fail_date is not None and tolerance_date > screen_fail_date:
                             continue
                         visit_records.append({
                             "Date": tolerance_date,
@@ -300,13 +329,14 @@ if patients_file and trials_file:
                             "Payment": 0,
                             "SiteofVisit": site,
                             "PatientOrigin": patient_origin,
-                            "IsActual": False
+                            "IsActual": False,
+                            "IsScreenFail": False
                         })
 
                     # Tolerance after - only for scheduled visits
                     for i in range(1, tol_after + 1):
                         tolerance_date = visit_date + timedelta(days=i)
-                        if pd.notna(stop_date) and tolerance_date > stop_date:
+                        if screen_fail_date is not None and tolerance_date > screen_fail_date:
                             continue
                         visit_records.append({
                             "Date": tolerance_date,
@@ -316,7 +346,8 @@ if patients_file and trials_file:
                             "Payment": 0,
                             "SiteofVisit": site,
                             "PatientOrigin": patient_origin,
-                            "IsActual": False
+                            "IsActual": False,
+                            "IsScreenFail": False
                         })
 
         # Report on actual visits usage
@@ -327,8 +358,8 @@ if patients_file and trials_file:
                 st.warning(f"⚠️ {unmatched_actual} actual visit records could not be matched to scheduled visits")
 
         # Report on excluded visits
-        if excluded_visits_count > 0:
-            st.warning(f"⚠️ {excluded_visits_count} visits were excluded because they occur after patient stop dates.")
+        if screen_fail_exclusions > 0:
+            st.warning(f"⚠️ {screen_fail_exclusions} visits were excluded because they occur after screen failure dates.")
 
         visits_df = pd.DataFrame(visit_records)
 
@@ -383,6 +414,7 @@ if patients_file and trials_file:
                 visit_info = visit["Visit"]
                 payment = float(visit["Payment"]) or 0.0
                 is_actual = visit.get("IsActual", False)
+                is_screen_fail = visit.get("IsScreenFail", False)
 
                 if col_id in calendar_df.columns:
                     if calendar_df.at[i, col_id] == "":
@@ -390,8 +422,9 @@ if patients_file and trials_file:
                     else:
                         calendar_df.at[i, col_id] += f", {visit_info}"
 
-                # Only count payments for actual visits or scheduled main visits (not tolerance periods)
-                if (is_actual and visit_info == "✓") or (not is_actual and visit_info not in ("-", "+")):
+                # Count payments for actual visits and scheduled main visits (not tolerance periods)
+                # Screen failures still count as completed visits for payment
+                if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
                     income_col = f"{study} Income"
                     if income_col in calendar_df.columns:
                         calendar_df.at[i, income_col] += payment
@@ -425,9 +458,19 @@ if patients_file and trials_file:
         for site in unique_sites:
             site_patients = patients_df[patients_df["Site"] == site]
             site_studies = site_patients["Study"].unique()
+            
+            # Count screen failures for this site
+            site_screen_fails = 0
+            for _, patient in site_patients.iterrows():
+                patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
+                if patient_study_key in screen_failures:
+                    site_screen_fails += 1
+            
             site_summary_data.append({
                 "Site": site,
                 "Patients": len(site_patients),
+                "Screen Failures": site_screen_fails,
+                "Active Patients": len(site_patients) - site_screen_fails,
                 "Studies": ", ".join(sorted(site_studies))
             })
         
@@ -436,7 +479,7 @@ if patients_file and trials_file:
 
         # Display legend for visit markers
         if actual_visits_df is not None:
-            st.info("**Legend:** ✓ = Completed Visit (actual date), Visit X = Scheduled Visit, - = Before tolerance, + = After tolerance")
+            st.info("**Legend:** ✓ = Completed Visit, ❌ Screen Fail = Screen failure (no future visits), Visit X = Scheduled Visit, - = Before tolerance, + = After tolerance")
 
         # Display table with site headers
         st.subheader("🗓️ Generated Visit Calendar")
@@ -515,8 +558,10 @@ if patients_file and trials_file:
         st.subheader("💰 Financial Analysis")
         
         # Calculate financial data using only actual visits and scheduled main visits
+        # Exclude screen failures from projected income but include them in actual income
         financial_df = visits_df[
-            (visits_df['Visit'] == "✓") |  # Actual completed visits
+            (visits_df['Visit'] == "✓") |  # Actual completed visits (non-screen fail)
+            (visits_df['Visit'] == "❌ Screen Fail") |  # Screen failure visits (actual)
             (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
         ].copy()
         
@@ -531,7 +576,7 @@ if patients_file and trials_file:
         
         # Display actual vs scheduled summary
         if not actual_financial.empty:
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 actual_income = actual_financial['Payment'].sum()
                 st.metric("Actual Income (Completed)", f"£{actual_income:,.2f}")
@@ -541,6 +586,9 @@ if patients_file and trials_file:
             with col3:
                 total_income = actual_income + scheduled_income
                 st.metric("Total Income", f"£{total_income:,.2f}")
+            with col4:
+                screen_fail_count = len(actual_financial[actual_financial.get('IsScreenFail', False)])
+                st.metric("Screen Failures", screen_fail_count)
             
             completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
             st.metric("Visit Completion Rate", f"{completion_rate:.1f}%")
@@ -600,44 +648,10 @@ if patients_file and trials_file:
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
 
-        # Downloads section (rest of the code remains the same)
+        # Downloads section
         st.subheader("💾 Download Options")
         csv_data = calendar_df_display.to_csv(index=False)
         st.download_button("📄 Download Full CSV", csv_data, "VisitCalendar_Full.csv", "text/csv")
-
-        # Excel exports remain the same...
-        # [Excel export code would continue here but truncated for brevity]
-
-        # Summary statistics
-        st.subheader("📊 Summary Statistics")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Sites", len(unique_sites))
-        with col2:
-            st.metric("Total Patients", len(patients_df))
-        with col3:
-            total_visits = len(financial_df)
-            st.metric("Total Visits", total_visits)
-        with col4:
-            total_income = financial_df["Payment"].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")
-
-        # Actual vs Scheduled breakdown
-        if actual_visits_df is not None:
-            st.subheader("📈 Visit Status Breakdown")
-            col1, col2, col3 = st.columns(3)
-            
-            actual_count = len(actual_financial)
-            scheduled_count = len(scheduled_financial)
-            total_visits_due = actual_count + scheduled_count
-            
-            with col1:
-                st.metric("Completed Visits", actual_count)
-            with col2:
-                st.metric("Pending Visits", scheduled_count)
-            with col3:
-                completion_percentage = (actual_count / total_visits_due * 100) if total_visits_due > 0 else 0
-                st.metric("Completion Rate", f"{completion_percentage:.1f}%")
 
         # Excel exports with formatting and site headers
         try:
@@ -798,30 +812,72 @@ if patients_file and trials_file:
         else:
             st.warning("⚠️ Excel formatting unavailable because openpyxl is not installed in this environment.")
 
+        # Summary statistics
+        st.subheader("📊 Summary Statistics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Sites", len(unique_sites))
+        with col2:
+            st.metric("Total Patients", len(patients_df))
+        with col3:
+            total_visits = len(financial_df)
+            st.metric("Total Visits", total_visits)
+        with col4:
+            total_income = financial_df["Payment"].sum()
+            st.metric("Total Income", f"£{total_income:,.2f}")
+
+        # Actual vs Scheduled breakdown
+        if actual_visits_df is not None:
+            st.subheader("📈 Visit Status Breakdown")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            actual_count = len(actual_financial)
+            scheduled_count = len(scheduled_financial)
+            total_visits_due = actual_count + scheduled_count
+            screen_fail_visits = len(visits_df[visits_df.get('IsScreenFail', False)])
+            
+            with col1:
+                st.metric("Completed Visits", actual_count - screen_fail_visits)
+            with col2:
+                st.metric("Screen Failures", screen_fail_visits)
+            with col3:
+                st.metric("Pending Visits", scheduled_count)
+            with col4:
+                completion_percentage = ((actual_count - screen_fail_visits) / total_visits_due * 100) if total_visits_due > 0 else 0
+                st.metric("Success Rate", f"{completion_percentage:.1f}%")
+
         # Site-wise breakdown
         st.subheader("🏢 Site-wise Statistics")
         site_stats = []
         for site in unique_sites:
             site_patients = patients_df[patients_df["Site"] == site]
             site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & 
-                                  ((visits_df["Visit"] == "✓") | (visits_df["Visit"].str.contains("Visit")))]
+                                  ((visits_df["Visit"] == "✓") | (visits_df["Visit"] == "❌ Screen Fail") | 
+                                   (visits_df["Visit"].str.contains("Visit")))]
             site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
             
-            # Count active vs stopped patients
-            active_patients = len(site_patients[pd.isna(site_patients["StopDate"])])
-            stopped_patients = len(site_patients[pd.notna(site_patients["StopDate"])])
+            # Count screen failures vs active patients
+            site_screen_fails = 0
+            for _, patient in site_patients.iterrows():
+                patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
+                if patient_study_key in screen_failures:
+                    site_screen_fails += 1
+            
+            active_patients = len(site_patients) - site_screen_fails
             
             # Count completed vs pending visits for this site
             completed_visits = len(site_visits[site_visits["Visit"] == "✓"]) if actual_visits_df is not None else 0
+            screen_fail_visits = len(site_visits[site_visits["Visit"] == "❌ Screen Fail"]) if actual_visits_df is not None else 0
             total_visits = len(site_visits)
-            pending_visits = total_visits - completed_visits
+            pending_visits = total_visits - completed_visits - screen_fail_visits
             
             site_stats.append({
                 "Site": site,
                 "Total Patients": len(site_patients),
                 "Active Patients": active_patients,
-                "Stopped Patients": stopped_patients,
+                "Screen Failures": site_screen_fails,
                 "Completed Visits": completed_visits,
+                "Screen Fail Visits": screen_fail_visits,
                 "Pending Visits": pending_visits,
                 "Total Visits": total_visits,
                 "Total Income": f"£{site_income:,.2f}"
@@ -839,6 +895,7 @@ if patients_file and trials_file:
         # Filter only actual visits and main scheduled visits
         analysis_visits = visits_df[
             (visits_df['Visit'] == "✓") |  # Actual completed visits
+            (visits_df['Visit'] == "❌ Screen Fail") |  # Screen failure visits
             (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
         ]
         
@@ -983,8 +1040,8 @@ else:
     - PatientID
     - Study 
     - StartDate
-    - StopDate (optional - visits excluded after this date)
     - Site/PatientSite/Practice (optional - for patient origin)
+    - Note: StopDate no longer needed - screen failures detected from actual visits
     
     **Trials File should contain:**
     - Study
@@ -1000,5 +1057,5 @@ else:
     - VisitNo
     - ActualDate
     - ActualPayment (optional)
-    - Notes (optional)
+    - Notes (optional - use "ScreenFail" to stop future visits)
     """)
