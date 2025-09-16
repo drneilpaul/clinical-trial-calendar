@@ -48,6 +48,127 @@ patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'x
 trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'], key="trials")
 actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'], key="actual_visits")
 
+# Patient Data Entry Form
+if patients_file and trials_file:
+    st.sidebar.header("➕ Add New Patient")
+    
+    with st.sidebar.expander("📝 Patient Entry Form", expanded=False):
+        # Load existing data for validation
+        existing_patients = load_file(patients_file)
+        existing_patients.columns = existing_patients.columns.str.strip()
+        
+        existing_trials = load_file(trials_file)
+        existing_trials.columns = existing_trials.columns.str.strip()
+        
+        # Get available studies and sites
+        available_studies = sorted(existing_trials["Study"].unique().tolist())
+        
+        # Get existing patient practices/sites
+        patient_origin_col = None
+        possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
+        for col in possible_origin_cols:
+            if col in existing_patients.columns:
+                patient_origin_col = col
+                break
+        
+        if patient_origin_col:
+            existing_sites = sorted(existing_patients[patient_origin_col].dropna().unique().tolist())
+        else:
+            existing_sites = ["Ashfields", "Kiltearn"]  # Default options
+        
+        # Form fields
+        new_patient_id = st.text_input("Patient ID", help="Enter unique patient identifier")
+        new_study = st.selectbox("Study", options=available_studies, help="Select study from trials file")
+        new_start_date = st.date_input("Start Date", help="Patient study start date")
+        
+        if patient_origin_col:
+            new_site = st.selectbox(f"{patient_origin_col}", options=existing_sites + ["Add New..."], 
+                                  help="Select patient origin site")
+            if new_site == "Add New...":
+                new_site = st.text_input("New Site Name", help="Enter new site name")
+        else:
+            new_site = st.text_input("Patient Site", help="Enter patient origin site")
+        
+        # Validation
+        validation_errors = []
+        
+        if new_patient_id:
+            # Check for duplicate Patient ID
+            if new_patient_id in existing_patients["PatientID"].astype(str).values:
+                validation_errors.append(f"❌ Patient ID '{new_patient_id}' already exists")
+            
+            # Check Patient ID format (basic validation)
+            if not new_patient_id.replace("-", "").replace("_", "").isalnum():
+                validation_errors.append("❌ Patient ID should contain only letters, numbers, hyphens, or underscores")
+        
+        if new_study and new_study not in available_studies:
+            validation_errors.append(f"❌ Study '{new_study}' not found in trials file")
+            
+        # Check if start date is reasonable (not too far in future or past)
+        from datetime import datetime, date
+        if new_start_date:
+            if new_start_date > date.today():
+                validation_errors.append("⚠️ Start date is in the future")
+            elif (date.today() - new_start_date).days > 365*3:
+                validation_errors.append("⚠️ Start date is more than 3 years ago")
+        
+        # Show validation results
+        if validation_errors:
+            for error in validation_errors:
+                st.write(error)
+        elif new_patient_id and new_study and new_start_date and new_site:
+            st.success("✅ Patient data is valid")
+        
+        # Add patient button
+        if st.button("Add Patient", disabled=bool(validation_errors) or not all([new_patient_id, new_study, new_start_date, new_site])):
+            # Create new patient record
+            new_patient_data = {
+                "PatientID": new_patient_id,
+                "Study": new_study,
+                "StartDate": new_start_date,
+            }
+            
+            # Add site column with appropriate name
+            if patient_origin_col:
+                new_patient_data[patient_origin_col] = new_site
+            else:
+                new_patient_data["PatientPractice"] = new_site
+            
+            # Add any other columns that exist in the original file with empty values
+            for col in existing_patients.columns:
+                if col not in new_patient_data:
+                    new_patient_data[col] = ""
+            
+            # Add to existing dataframe
+            new_row_df = pd.DataFrame([new_patient_data])
+            updated_patients_df = pd.concat([existing_patients, new_row_df], ignore_index=True)
+            
+            # Create download
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                updated_patients_df.to_excel(writer, index=False, sheet_name="Patients")
+            
+            st.download_button(
+                "📥 Download Updated Patients File",
+                data=output.getvalue(),
+                file_name=f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+            st.success(f"✅ Patient {new_patient_id} added! Download the updated file and re-upload to see changes.")
+        
+        # Show preview of what would be added
+        if new_patient_id and new_study and new_start_date and new_site and not validation_errors:
+            st.write("**Preview:**")
+            preview_data = {
+                "PatientID": [new_patient_id],
+                "Study": [new_study], 
+                "StartDate": [new_start_date.strftime('%Y-%m-%d')],
+                (patient_origin_col or "PatientPractice"): [new_site]
+            }
+            preview_df = pd.DataFrame(preview_data)
+            st.dataframe(preview_df, use_container_width=True)
+
 # Information about required columns
 with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("**Patients File:**")
