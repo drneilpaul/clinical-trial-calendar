@@ -160,27 +160,68 @@ if patients_file and trials_file:
         else:
             st.info("ℹ️ No actual visits file provided - showing scheduled visits only")
 
-        # Check if we're using combined format or separate files
-        combined_file_mode = False
-        if patients_file and not trials_file:
-            # Check if the patients file might be a combined format
-            try:
-                test_df = load_file(patients_file)
-                test_df.columns = test_df.columns.str.strip()
-                if "RecordType" in test_df.columns:
-                    combined_file_mode = True
-                    st.info("📋 Combined format detected - processing patient and visit data from single file")
-            except Exception:
-                pass
+# === Main Logic ===
+if patients_file and trials_file:
+    try:
+        # Load files directly without any complex logic
+        patients_df = load_file(patients_file)
+        trials_df = load_file(trials_file)
+        actual_visits_df = load_file(actual_visits_file) if actual_visits_file else None
 
-        # Debug: Show which processing path we're taking
-        st.write(f"**Debug Path Info:**")
-        st.write(f"patients_file uploaded: {patients_file is not None}")
-        st.write(f"trials_file uploaded: {trials_file is not None}")
-        st.write(f"actual_visits_file uploaded: {actual_visits_file is not None}")
-        st.write(f"combined_file_mode: {combined_file_mode}")
+        # Clean columns
+        patients_df.columns = patients_df.columns.str.strip()
+        trials_df.columns = trials_df.columns.str.strip()
+        if actual_visits_df is not None:
+            actual_visits_df.columns = actual_visits_df.columns.str.strip()
 
-        if combined_file_mode:
+        # Required columns check
+        required_patients = {"PatientID", "Study", "StartDate"}
+        required_trials = {"Study", "Day", "VisitNo"}
+
+        if not required_patients.issubset(patients_df.columns):
+            st.error(f"❌ Patients data missing required columns: {required_patients - set(patients_df.columns)}")
+            st.stop()
+        if not required_trials.issubset(trials_df.columns):
+            st.error(f"❌ Trials file missing required columns: {required_trials - set(trials_df.columns)}")
+            st.stop()
+
+        # Check for actual visits file requirements
+        if actual_visits_df is not None:
+            required_actual = {"PatientID", "Study", "VisitNo", "ActualDate"}
+            if not required_actual.issubset(actual_visits_df.columns):
+                st.error(f"❌ Actual visits file missing required columns: {required_actual}")
+                st.stop()
+            
+            # Process actual visits data
+            actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
+            actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
+            actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
+            
+            # Handle ActualPayment column
+            if "ActualPayment" not in actual_visits_df.columns:
+                actual_visits_df["ActualPayment"] = None
+            
+            # Handle Notes column
+            if "Notes" not in actual_visits_df.columns:
+                actual_visits_df["Notes"] = ""
+            else:
+                actual_visits_df["Notes"] = actual_visits_df["Notes"].fillna("").astype(str)
+            
+            # Create lookup key for actual visits
+            actual_visits_df["VisitKey"] = (
+                actual_visits_df["PatientID"] + "_" + 
+                actual_visits_df["Study"] + "_" + 
+                actual_visits_df["VisitNo"].astype(str)
+            )
+            
+            st.info(f"✅ Loaded {len(actual_visits_df)} actual visit records")
+        else:
+            st.info("ℹ️ No actual visits file provided - showing scheduled visits only")
+
+        # Check for SiteforVisit column
+        if "SiteforVisit" not in trials_df.columns:
+            st.warning("⚠️ No 'SiteforVisit' column found in trials file. Using default site grouping.")
+            trials_df["SiteforVisit"] = "Default Site"
             # Process combined file format
             combined_df = load_file(patients_file)
             combined_df.columns = combined_df.columns.str.strip()
