@@ -173,6 +173,13 @@ if patients_file and trials_file:
             except Exception:
                 pass
 
+        # Debug: Show which processing path we're taking
+        st.write(f"**Debug Path Info:**")
+        st.write(f"patients_file uploaded: {patients_file is not None}")
+        st.write(f"trials_file uploaded: {trials_file is not None}")
+        st.write(f"actual_visits_file uploaded: {actual_visits_file is not None}")
+        st.write(f"combined_file_mode: {combined_file_mode}")
+
         if combined_file_mode:
             # Process combined file format
             combined_df = load_file(patients_file)
