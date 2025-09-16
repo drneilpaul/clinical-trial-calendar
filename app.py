@@ -218,12 +218,13 @@ if patients_file and trials_file:
         # Add Site column to patients_df for grouping
         patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
 
-        # Build visit records with improved logic for actual visit recalculation
+        # Build visit records with improved logic for actual visit recalculation and validation
         visit_records = []
         excluded_visits_count = 0
         screen_fail_exclusions = 0
         actual_visits_used = 0
         recalculated_patients = []
+        out_of_window_visits = []
         
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
@@ -254,7 +255,6 @@ if patients_file and trials_file:
                     patient_actual_visits[visit_no] = actual_visit
             
             # Calculate the effective start date for future visit calculations
-            # This will be updated as we process actual visits
             current_baseline_date = start_date
             current_baseline_visit = 0
             patient_needs_recalc = False
@@ -275,7 +275,38 @@ if patients_file and trials_file:
                     payment = float(actual_visit_data.get("ActualPayment") or visit.get("Payment", 0) or 0.0)
                     notes = actual_visit_data.get("Notes", "")
                     
-                    # Update baseline for future calculations if this actual visit is later than expected
+                    # Calculate what the expected date should be (for validation)
+                    if current_baseline_visit == 0:
+                        # First visit - compare against original schedule
+                        expected_date = start_date + timedelta(days=visit_day)
+                    else:
+                        # Calculate from the last actual visit date
+                        baseline_visit_data = study_visits[study_visits["VisitNo"] == current_baseline_visit].iloc[0]
+                        baseline_day = int(baseline_visit_data["Day"])
+                        day_diff = visit_day - baseline_day
+                        expected_date = current_baseline_date + timedelta(days=day_diff)
+                    
+                    # Check if actual visit is outside tolerance window
+                    tolerance_before = int(visit.get("ToleranceBefore", 0) or 0)
+                    tolerance_after = int(visit.get("ToleranceAfter", 0) or 0)
+                    earliest_acceptable = expected_date - timedelta(days=tolerance_before)
+                    latest_acceptable = expected_date + timedelta(days=tolerance_after)
+                    
+                    is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
+                    if is_out_of_window:
+                        days_early = max(0, (earliest_acceptable - visit_date).days)
+                        days_late = max(0, (visit_date - latest_acceptable).days)
+                        deviation = days_early + days_late
+                        out_of_window_visits.append({
+                            'patient': f"{patient_id} ({study})",
+                            'visit': f"V{visit_no}",
+                            'expected': expected_date.strftime('%Y-%m-%d'),
+                            'actual': visit_date.strftime('%Y-%m-%d'),
+                            'deviation': f"{deviation} days {'early' if days_early > 0 else 'late'}",
+                            'tolerance': f"+{tolerance_after}/-{tolerance_before} days"
+                        })
+                    
+                    # Update baseline for future calculations if this actual visit differs from original
                     original_scheduled_date = start_date + timedelta(days=visit_day)
                     if visit_date != original_scheduled_date:
                         patient_needs_recalc = True
@@ -284,9 +315,11 @@ if patients_file and trials_file:
                     current_baseline_date = visit_date
                     current_baseline_visit = visit_no
                     
-                    # Mark visit status based on notes
+                    # Mark visit status based on notes and window compliance
                     if "ScreenFail" in str(notes):
                         visit_status = f"❌ Screen Fail {visit_no}"
+                    elif is_out_of_window:
+                        visit_status = f"⚠️ Visit {visit_no}"  # Warning for out of window
                     else:
                         visit_status = f"✓ Visit {visit_no}"
                     
@@ -311,7 +344,8 @@ if patients_file and trials_file:
                         "SiteofVisit": site,
                         "PatientOrigin": patient_origin,
                         "IsActual": True,
-                        "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", ""))
+                        "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),
+                        "IsOutOfWindow": is_out_of_window
                     })
                     
                 else:
@@ -350,7 +384,8 @@ if patients_file and trials_file:
                         "SiteofVisit": site,
                         "PatientOrigin": patient_origin,
                         "IsActual": False,
-                        "IsScreenFail": False
+                        "IsScreenFail": False,
+                        "IsOutOfWindow": False
                     })
 
                     # Tolerance before - only for scheduled visits
@@ -367,7 +402,8 @@ if patients_file and trials_file:
                             "SiteofVisit": site,
                             "PatientOrigin": patient_origin,
                             "IsActual": False,
-                            "IsScreenFail": False
+                            "IsScreenFail": False,
+                            "IsOutOfWindow": False
                         })
 
                     # Tolerance after - only for scheduled visits
@@ -384,7 +420,8 @@ if patients_file and trials_file:
                             "SiteofVisit": site,
                             "PatientOrigin": patient_origin,
                             "IsActual": False,
-                            "IsScreenFail": False
+                            "IsScreenFail": False,
+                            "IsOutOfWindow": False
                         })
             
             # Track patients that had recalculations
@@ -394,6 +431,14 @@ if patients_file and trials_file:
         # Report on recalculations
         if len(recalculated_patients) > 0:
             st.info(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s) based on actual visit dates: {', '.join(recalculated_patients)}")
+
+        # Report on out-of-window visits
+        if len(out_of_window_visits) > 0:
+            st.warning(f"⚠️ {len(out_of_window_visits)} visit(s) occurred outside tolerance windows:")
+            
+            # Create a detailed table for out-of-window visits
+            oow_df = pd.DataFrame(out_of_window_visits)
+            st.dataframe(oow_df, use_container_width=True)
 
         # Report on actual visits usage
         if actual_visits_df is not None:
