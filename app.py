@@ -201,6 +201,7 @@ if patients_file and trials_file:
         actual_visits_used = 0
         recalculated_patients = []
         out_of_window_visits = []
+        processing_messages = []  # Initialize processing messages list here
         
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
