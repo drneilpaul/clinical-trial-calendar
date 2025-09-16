@@ -395,29 +395,38 @@ if patients_file and trials_file:
             if patient_needs_recalc:
                 recalculated_patients.append(f"{patient_id} ({study})")
 
-        # Report on recalculations and validations
+        # Collect processing messages
         if len(recalculated_patients) > 0:
-            st.info(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s): {', '.join(recalculated_patients)}")
+            processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s): {', '.join(recalculated_patients)}")
 
         if len(out_of_window_visits) > 0:
-            st.warning(f"⚠️ {len(out_of_window_visits)} visit(s) occurred outside tolerance windows:")
-            oow_df = pd.DataFrame(out_of_window_visits)
-            st.dataframe(oow_df, use_container_width=True)
+            processing_messages.append(f"⚠️ {len(out_of_window_visits)} visit(s) occurred outside tolerance windows")
 
         if actual_visits_df is not None:
-            st.success(f"✅ {actual_visits_used} actual visits matched and used in calendar")
+            processing_messages.append(f"✅ {actual_visits_used} actual visits matched and used in calendar")
             unmatched_actual = len(actual_visits_df) - actual_visits_used
             if unmatched_actual > 0:
-                st.warning(f"⚠️ {unmatched_actual} actual visit records could not be matched to scheduled visits")
+                processing_messages.append(f"⚠️ {unmatched_actual} actual visit records could not be matched to scheduled visits")
 
         if screen_fail_exclusions > 0:
-            st.warning(f"⚠️ {screen_fail_exclusions} visits were excluded because they occur after screen failure dates.")
+            processing_messages.append(f"⚠️ {screen_fail_exclusions} visits were excluded because they occur after screen failure dates.")
 
         visits_df = pd.DataFrame(visit_records)
 
         if visits_df.empty:
             st.error("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
             st.stop()
+
+        # Processing Log (expandable)
+        with st.expander("📋 View Processing Log", expanded=False):
+            for message in processing_messages:
+                st.write(message)
+            
+            # Show out of window visits detail if any
+            if len(out_of_window_visits) > 0:
+                st.write("**Out-of-Window Visit Details:**")
+                oow_df = pd.DataFrame(out_of_window_visits)
+                st.dataframe(oow_df, use_container_width=True)
 
         # Build calendar
         min_date = visits_df["Date"].min() - timedelta(days=1)
