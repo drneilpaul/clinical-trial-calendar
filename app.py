@@ -41,7 +41,7 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v2.1.0 | Updated: Color-coded calendar for easy visual distinction between actual and planned visits")
+st.caption("v2.2.0 | Updated: Support for combined patient/visit file format + automatic file conversion tool")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
@@ -49,27 +49,25 @@ trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls',
 actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'], key="actual_visits")
 
 # Information about required columns
-with st.sidebar.expander("ℹ️ Required Columns"):
+with st.sidebar.expander("ℹ️ File Format Options"):
+    st.write("**Option 1: Combined Format (Recommended)**")
+    st.write("Upload single file with both patient and visit data:")
+    st.write("- PatientID, Study, StartDate, Site/PatientPractice")
+    st.write("- RecordType ('Patient' or 'Visit')")  
+    st.write("- VisitNo, ActualDate, ActualPayment, Notes")
+    st.write("")
+    st.write("**Option 2: Separate Files**")
     st.write("**Patients File:**")
-    st.write("- PatientID")
-    st.write("- Study") 
-    st.write("- StartDate")
-    st.write("- Site/PatientSite/Practice (optional - for patient origin)")
-    st.write("- Note: StopDate no longer used - screen failures detected from actual visits")
+    st.write("- PatientID, Study, StartDate")
+    st.write("- Site/PatientSite/Practice (optional)")
     st.write("")
     st.write("**Trials File:**")
-    st.write("- Study")
-    st.write("- Day")
-    st.write("- VisitNo")
-    st.write("- SiteforVisit (used for grouping)")
+    st.write("- Study, Day, VisitNo, SiteforVisit")
     st.write("")
     st.write("**Actual Visits File (Optional):**")
-    st.write("- PatientID")
-    st.write("- Study") 
-    st.write("- VisitNo")
-    st.write("- ActualDate")
-    st.write("- ActualPayment (optional)")
-    st.write("- Notes (optional - 'ScreenFail' stops future visits)")
+    st.write("- PatientID, Study, VisitNo, ActualDate")
+    st.write("- ActualPayment, Notes (optional)")
+    st.write("- Use 'ScreenFail' in Notes to stop future visits")
 
 
 # === File Loading Helper ===
@@ -162,8 +160,166 @@ if patients_file and trials_file:
         else:
             st.info("ℹ️ No actual visits file provided - showing scheduled visits only")
 
-        # Check for SiteforVisit column
-        if "SiteforVisit" not in trials_df.columns:
+        # Check if we're using combined format or separate files
+        combined_file_mode = False
+        if patients_file and not trials_file:
+            # Check if the patients file might be a combined format
+            try:
+                test_df = load_file(patients_file)
+                test_df.columns = test_df.columns.str.strip()
+                if "RecordType" in test_df.columns:
+                    combined_file_mode = True
+                    st.info("📋 Combined format detected - processing patient and visit data from single file")
+            except Exception:
+                pass
+
+        if combined_file_mode:
+            # Process combined file format
+            combined_df = load_file(patients_file)
+            combined_df.columns = combined_df.columns.str.strip()
+            
+            # Split into patients and visits
+            patients_df = combined_df[combined_df["RecordType"] == "Patient"].copy()
+            actual_visits_from_combined = combined_df[combined_df["RecordType"] == "Visit"].copy()
+            
+            # Load trials file separately (still needed for visit schedule)
+            if not trials_file:
+                st.error("❌ Trials file is still required even with combined patient data format")
+                st.stop()
+                
+            trials_df = load_file(trials_file)
+            trials_df.columns = trials_df.columns.str.strip()
+            
+            # Use visits from combined file if no separate actual visits file
+            if not actual_visits_file and len(actual_visits_from_combined) > 0:
+                actual_visits_df = actual_visits_from_combined
+                st.info(f"📋 Using visit data from combined file ({len(actual_visits_df)} visit records)")
+            elif actual_visits_file:
+                actual_visits_df = load_file(actual_visits_file)
+                st.info("📋 Using separate actual visits file (overrides combined file visit data)")
+            else:
+                actual_visits_df = None
+                
+        else:
+            # Original separate files format
+            if not patients_file or not trials_file:
+                st.info("👆 Please upload both Patients and Trials files (CSV or Excel).")
+                
+                # Add file conversion tool section
+                st.subheader("🔄 File Format Conversion Tool")
+                st.info("Convert your existing separate files into the new combined format for easier data management")
+                
+                convert_patients = st.file_uploader("Upload Patients File for Conversion", type=['csv', 'xls', 'xlsx'], key="convert_patients")
+                convert_actual_visits = st.file_uploader("Upload Actual Visits File for Conversion (Optional)", type=['csv', 'xls', 'xlsx'], key="convert_actual_visits")
+                
+                if convert_patients:
+                    try:
+                        # Load files for conversion
+                        conv_patients_df = load_file(convert_patients)
+                        conv_patients_df.columns = conv_patients_df.columns.str.strip()
+                        
+                        conv_actual_visits_df = None
+                        if convert_actual_visits:
+                            conv_actual_visits_df = load_file(convert_actual_visits)
+                            conv_actual_visits_df.columns = conv_actual_visits_df.columns.str.strip()
+                        
+                        # Create combined format
+                        combined_records = []
+                        
+                        # Add patient records
+                        for _, patient in conv_patients_df.iterrows():
+                            patient_record = patient.to_dict()
+                            patient_record["RecordType"] = "Patient"
+                            # Clear visit-related fields for patient records
+                            patient_record["VisitNo"] = ""
+                            patient_record["ActualDate"] = ""
+                            patient_record["ActualPayment"] = ""
+                            patient_record["Notes"] = ""
+                            combined_records.append(patient_record)
+                        
+                        # Add visit records
+                        if conv_actual_visits_df is not None:
+                            for _, visit in conv_actual_visits_df.iterrows():
+                                # Find matching patient to get their details
+                                matching_patient = conv_patients_df[
+                                    (conv_patients_df["PatientID"].astype(str) == str(visit["PatientID"])) &
+                                    (conv_patients_df["Study"].astype(str) == str(visit["Study"]))
+                                ]
+                                
+                                if not matching_patient.empty:
+                                    patient_info = matching_patient.iloc[0]
+                                    visit_record = {
+                                        "PatientID": visit["PatientID"],
+                                        "Study": visit["Study"],
+                                        "StartDate": "",  # Empty for visit records
+                                    }
+                                    
+                                    # Add any other patient fields that exist
+                                    for col in conv_patients_df.columns:
+                                        if col not in ["PatientID", "Study", "StartDate"]:
+                                            visit_record[col] = ""
+                                    
+                                    # Add visit-specific data
+                                    visit_record["RecordType"] = "Visit"
+                                    visit_record["VisitNo"] = visit["VisitNo"]
+                                    visit_record["ActualDate"] = visit["ActualDate"]
+                                    visit_record["ActualPayment"] = visit.get("ActualPayment", "")
+                                    visit_record["Notes"] = visit.get("Notes", "")
+                                    
+                                    combined_records.append(visit_record)
+                        
+                        # Create DataFrame and prepare for download
+                        combined_conversion_df = pd.DataFrame(combined_records)
+                        
+                        # Ensure consistent column order
+                        base_columns = ["PatientID", "Study", "StartDate"]
+                        patient_columns = [col for col in conv_patients_df.columns if col not in base_columns]
+                        visit_columns = ["RecordType", "VisitNo", "ActualDate", "ActualPayment", "Notes"]
+                        
+                        all_columns = base_columns + patient_columns + visit_columns
+                        combined_conversion_df = combined_conversion_df.reindex(columns=all_columns)
+                        
+                        # Display preview
+                        st.subheader("📋 Combined Format Preview")
+                        st.dataframe(combined_conversion_df.head(10), use_container_width=True)
+                        
+                        st.success(f"✅ Conversion complete: {len(conv_patients_df)} patients, {len(conv_actual_visits_df) if conv_actual_visits_df is not None else 0} visits")
+                        
+                        # Create Excel download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            combined_conversion_df.to_excel(writer, index=False, sheet_name="CombinedPatientData")
+                        
+                        st.download_button(
+                            "📥 Download Combined Format Excel File",
+                            data=output.getvalue(),
+                            file_name="CombinedPatientData.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error during conversion: {e}")
+                
+                st.markdown("""
+                ### File Structure Information:
+                
+                **Combined Format (New - Recommended):**
+                Upload a single file containing both patient and visit data with these columns:
+                - PatientID, Study, StartDate, Site/PatientPractice (patient info)
+                - RecordType ("Patient" or "Visit")
+                - VisitNo, ActualDate, ActualPayment, Notes (visit info)
+                
+                **Separate Files Format (Current):**
+                - **Patients File:** PatientID, Study, StartDate, Site/PatientPractice
+                - **Trials File:** Study, Day, VisitNo, SiteforVisit, Income/Payment, ToleranceBefore, ToleranceAfter  
+                - **Actual Visits File (Optional):** PatientID, Study, VisitNo, ActualDate, ActualPayment, Notes
+                """)
+                st.stop()
+            
+            # Process separate files normally
+            patients_df = load_file(patients_file)
+            trials_df = load_file(trials_file)
+            actual_visits_df = load_file(actual_visits_file) if actual_visits_file else None
             st.warning("⚠️ No 'SiteforVisit' column found in trials file. Using default site grouping.")
             trials_df["SiteforVisit"] = "Default Site"
 
