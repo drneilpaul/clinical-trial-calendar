@@ -41,7 +41,7 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.9.0 | Updated: Smart visit recalculation when actual visits deviate from schedule")
+st.caption("v2.1.0 | Updated: Color-coded calendar for easy visual distinction between actual and planned visits")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
@@ -491,7 +491,7 @@ if patients_file and trials_file:
         
         calendar_df["Daily Total"] = 0.0
 
-        # Fill calendar
+        # Fill calendar with color-coded visit information
         for i, row in calendar_df.iterrows():
             date = row["Date"]
             visits_today = visits_df[visits_df["Date"] == date]
@@ -505,6 +505,7 @@ if patients_file and trials_file:
                 payment = float(visit["Payment"]) or 0.0
                 is_actual = visit.get("IsActual", False)
                 is_screen_fail = visit.get("IsScreenFail", False)
+                is_out_of_window = visit.get("IsOutOfWindow", False)
 
                 if col_id in calendar_df.columns:
                     if calendar_df.at[i, col_id] == "":
@@ -567,9 +568,23 @@ if patients_file and trials_file:
         site_summary_df = pd.DataFrame(site_summary_data)
         st.dataframe(site_summary_df, use_container_width=True)
 
-        # Display legend for visit markers
+        # Display legend for visit markers with color coding
         if actual_visits_df is not None:
-            st.info("**Legend:** ✓ Visit X = Completed Visit (actual date), ❌ Screen Fail X = Screen failure (no future visits), Visit X = Scheduled Visit, - = Before tolerance, + = After tolerance")
+            st.info("""
+            **Legend with Color Coding:**
+            
+            **Actual Visits:**
+            - ✓ Visit X (Green background) = Completed Visit (within tolerance window)  
+            - ⚠️ Visit X (Yellow background) = Completed Visit (outside tolerance window)
+            - ❌ Screen Fail X (Red background) = Screen failure (no future visits)
+            
+            **Scheduled Visits:**
+            - Visit X (Gray background) = Scheduled/Planned Visit
+            - \- (Light gray, italic) = Before tolerance period
+            - \+ (Light gray, italic) = After tolerance period
+            """)
+        else:
+            st.info("**Legend:** Visit X (Gray) = Scheduled Visit, - = Before tolerance, + = After tolerance")
 
         # Display table with site headers
         st.subheader("🗓️ Generated Visit Calendar")
@@ -598,7 +613,7 @@ if patients_file and trials_file:
         display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
 
         try:
-            # Apply styling function
+            # Apply styling function with visit color coding
             def highlight_with_header(row):
                 if row.name == 0:  # First row is site header
                     styles = []
@@ -610,26 +625,47 @@ if patients_file and trials_file:
                     return styles
                 else:
                     # Apply normal styling to data rows
-                    try:
-                        date_obj = pd.to_datetime(row.get("Date"))
-                        if pd.isna(date_obj):
-                            return [''] * len(row)
-
-                        # Financial year end (31 March)
-                        if date_obj.month == 3 and date_obj.day == 31:
-                            return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
-
-                        # Month end
-                        if date_obj == date_obj + pd.offsets.MonthEnd(0):
-                            return ['background-color: #3b82f6; color: white; font-weight: bold'] * len(row)
-
-                        # Weekend
-                        if date_obj.weekday() in (5, 6):
-                            return ['background-color: #f3f4f6'] * len(row)
-
-                    except Exception:
-                        pass
-                    return [''] * len(row)
+                    styles = []
+                    for col_idx, (col_name, cell_value) in enumerate(row.items()):
+                        style = ""
+                        
+                        # First check for date-based styling (weekends, month-end, etc.)
+                        try:
+                            if col_name == "Date":
+                                date_obj = pd.to_datetime(cell_value)
+                                if not pd.isna(date_obj):
+                                    # Financial year end (31 March)
+                                    if date_obj.month == 3 and date_obj.day == 31:
+                                        style = 'background-color: #1e40af; color: white; font-weight: bold;'
+                                    # Month end
+                                    elif date_obj == date_obj + pd.offsets.MonthEnd(0):
+                                        style = 'background-color: #3b82f6; color: white; font-weight: bold;'
+                                    # Weekend
+                                    elif date_obj.weekday() in (5, 6):
+                                        style = 'background-color: #f3f4f6;'
+                        except Exception:
+                            pass
+                        
+                        # Then check for visit-specific color coding in patient columns
+                        if col_name not in ["Date", "Day"] and str(cell_value) != "" and style == "":
+                            # Check if this cell contains visit information
+                            cell_str = str(cell_value)
+                            
+                            # Color coding for different visit types
+                            if "✓ Visit" in cell_str:  # Completed visits (within window)
+                                style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                            elif "⚠️ Visit" in cell_str:  # Completed visits (outside window)
+                                style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+                            elif "❌ Screen Fail" in cell_str:  # Screen failures
+                                style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                            elif "Visit " in cell_str and not cell_str.startswith("✓") and not cell_str.startswith("⚠️"):  # Scheduled visits
+                                style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
+                            elif cell_str in ["+", "-"]:  # Tolerance periods
+                                style = 'background-color: #f8f9fa; color: #6c757d; font-style: italic;'
+                        
+                        styles.append(style)
+                    
+                    return styles
 
             styled_df = display_with_header.style.apply(highlight_with_header, axis=1)
             
@@ -740,8 +776,6 @@ if patients_file and trials_file:
 
         # Downloads section
         st.subheader("💾 Download Options")
-        csv_data = calendar_df_display.to_csv(index=False)
-        st.download_button("📄 Download Full CSV", csv_data, "VisitCalendar_Full.csv", "text/csv")
 
         # Excel exports with formatting and site headers
         try:
@@ -798,34 +832,83 @@ if patients_file and trials_file:
                     )
                     ws.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Define fills / fonts
+                # Define fills / fonts with visit type color coding
                 weekend_fill = PatternFill(start_color="FFF3F4F6", end_color="FFF3F4F6", fill_type="solid")
                 month_end_fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
                 fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
                 white_font = Font(color="FFFFFFFF", bold=True)
+                
+                # Visit type color fills
+                completed_visit_fill = PatternFill(start_color="FFD4EDDA", end_color="FFD4EDDA", fill_type="solid")  # Green
+                completed_visit_font = Font(color="FF155724", bold=True)
+                
+                out_of_window_fill = PatternFill(start_color="FFFFF3CD", end_color="FFFFF3CD", fill_type="solid")  # Yellow
+                out_of_window_font = Font(color="FF856404", bold=True)
+                
+                screen_fail_fill = PatternFill(start_color="FFF8D7DA", end_color="FFF8D7DA", fill_type="solid")  # Red
+                screen_fail_font = Font(color="FF721C24", bold=True)
+                
+                scheduled_visit_fill = PatternFill(start_color="FFE2E3E5", end_color="FFE2E3E5", fill_type="solid")  # Gray
+                scheduled_visit_font = Font(color="FF383D41", bold=False)
+                
+                tolerance_fill = PatternFill(start_color="FFF8F9FA", end_color="FFF8F9FA", fill_type="solid")  # Light gray
+                tolerance_font = Font(color="FF6C757D", italic=True)
 
-                # Apply formatting row-by-row (starting from row 3 due to headers)
-                for row_idx, date_obj in enumerate(calendar_df["Date"], start=3):
+                # Apply formatting row-by-row and cell-by-cell (starting from row 3 due to headers)
+                for row_idx in range(3, len(excel_full_df) + 3):
                     try:
-                        if pd.isna(date_obj):
-                            continue
-
-                        if date_obj.month == 3 and date_obj.day == 31:
-                            for col_idx in range(1, len(excel_full_df.columns) + 1):
-                                cell = ws.cell(row=row_idx, column=col_idx)
-                                cell.fill = fy_end_fill
-                                cell.font = white_font
-                        else:
-                            last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
-                            if date_obj.day == last_day:
-                                for col_idx in range(1, len(excel_full_df.columns) + 1):
-                                    cell = ws.cell(row=row_idx, column=col_idx)
-                                    cell.fill = month_end_fill
-                                    cell.font = white_font
-                            elif date_obj.weekday() in (5, 6):
-                                for col_idx in range(1, len(excel_full_df.columns) + 1):
-                                    cell = ws.cell(row=row_idx, column=col_idx)
-                                    cell.fill = weekend_fill
+                        # Get the original date for date-based formatting
+                        date_idx = row_idx - 3
+                        if date_idx < len(calendar_df):
+                            date_obj = calendar_df.iloc[date_idx]["Date"]
+                            
+                            # Apply date-based formatting first (this affects entire row)
+                            date_style_applied = False
+                            if not pd.isna(date_obj):
+                                if date_obj.month == 3 and date_obj.day == 31:
+                                    # Financial year end - apply to entire row
+                                    for col_idx in range(1, len(excel_full_df.columns) + 1):
+                                        cell = ws.cell(row=row_idx, column=col_idx)
+                                        cell.fill = fy_end_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                elif date_obj == date_obj + pd.offsets.MonthEnd(0):
+                                    # Month end - apply to entire row
+                                    for col_idx in range(1, len(excel_full_df.columns) + 1):
+                                        cell = ws.cell(row=row_idx, column=col_idx)
+                                        cell.fill = month_end_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                elif date_obj.weekday() in (5, 6):
+                                    # Weekend - apply to entire row
+                                    for col_idx in range(1, len(excel_full_df.columns) + 1):
+                                        cell = ws.cell(row=row_idx, column=col_idx)
+                                        cell.fill = weekend_fill
+                                    date_style_applied = True
+                            
+                            # If no date-based styling was applied, apply visit-specific styling to patient columns
+                            if not date_style_applied:
+                                for col_idx, col_name in enumerate(excel_full_df.columns, 1):
+                                    if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
+                                        cell = ws.cell(row=row_idx, column=col_idx)
+                                        cell_value = str(cell.value) if cell.value else ""
+                                        
+                                        # Apply visit-specific color coding
+                                        if "✓ Visit" in cell_value:
+                                            cell.fill = completed_visit_fill
+                                            cell.font = completed_visit_font
+                                        elif "⚠️ Visit" in cell_value:
+                                            cell.fill = out_of_window_fill
+                                            cell.font = out_of_window_font
+                                        elif "❌ Screen Fail" in cell_value:
+                                            cell.fill = screen_fail_fill
+                                            cell.font = screen_fail_font
+                                        elif "Visit " in cell_value and not cell_value.startswith("✓") and not cell_value.startswith("⚠️"):
+                                            cell.fill = scheduled_visit_fill
+                                            cell.font = scheduled_visit_font
+                                        elif cell_value in ["+", "-"]:
+                                            cell.fill = tolerance_fill
+                                            cell.font = tolerance_font
 
                     except Exception:
                         continue
@@ -867,28 +950,58 @@ if patients_file and trials_file:
                     )
                     ws2.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Apply same row formatting
-                for row_idx, date_obj in enumerate(calendar_df["Date"], start=3):
+                # Apply same row and cell formatting to schedule-only file
+                for row_idx in range(3, len(schedule_df) + 3):
                     try:
-                        if pd.isna(date_obj):
-                            continue
-
-                        if date_obj.month == 3 and date_obj.day == 31:
-                            for col_idx in range(1, len(schedule_df.columns) + 1):
-                                cell = ws2.cell(row=row_idx, column=col_idx)
-                                cell.fill = fy_end_fill
-                                cell.font = white_font
-                        else:
-                            last_day = cal.monthrange(date_obj.year, date_obj.month)[1]
-                            if date_obj.day == last_day:
-                                for col_idx in range(1, len(schedule_df.columns) + 1):
-                                    cell = ws2.cell(row=row_idx, column=col_idx)
-                                    cell.fill = month_end_fill
-                                    cell.font = white_font
-                            elif date_obj.weekday() in (5, 6):
-                                for col_idx in range(1, len(schedule_df.columns) + 1):
-                                    cell = ws2.cell(row=row_idx, column=col_idx)
-                                    cell.fill = weekend_fill
+                        # Get the original date for date-based formatting
+                        date_idx = row_idx - 3
+                        if date_idx < len(calendar_df):
+                            date_obj = calendar_df.iloc[date_idx]["Date"]
+                            
+                            # Apply date-based formatting first
+                            date_style_applied = False
+                            if not pd.isna(date_obj):
+                                if date_obj.month == 3 and date_obj.day == 31:
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = ws2.cell(row=row_idx, column=col_idx)
+                                        cell.fill = fy_end_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                elif date_obj == date_obj + pd.offsets.MonthEnd(0):
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = ws2.cell(row=row_idx, column=col_idx)
+                                        cell.fill = month_end_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                elif date_obj.weekday() in (5, 6):
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = ws2.cell(row=row_idx, column=col_idx)
+                                        cell.fill = weekend_fill
+                                    date_style_applied = True
+                            
+                            # Apply visit-specific styling to patient columns if no date styling
+                            if not date_style_applied:
+                                for col_idx, col_name in enumerate(schedule_df.columns, 1):
+                                    if col_name not in ["Date", "Day"]:
+                                        cell = ws2.cell(row=row_idx, column=col_idx)
+                                        cell_value = str(cell.value) if cell.value else ""
+                                        
+                                        # Apply visit-specific color coding
+                                        if "✓ Visit" in cell_value:
+                                            cell.fill = completed_visit_fill
+                                            cell.font = completed_visit_font
+                                        elif "⚠️ Visit" in cell_value:
+                                            cell.fill = out_of_window_fill
+                                            cell.font = out_of_window_font
+                                        elif "❌ Screen Fail" in cell_value:
+                                            cell.fill = screen_fail_fill
+                                            cell.font = screen_fail_font
+                                        elif "Visit " in cell_value and not cell_value.startswith("✓") and not cell_value.startswith("⚠️"):
+                                            cell.fill = scheduled_visit_fill
+                                            cell.font = scheduled_visit_font
+                                        elif cell_value in ["+", "-"]:
+                                            cell.fill = tolerance_fill
+                                            cell.font = tolerance_font
 
                     except Exception:
                         continue
