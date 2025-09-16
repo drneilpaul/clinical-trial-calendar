@@ -41,7 +41,7 @@ def highlight_weekends(row):
 
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v1.8.0 | Updated: Screen failure detection from actual visits, removed StopDate from patients file")
+st.caption("v1.9.0 | Updated: Smart visit recalculation when actual visits deviate from schedule")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
@@ -218,11 +218,12 @@ if patients_file and trials_file:
         # Add Site column to patients_df for grouping
         patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
 
-        # Build visit records
+        # Build visit records with improved logic for actual visit recalculation
         visit_records = []
         excluded_visits_count = 0
         screen_fail_exclusions = 0
         actual_visits_used = 0
+        recalculated_patients = []
         
         for _, patient in patients_df.iterrows():
             patient_id = patient["PatientID"]
@@ -237,54 +238,70 @@ if patients_file and trials_file:
             if pd.isna(start_date):
                 continue
 
-            study_visits = trials_df[trials_df["Study"] == study]
+            # Get all visits for this study and sort by visit number/day
+            study_visits = trials_df[trials_df["Study"] == study].sort_values(['VisitNo', 'Day']).copy()
+            
+            # Get all actual visits for this patient to build a recalculation baseline
+            patient_actual_visits = {}
+            if actual_visits_df is not None:
+                patient_actuals = actual_visits_df[
+                    (actual_visits_df["PatientID"] == str(patient_id)) & 
+                    (actual_visits_df["Study"] == study)
+                ].sort_values('VisitNo')
+                
+                for _, actual_visit in patient_actuals.iterrows():
+                    visit_no = actual_visit["VisitNo"]
+                    patient_actual_visits[visit_no] = actual_visit
+            
+            # Calculate the effective start date for future visit calculations
+            # This will be updated as we process actual visits
+            current_baseline_date = start_date
+            current_baseline_visit = 0
+            patient_needs_recalc = False
+            
             for _, visit in study_visits.iterrows():
                 try:
                     visit_day = int(visit["Day"])
+                    visit_no = visit.get("VisitNo", "")
                 except Exception:
                     continue
                 
-                visit_no = visit.get("VisitNo", "")
-                scheduled_date = start_date + timedelta(days=visit_day)
-                
-                # Check if visit date is after screen failure date
-                if screen_fail_date is not None and scheduled_date > screen_fail_date:
-                    screen_fail_exclusions += 1
-                    continue
-                
-                # Check if we have actual visit data for this visit
-                visit_key = f"{patient_id}_{study}_{visit_no}"
-                actual_visit_data = None
-                
-                if actual_visits_df is not None:
-                    matching_actual = actual_visits_df[actual_visits_df["VisitKey"] == visit_key]
-                    if not matching_actual.empty:
-                        actual_visit_data = matching_actual.iloc[0]
-                        actual_visits_used += 1
-                
-                # Determine visit details based on whether we have actual data
-                tol_before = int(visit.get("ToleranceBefore", 0) or 0)
-                tol_after = int(visit.get("ToleranceAfter", 0) or 0)
-                site = visit.get("SiteforVisit", "Unknown Site")
+                # Check if we have an actual visit for this visit number
+                actual_visit_data = patient_actual_visits.get(visit_no)
                 
                 if actual_visit_data is not None:
-                    # Use actual visit data - this replaces the scheduled visit entirely
+                    # This is an actual visit - use actual data
                     visit_date = actual_visit_data["ActualDate"]
                     payment = float(actual_visit_data.get("ActualPayment") or visit.get("Payment", 0) or 0.0)
                     notes = actual_visit_data.get("Notes", "")
                     
-                    # Mark visit status based on notes, include visit number
+                    # Update baseline for future calculations if this actual visit is later than expected
+                    original_scheduled_date = start_date + timedelta(days=visit_day)
+                    if visit_date != original_scheduled_date:
+                        patient_needs_recalc = True
+                    
+                    # Update the baseline date and visit number for subsequent calculations
+                    current_baseline_date = visit_date
+                    current_baseline_visit = visit_no
+                    
+                    # Mark visit status based on notes
                     if "ScreenFail" in str(notes):
                         visit_status = f"❌ Screen Fail {visit_no}"
                     else:
-                        visit_status = f"✓ Visit {visit_no}"  # Include visit number with tick
+                        visit_status = f"✓ Visit {visit_no}"
                     
-                    # Check if actual visit is after screen failure (shouldn't happen but safety check)
+                    # Check if actual visit is after screen failure
                     if screen_fail_date is not None and visit_date > screen_fail_date:
                         screen_fail_exclusions += 1
                         continue
                     
-                    # For actual visits, only add the main visit record (no tolerance periods)
+                    actual_visits_used += 1
+                    
+                    # Record the actual visit
+                    tol_before = int(visit.get("ToleranceBefore", 0) or 0)
+                    tol_after = int(visit.get("ToleranceAfter", 0) or 0)
+                    site = visit.get("SiteforVisit", "Unknown Site")
+                    
                     visit_records.append({
                         "Date": visit_date,
                         "PatientID": patient_id,
@@ -296,11 +313,32 @@ if patients_file and trials_file:
                         "IsActual": True,
                         "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", ""))
                     })
+                    
                 else:
-                    # Use scheduled data with tolerance - only if no actual visit exists
+                    # This is a scheduled visit - calculate date based on current baseline
+                    if current_baseline_visit == 0:
+                        # No actual visits yet, use original start date calculation
+                        scheduled_date = start_date + timedelta(days=visit_day)
+                    else:
+                        # Calculate from the last actual visit date
+                        # Find the day difference between current visit and the baseline visit
+                        baseline_visit_data = study_visits[study_visits["VisitNo"] == current_baseline_visit].iloc[0]
+                        baseline_day = int(baseline_visit_data["Day"])
+                        day_diff = visit_day - baseline_day
+                        scheduled_date = current_baseline_date + timedelta(days=day_diff)
+                    
+                    # Check if visit date is after screen failure date
+                    if screen_fail_date is not None and scheduled_date > screen_fail_date:
+                        screen_fail_exclusions += 1
+                        continue
+                    
                     visit_date = scheduled_date
                     payment = float(visit.get("Payment", 0) or 0.0)
                     visit_status = f"Visit {visit_no}"
+                    
+                    tol_before = int(visit.get("ToleranceBefore", 0) or 0)
+                    tol_after = int(visit.get("ToleranceAfter", 0) or 0)
+                    site = visit.get("SiteforVisit", "Unknown Site")
                     
                     # For scheduled visits, add main visit + tolerance periods
                     visit_records.append({
@@ -348,6 +386,14 @@ if patients_file and trials_file:
                             "IsActual": False,
                             "IsScreenFail": False
                         })
+            
+            # Track patients that had recalculations
+            if patient_needs_recalc:
+                recalculated_patients.append(f"{patient_id} ({study})")
+
+        # Report on recalculations
+        if len(recalculated_patients) > 0:
+            st.info(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s) based on actual visit dates: {', '.join(recalculated_patients)}")
 
         # Report on actual visits usage
         if actual_visits_df is not None:
