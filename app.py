@@ -86,10 +86,13 @@ def load_file(uploaded_file):
 # === Main Logic ===
 if patients_file and trials_file:
     # Add Patient Entry Button at the top
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
         if st.button("➕ Add New Patient", use_container_width=True):
             st.session_state.show_patient_form = True
+    with col2:
+        if st.button("📋 Record Visit", use_container_width=True):
+            st.session_state.show_visit_form = True
     
     # Patient Entry Modal using session state
     if st.session_state.get('show_patient_form', False):
@@ -240,6 +243,164 @@ if patients_file and trials_file:
         
         patient_entry_form()
     
+    # Visit Entry Modal using session state
+    if st.session_state.get('show_visit_form', False):
+        @st.dialog("Record Visit")
+        def visit_entry_form():
+            # Load existing data
+            existing_patients = load_file(patients_file)
+            existing_patients.columns = existing_patients.columns.str.strip()
+            
+            existing_trials = load_file(trials_file)
+            existing_trials.columns = existing_trials.columns.str.strip()
+            
+            # Load existing actual visits if file exists
+            existing_visits = pd.DataFrame()
+            if actual_visits_file:
+                existing_visits = load_file(actual_visits_file)
+                existing_visits.columns = existing_visits.columns.str.strip()
+            
+            # Get available patients and studies
+            patient_options = []
+            for _, patient in existing_patients.iterrows():
+                patient_options.append(f"{patient['PatientID']} ({patient['Study']})")
+            
+            # Form fields
+            selected_patient = st.selectbox("Select Patient", options=patient_options, help="Choose patient who attended visit")
+            
+            if selected_patient:
+                # Extract patient ID and study from selection
+                patient_info = selected_patient.split(" (")
+                patient_id = patient_info[0]
+                study = patient_info[1].rstrip(")")
+                
+                # Get available visits for this study
+                study_visits = existing_trials[existing_trials["Study"] == study]
+                visit_options = []
+                for _, visit in study_visits.iterrows():
+                    visit_options.append(f"Visit {visit['VisitNo']} (Day {visit['Day']})")
+                
+                selected_visit = st.selectbox("Visit Number", options=visit_options, help="Select which visit was completed")
+                
+                if selected_visit:
+                    # Extract visit number
+                    visit_no = selected_visit.split(" ")[1].split(" ")[0]
+                    
+                    visit_date = st.date_input("Visit Date", help="Date the visit was completed")
+                    
+                    # Get payment amount from trials data
+                    visit_payment = existing_trials[
+                        (existing_trials["Study"] == study) & 
+                        (existing_trials["VisitNo"].astype(str) == visit_no)
+                    ]
+                    default_payment = visit_payment["Payment"].iloc[0] if len(visit_payment) > 0 and "Payment" in visit_payment.columns else 0
+                    
+                    actual_payment = st.number_input("Payment Amount", value=float(default_payment), min_value=0.0, help="Payment for this visit")
+                    
+                    notes = st.text_area("Notes (Optional)", help="Any notes about the visit. Use 'ScreenFail' to stop future visits")
+                    
+                    # Validation
+                    validation_errors = []
+                    
+                    from datetime import date
+                    if visit_date > date.today():
+                        validation_errors.append("Visit date cannot be in the future")
+                    
+                    # Check if visit already recorded
+                    if len(existing_visits) > 0:
+                        duplicate_visit = existing_visits[
+                            (existing_visits["PatientID"].astype(str) == str(patient_id)) &
+                            (existing_visits["Study"] == study) &
+                            (existing_visits["VisitNo"].astype(str) == visit_no)
+                        ]
+                        if len(duplicate_visit) > 0:
+                            validation_errors.append(f"Visit {visit_no} for patient {patient_id} already recorded")
+                    
+                    # Show validation results
+                    if validation_errors:
+                        st.error("Please fix the following issues:")
+                        for error in validation_errors:
+                            st.write(f"• {error}")
+                    elif visit_date:
+                        st.success("Visit data is valid")
+                        
+                        # Show preview
+                        st.write("**Preview of visit record:**")
+                        preview_data = {
+                            "PatientID": [patient_id],
+                            "Study": [study],
+                            "VisitNo": [visit_no],
+                            "ActualDate": [visit_date.strftime('%Y-%m-%d')],
+                            "ActualPayment": [actual_payment],
+                            "Notes": [notes or ""]
+                        }
+                        preview_df = pd.DataFrame(preview_data)
+                        st.dataframe(preview_df, use_container_width=True)
+                    
+                    # Action buttons
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Record Visit", 
+                                    disabled=bool(validation_errors) or not visit_date,
+                                    use_container_width=True):
+                            
+                            # Match data types from existing visits file
+                            processed_patient_id = patient_id
+                            processed_visit_no = visit_no
+                            
+                            if len(existing_visits) > 0:
+                                # Match PatientID data type
+                                if existing_visits["PatientID"].dtype in ['int64', 'float64']:
+                                    try:
+                                        processed_patient_id = int(patient_id) if str(patient_id).isdigit() else float(patient_id)
+                                    except:
+                                        processed_patient_id = patient_id
+                                
+                                # Match VisitNo data type
+                                if existing_visits["VisitNo"].dtype in ['int64', 'float64']:
+                                    try:
+                                        processed_visit_no = int(visit_no)
+                                    except:
+                                        processed_visit_no = visit_no
+                            
+                            # Create new visit record
+                            new_visit_data = {
+                                "PatientID": processed_patient_id,
+                                "Study": study,
+                                "VisitNo": processed_visit_no,
+                                "ActualDate": visit_date,
+                                "ActualPayment": actual_payment,
+                                "Notes": notes or ""
+                            }
+                            
+                            # Add to existing visits or create new dataframe
+                            if len(existing_visits) > 0:
+                                new_visit_df = pd.DataFrame([new_visit_data])
+                                updated_visits_df = pd.concat([existing_visits, new_visit_df], ignore_index=True)
+                            else:
+                                updated_visits_df = pd.DataFrame([new_visit_data])
+                            
+                            # Create download
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                updated_visits_df.to_excel(writer, index=False, sheet_name="ActualVisits")
+                            
+                            # Store in session state for download
+                            st.session_state.updated_visits_file = output.getvalue()
+                            st.session_state.updated_visits_filename = f"ActualVisits_Updated_{visit_date.strftime('%Y%m%d')}.xlsx"
+                            st.session_state.visit_added = True
+                            st.session_state.show_visit_form = False
+                            
+                            st.success(f"Visit {visit_no} for patient {patient_id} recorded successfully!")
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button("❌ Cancel", use_container_width=True):
+                            st.session_state.show_visit_form = False
+                            st.rerun()
+        
+        visit_entry_form()
+    
     # Show download button if patient was added
     if st.session_state.get('patient_added', False):
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -256,6 +417,24 @@ if patients_file and trials_file:
                 st.rerun()
         
         st.info("Patient added successfully! Download the updated file and re-upload to see changes in the calendar.")
+        st.divider()
+    
+    # Show download button if visit was added
+    if st.session_state.get('visit_added', False):
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.download_button(
+                "📥 Download Updated Actual Visits File",
+                data=st.session_state.updated_visits_file,
+                file_name=st.session_state.updated_visits_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            if st.button("✅ Done", use_container_width=True):
+                st.session_state.visit_added = False
+                st.rerun()
+        
+        st.info("Visit recorded successfully! Download the updated file and re-upload to see changes in the calendar.")
         st.divider()
     
     try:
