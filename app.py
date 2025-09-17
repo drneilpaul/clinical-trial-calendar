@@ -1180,14 +1180,38 @@ if patients_file and trials_file:
         financial_df['Year'] = financial_df['Date'].dt.year
         financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
         
+        # Add financial year calculation
+        financial_df['FinancialYear'] = financial_df['Date'].apply(
+            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+        )
+        
+        # Monthly analysis with financial year totals
         monthly_income_by_site = financial_df.groupby(['SiteofVisit', 'MonthYear'])['Payment'].sum().reset_index()
         monthly_pivot = monthly_income_by_site.pivot(index='MonthYear', columns='SiteofVisit', values='Payment').fillna(0)
         monthly_pivot['Total'] = monthly_pivot.sum(axis=1)
         
-        # Quarterly totals
+        # Add financial year totals to monthly data
+        fy_monthly_totals = []
+        for fy in sorted(financial_df['FinancialYear'].unique()):
+            fy_data = financial_df[financial_df['FinancialYear'] == fy]
+            fy_income_by_site = fy_data.groupby('SiteofVisit')['Payment'].sum()
+            
+            fy_row = {}
+            for site in monthly_pivot.columns:
+                if site == 'Total':
+                    fy_row[site] = fy_income_by_site.sum()
+                else:
+                    fy_row[site] = fy_income_by_site.get(site, 0)
+            
+            fy_monthly_totals.append((f"FY {fy}", fy_row))
+        
+        # Quarterly analysis with financial year totals  
         quarterly_income_by_site = financial_df.groupby(['SiteofVisit', 'QuarterYear'])['Payment'].sum().reset_index()
         quarterly_pivot = quarterly_income_by_site.pivot(index='QuarterYear', columns='SiteofVisit', values='Payment').fillna(0)
         quarterly_pivot['Total'] = quarterly_pivot.sum(axis=1)
+        
+        # Add financial year totals to quarterly data (same as monthly FY totals)
+        fy_quarterly_totals = fy_monthly_totals  # Same data, different context
         
         # Monthly Income Chart
         st.subheader("📊 Monthly Income Chart")
@@ -1195,7 +1219,7 @@ if patients_file and trials_file:
         monthly_chart_data.index = monthly_chart_data.index.astype(str)
         st.bar_chart(monthly_chart_data)
         
-        # Display financial tables
+        # Display financial tables with FY totals
         col1, col2 = st.columns(2)
         
         with col1:
@@ -1203,22 +1227,50 @@ if patients_file and trials_file:
             monthly_display = monthly_pivot.copy()
             monthly_display.index = monthly_display.index.astype(str)
             
+            # Format currency
             for col in monthly_display.columns:
                 monthly_display[col] = monthly_display[col].apply(lambda x: f"£{x:,.2f}" if x != 0 else "£0.00")
             
             st.dataframe(monthly_display, use_container_width=True)
+            
+            # Add financial year totals for monthly
+            if fy_monthly_totals:
+                st.write("**Financial Year Totals**")
+                fy_monthly_data = []
+                for fy_name, fy_row in fy_monthly_totals:
+                    formatted_row = {"Financial Year": fy_name}
+                    for col, val in fy_row.items():
+                        formatted_row[col] = f"£{val:,.2f}" if val != 0 else "£0.00"
+                    fy_monthly_data.append(formatted_row)
+                
+                fy_monthly_df = pd.DataFrame(fy_monthly_data)
+                st.dataframe(fy_monthly_df, use_container_width=True)
         
         with col2:
             st.write("**Quarterly Income by Visit Site**")
             quarterly_display = quarterly_pivot.copy()
             
+            # Format currency
             for col in quarterly_display.columns:
                 quarterly_display[col] = quarterly_display[col].apply(lambda x: f"£{x:,.2f}" if x != 0 else "£0.00")
             
             st.dataframe(quarterly_display, use_container_width=True)
+            
+            # Add financial year totals for quarterly  
+            if fy_quarterly_totals:
+                st.write("**Financial Year Totals**")
+                fy_quarterly_data = []
+                for fy_name, fy_row in fy_quarterly_totals:
+                    formatted_row = {"Financial Year": fy_name}
+                    for col, val in fy_row.items():
+                        formatted_row[col] = f"£{val:,.2f}" if val != 0 else "£0.00"
+                    fy_quarterly_data.append(formatted_row)
+                
+                fy_quarterly_df = pd.DataFrame(fy_quarterly_data)
+                st.dataframe(fy_quarterly_df, use_container_width=True)
 
-        # Summary totals
-        st.write("**Financial Summary**")
+        # Summary totals by site only (no grand total)
+        st.write("**Financial Summary by Site**")
         total_by_site = financial_df.groupby('SiteofVisit')['Payment'].sum()
         summary_data = []
         for site in total_by_site.index:
@@ -1226,10 +1278,6 @@ if patients_file and trials_file:
                 "Site": site,
                 "Total Income": f"£{total_by_site[site]:,.2f}"
             })
-        summary_data.append({
-            "Site": "**GRAND TOTAL**",
-            "Total Income": f"**£{total_by_site.sum():,.2f}**"
-        })
         
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
