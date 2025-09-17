@@ -1269,19 +1269,6 @@ if patients_file and trials_file:
                 fy_quarterly_df = pd.DataFrame(fy_quarterly_data)
                 st.dataframe(fy_quarterly_df, use_container_width=True)
 
-        # Summary totals by site only (no grand total)
-        st.write("**Financial Summary by Site**")
-        total_by_site = financial_df.groupby('SiteofVisit')['Payment'].sum()
-        summary_data = []
-        for site in total_by_site.index:
-            summary_data.append({
-                "Site": site,
-                "Total Income": f"£{total_by_site[site]:,.2f}"
-            })
-        
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True)
-
         # Quarterly Profit Sharing Analysis
         st.subheader("📊 Quarterly Profit Sharing Analysis")
         
@@ -1858,80 +1845,158 @@ if patients_file and trials_file:
         except ImportError:
             st.warning("Excel formatting unavailable - openpyxl not installed")
 
-        # Summary statistics
-        st.subheader("📊 Summary Statistics")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Sites", len(unique_sites))
-        with col2:
-            st.metric("Total Patients", len(patients_df))
-        with col3:
-            total_visits = len(financial_df)
-            st.metric("Total Visits", total_visits)
-        with col4:
-            total_income = financial_df["Payment"].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")
-
-        # Visit status breakdown
-        if actual_visits_df is not None:
-            st.subheader("📈 Visit Status Breakdown")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            actual_count = len(actual_financial)
-            scheduled_count = len(scheduled_financial)
-            total_visits_due = actual_count + scheduled_count
-            screen_fail_visits = len(visits_df[visits_df.get('IsScreenFail', False)])
-            
-            with col1:
-                st.metric("Completed Visits", actual_count - screen_fail_visits)
-            with col2:
-                st.metric("Screen Failures", screen_fail_visits)
-            with col3:
-                st.metric("Pending Visits", scheduled_count)
-            with col4:
-                completion_percentage = ((actual_count - screen_fail_visits) / total_visits_due * 100) if total_visits_due > 0 else 0
-                st.metric("Success Rate", f"{completion_percentage:.1f}%")
-
-        # Site-wise breakdown
-        st.subheader("🏢 Site-wise Statistics")
-        site_stats = []
-        for site in unique_sites:
-            site_patients = patients_df[patients_df["Site"] == site]
-            site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & 
-                                  ((visits_df["Visit"].str.startswith("✅")) | 
-                                   (visits_df["Visit"].str.startswith("❌ Screen Fail")) | 
-                                   (visits_df["Visit"].str.contains("Visit")))]
-            site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
-            
-            # Count screen failures vs active patients
-            site_screen_fails = 0
-            for _, patient in site_patients.iterrows():
-                patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
-                if patient_study_key in screen_failures:
-                    site_screen_fails += 1
-            
-            active_patients = len(site_patients) - site_screen_fails
-            
-            # Count completed vs pending visits for this site
-            completed_visits = len(site_visits[site_visits["Visit"].str.startswith("✅")]) if actual_visits_df is not None else 0
-            screen_fail_visits = len(site_visits[site_visits["Visit"].str.startswith("❌ Screen Fail")]) if actual_visits_df is not None else 0
-            total_visits = len(site_visits)
-            pending_visits = total_visits - completed_visits - screen_fail_visits
-            
-            site_stats.append({
-                "Site": site,
-                "Total Patients": len(site_patients),
-                "Active Patients": active_patients,
-                "Screen Failures": site_screen_fails,
-                "Completed Visits": completed_visits,
-                "Screen Fail Visits": screen_fail_visits,
-                "Pending Visits": pending_visits,
-                "Total Visits": total_visits,
-                "Total Income": f"£{site_income:,.2f}"
-            })
+        # Site-wise breakdown by month with financial year summaries
+        st.subheader("🏢 Site-wise Statistics by Month")
         
-        site_stats_df = pd.DataFrame(site_stats)
-        st.dataframe(site_stats_df, use_container_width=True)
+        # Add month-year and financial year columns to visits_df if not present
+        if 'MonthYear' not in visits_df.columns:
+            visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
+        if 'FinancialYear' not in visits_df.columns:
+            visits_df['FinancialYear'] = visits_df['Date'].apply(
+                lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+            )
+        
+        # Get unique months and financial years, sorted
+        months = sorted(visits_df['MonthYear'].unique())
+        financial_years = sorted(visits_df['FinancialYear'].unique())
+        
+        monthly_site_stats = []
+        
+        # Process monthly data
+        for month in months:
+            month_visits = visits_df[visits_df['MonthYear'] == month]
+            month_patients = patients_df[patients_df['PatientID'].isin(month_visits['PatientID'].unique())]
+            
+            # Get financial year for this month
+            fy = month_visits['FinancialYear'].iloc[0] if len(month_visits) > 0 else ""
+            
+            for site in unique_sites:
+                # Get patients from this site active in this month
+                site_patients = month_patients[month_patients["Site"] == site]
+                
+                # Get visits for patients from this site in this month
+                site_patient_ids = site_patients['PatientID'].unique()
+                site_visits = month_visits[month_visits["PatientID"].isin(site_patient_ids)]
+                
+                # Filter relevant visits (exclude tolerance periods)
+                relevant_visits = site_visits[
+                    (site_visits["Visit"].str.startswith("✅")) | 
+                    (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
+                    (site_visits["Visit"].str.contains("Visit", na=False))
+                ]
+                
+                # Calculate metrics for this site and month
+                site_income = relevant_visits["Payment"].sum()
+                completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")]) if actual_visits_df is not None else 0
+                screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")]) if actual_visits_df is not None else 0
+                total_visits = len(relevant_visits)
+                pending_visits = total_visits - completed_visits - screen_fail_visits
+                
+                # Count new patients recruited this month
+                new_patients = len(site_patients)
+                
+                monthly_site_stats.append({
+                    'Period': str(month),
+                    'Financial Year': fy,
+                    'Type': 'Month',
+                    'Site': site,
+                    'New Patients': new_patients,
+                    'Completed Visits': completed_visits,
+                    'Screen Fail Visits': screen_fail_visits,
+                    'Pending Visits': pending_visits,
+                    'Total Visits': total_visits,
+                    'Income': f"£{site_income:,.2f}"
+                })
+        
+        # Add financial year summaries
+        for fy in financial_years:
+            fy_visits = visits_df[visits_df['FinancialYear'] == fy]
+            fy_patients = patients_df[patients_df['PatientID'].isin(fy_visits['PatientID'].unique())]
+            
+            for site in unique_sites:
+                # Get patients from this site for this financial year
+                site_patients = fy_patients[fy_patients["Site"] == site]
+                
+                # Get visits for patients from this site in this financial year
+                site_patient_ids = site_patients['PatientID'].unique()
+                site_visits = fy_visits[fy_visits["PatientID"].isin(site_patient_ids)]
+                
+                # Filter relevant visits
+                relevant_visits = site_visits[
+                    (site_visits["Visit"].str.startswith("✅")) | 
+                    (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
+                    (site_visits["Visit"].str.contains("Visit", na=False))
+                ]
+                
+                # Calculate annual metrics
+                site_income = relevant_visits["Payment"].sum()
+                completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")]) if actual_visits_df is not None else 0
+                screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")]) if actual_visits_df is not None else 0
+                total_visits = len(relevant_visits)
+                pending_visits = total_visits - completed_visits - screen_fail_visits
+                
+                # Count screen failures for this financial year
+                site_screen_fails = 0
+                for _, patient in site_patients.iterrows():
+                    patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
+                    if patient_study_key in screen_failures:
+                        screen_fail_date = screen_failures[patient_study_key]
+                        # Check if screen failure occurred in this financial year
+                        screen_fail_fy = f"{screen_fail_date.year}-{screen_fail_date.year+1}" if screen_fail_date.month >= 4 else f"{screen_fail_date.year-1}-{screen_fail_date.year}"
+                        if screen_fail_fy == fy:
+                            site_screen_fails += 1
+                
+                total_patients_fy = len(site_patients)
+                active_patients = total_patients_fy - site_screen_fails
+                
+                monthly_site_stats.append({
+                    'Period': f"FY {fy}",
+                    'Financial Year': fy,
+                    'Type': 'Financial Year',
+                    'Site': site,
+                    'New Patients': f"{total_patients_fy} ({active_patients} active)",
+                    'Completed Visits': completed_visits,
+                    'Screen Fail Visits': screen_fail_visits,
+                    'Pending Visits': pending_visits,
+                    'Total Visits': total_visits,
+                    'Income': f"£{site_income:,.2f}"
+                })
+        
+        if monthly_site_stats:
+            # Sort by financial year, type, period, and site
+            monthly_site_stats.sort(key=lambda x: (x['Financial Year'], x['Type'] == 'Financial Year', x['Period'], x['Site']))
+            
+            # Create separate tables for each site
+            for site in unique_sites:
+                st.write(f"**{site} Practice**")
+                
+                site_data = [stat for stat in monthly_site_stats if stat['Site'] == site]
+                site_df = pd.DataFrame(site_data)
+                
+                # Drop the Site column since it's redundant in site-specific tables
+                display_df = site_df.drop('Site', axis=1)
+                
+                # Style the dataframe to highlight financial year rows
+                def highlight_fy_rows(row):
+                    if row['Type'] == 'Financial Year':
+                        return ['background-color: #e6f3ff; font-weight: bold'] * len(row)
+                    else:
+                        return [''] * len(row)
+                
+                styled_site_df = display_df.style.apply(highlight_fy_rows, axis=1)
+                st.dataframe(styled_site_df, use_container_width=True)
+                st.write("")  # Add space between sites
+            
+            st.info("""
+            **Site Statistics Notes:**
+            - **Blue highlighted rows** = Financial Year totals (April to March)
+            - **New Patients** = Patients recruited in that period
+            - **Income** = Clinical trial income generated
+            - Monthly data shows activity patterns throughout each financial year
+            - Financial year rows show annual totals and active patient counts
+            """)
+        else:
+            st.warning("No site statistics data available.")
 
         # Monthly analysis by site
         st.subheader("📅 Monthly Analysis by Site")
