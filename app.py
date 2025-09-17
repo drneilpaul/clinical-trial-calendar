@@ -773,6 +773,53 @@ if patients_file and trials_file:
         if screen_fail_exclusions > 0:
             processing_messages.append(f"⚠️ {screen_fail_exclusions} visits were excluded because they occur after screen failure dates.")
 
+        # Collect final processing statistics
+        total_visit_records = len(visit_records)
+        total_scheduled_visits = len([v for v in visit_records if not v.get('IsActual', False) and v['Visit'] not in ['-', '+']])
+        total_tolerance_periods = len([v for v in visit_records if v['Visit'] in ['-', '+']])
+        
+        processing_messages.append(f"Generated {total_visit_records} total calendar entries ({total_scheduled_visits} scheduled visits, {total_tolerance_periods} tolerance periods)")
+        
+        if actual_visits_df is not None:
+            actual_visit_entries = len([v for v in visit_records if v.get('IsActual', False)])
+            processing_messages.append(f"Calendar includes {actual_visit_entries} actual visits and {total_scheduled_visits} scheduled visits")
+            
+            if actual_visits_used < len(actual_visits_df):
+                processing_messages.append(f"Visit matching: {actual_visits_used} matched, {len(actual_visits_df) - actual_visits_used} unmatched")
+        
+        # Date range statistics
+        if not visits_df.empty:
+            earliest_date = visits_df["Date"].min()
+            latest_date = visits_df["Date"].max()
+            date_range_days = (latest_date - earliest_date).days
+            processing_messages.append(f"Calendar spans {date_range_days} days ({earliest_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')})")
+        
+        # Study completion statistics
+        if actual_visits_df is not None:
+            study_stats = []
+            for study in patient_studies:
+                study_patients = patients_df[patients_df["Study"] == study]
+                study_actual_visits = actual_visits_df[actual_visits_df["Study"] == study] if len(actual_visits_df) > 0 else pd.DataFrame()
+                
+                if len(study_actual_visits) > 0:
+                    completion_rate = (len(study_actual_visits) / len(study_patients)) * 100 if len(study_patients) > 0 else 0
+                    study_stats.append(f"{study}: {completion_rate:.1f}% visit activity")
+                else:
+                    study_stats.append(f"{study}: 0% visit activity")
+            
+            if study_stats:
+                processing_messages.append(f"Study activity rates: {', '.join(study_stats)}")
+        
+        # Financial statistics
+        if not financial_df.empty:
+            total_income = financial_df["Payment"].sum()
+            processing_messages.append(f"Total financial value: £{total_income:,.2f}")
+            
+            if actual_visits_df is not None:
+                actual_income = actual_financial["Payment"].sum() if not actual_financial.empty else 0
+                scheduled_income = scheduled_financial["Payment"].sum() if not scheduled_financial.empty else 0
+                processing_messages.append(f"Income breakdown: £{actual_income:,.2f} actual, £{scheduled_income:,.2f} projected")
+
         visits_df = pd.DataFrame(visit_records)
 
         if visits_df.empty:
