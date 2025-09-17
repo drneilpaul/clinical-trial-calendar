@@ -1,10 +1,20 @@
 import streamlit as st
 import pandas as pd
 import calendar as cal
-from datetime import timedelta
+from datetime import timedelta, date
 import io
 
 st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
+
+# Initialize session state variables
+if 'show_patient_form' not in st.session_state:
+    st.session_state.show_patient_form = False
+if 'show_visit_form' not in st.session_state:
+    st.session_state.show_visit_form = False
+if 'patient_added' not in st.session_state:
+    st.session_state.patient_added = False
+if 'visit_added' not in st.session_state:
+    st.session_state.visit_added = False
 
 # === Styling Functions ===
 def highlight_special_days(row):
@@ -96,152 +106,158 @@ if patients_file and trials_file:
     
     # Patient Entry Modal using session state
     if st.session_state.get('show_patient_form', False):
-        @st.dialog("Add New Patient")
-        def patient_entry_form():
-            # Load existing data for validation
-            existing_patients = load_file(patients_file)
-            existing_patients.columns = existing_patients.columns.str.strip()
-            
-            existing_trials = load_file(trials_file)
-            existing_trials.columns = existing_trials.columns.str.strip()
-            
-            # Get available studies and sites
-            available_studies = sorted(existing_trials["Study"].unique().tolist())
-            
-            # Get existing patient practices/sites
-            patient_origin_col = None
-            possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
-            for col in possible_origin_cols:
-                if col in existing_patients.columns:
-                    patient_origin_col = col
-                    break
-            
-            if patient_origin_col:
-                existing_sites = sorted(existing_patients[patient_origin_col].dropna().unique().tolist())
-            else:
-                existing_sites = ["Ashfields", "Kiltearn"]
-            
-            # Form fields
-            new_patient_id = st.text_input("Patient ID", help="Enter unique patient identifier")
-            new_study = st.selectbox("Study", options=available_studies, help="Select study from trials file")
-            new_start_date = st.date_input("Start Date", help="Patient study start date")
-            
-            if patient_origin_col:
-                new_site = st.selectbox(f"{patient_origin_col}", options=existing_sites + ["Add New..."], 
-                                      help="Select patient origin site")
-                if new_site == "Add New...":
-                    new_site = st.text_input("New Site Name", help="Enter new site name")
-            else:
-                new_site = st.text_input("Patient Site", help="Enter patient origin site")
-            
-            # Validation
-            validation_errors = []
-            
-            if new_patient_id:
-                if new_patient_id in existing_patients["PatientID"].astype(str).values:
-                    validation_errors.append(f"Patient ID '{new_patient_id}' already exists")
+        # Check if @st.dialog is available (Streamlit 1.28+)
+        try:
+            @st.dialog("Add New Patient")
+            def patient_entry_form():
+                # Load existing data for validation
+                existing_patients = load_file(patients_file)
+                existing_patients.columns = existing_patients.columns.str.strip()
                 
-                if not new_patient_id.replace("-", "").replace("_", "").isalnum():
-                    validation_errors.append("Patient ID should contain only letters, numbers, hyphens, or underscores")
-            
-            if new_study and new_study not in available_studies:
-                validation_errors.append(f"Study '{new_study}' not found in trials file")
+                existing_trials = load_file(trials_file)
+                existing_trials.columns = existing_trials.columns.str.strip()
                 
-            from datetime import date
-            if new_start_date:
-                if new_start_date > date.today():
-                    validation_errors.append("Start date is in the future")
-                elif (date.today() - new_start_date).days > 365*3:
-                    validation_errors.append("Start date is more than 3 years ago")
-            
-            # Show validation results
-            if validation_errors:
-                st.error("Please fix the following issues:")
-                for error in validation_errors:
-                    st.write(f"• {error}")
-            elif new_patient_id and new_study and new_start_date and new_site:
-                st.success("Patient data is valid")
+                # Get available studies and sites
+                available_studies = sorted(existing_trials["Study"].unique().tolist())
                 
-                # Show preview
-                st.write("**Preview of new patient:**")
-                preview_data = {
-                    "PatientID": [new_patient_id],
-                    "Study": [new_study], 
-                    "StartDate": [new_start_date.strftime('%Y-%m-%d')],
-                    (patient_origin_col or "PatientPractice"): [new_site]
-                }
-                preview_df = pd.DataFrame(preview_data)
-                st.dataframe(preview_df, use_container_width=True)
-            
-            # Action buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✅ Add Patient", 
-                            disabled=bool(validation_errors) or not all([new_patient_id, new_study, new_start_date, new_site]),
-                            use_container_width=True):
-                    # Determine the correct data type for PatientID based on existing data
-                    existing_patient_ids = existing_patients["PatientID"]
+                # Get existing patient practices/sites
+                patient_origin_col = None
+                possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
+                for col in possible_origin_cols:
+                    if col in existing_patients.columns:
+                        patient_origin_col = col
+                        break
+                
+                if patient_origin_col:
+                    existing_sites = sorted(existing_patients[patient_origin_col].dropna().unique().tolist())
+                else:
+                    existing_sites = ["Ashfields", "Kiltearn"]
+                
+                # Form fields
+                new_patient_id = st.text_input("Patient ID", help="Enter unique patient identifier")
+                new_study = st.selectbox("Study", options=available_studies, help="Select study from trials file")
+                new_start_date = st.date_input("Start Date", help="Patient study start date")
+                
+                if patient_origin_col:
+                    new_site = st.selectbox(f"{patient_origin_col}", options=existing_sites + ["Add New..."], 
+                                          help="Select patient origin site")
+                    if new_site == "Add New...":
+                        new_site = st.text_input("New Site Name", help="Enter new site name")
+                else:
+                    new_site = st.text_input("Patient Site", help="Enter patient origin site")
+                
+                # Validation
+                validation_errors = []
+                
+                if new_patient_id:
+                    if new_patient_id in existing_patients["PatientID"].astype(str).values:
+                        validation_errors.append(f"Patient ID '{new_patient_id}' already exists")
                     
-                    # Check if existing IDs are numeric
-                    if existing_patient_ids.dtype in ['int64', 'float64'] or all(pd.to_numeric(existing_patient_ids, errors='coerce').notna()):
-                        # Convert new ID to numeric to match existing format
-                        try:
-                            processed_patient_id = int(new_patient_id) if new_patient_id.isdigit() else float(new_patient_id)
-                        except:
-                            processed_patient_id = new_patient_id  # Keep as string if conversion fails
-                    else:
-                        # Keep as string to match existing format
-                        processed_patient_id = new_patient_id
+                    if not new_patient_id.replace("-", "").replace("_", "").isalnum():
+                        validation_errors.append("Patient ID should contain only letters, numbers, hyphens, or underscores")
+                
+                if new_study and new_study not in available_studies:
+                    validation_errors.append(f"Study '{new_study}' not found in trials file")
                     
-                    # Create new patient record
-                    new_patient_data = {
-                        "PatientID": processed_patient_id,  # Use processed ID with correct data type
-                        "Study": new_study,
-                        "StartDate": new_start_date,
+                if new_start_date:
+                    if new_start_date > date.today():
+                        validation_errors.append("Start date is in the future")
+                    elif (date.today() - new_start_date).days > 365*3:
+                        validation_errors.append("Start date is more than 3 years ago")
+                
+                # Show validation results
+                if validation_errors:
+                    st.error("Please fix the following issues:")
+                    for error in validation_errors:
+                        st.write(f"• {error}")
+                elif new_patient_id and new_study and new_start_date and new_site:
+                    st.success("Patient data is valid")
+                    
+                    # Show preview
+                    st.write("**Preview of new patient:**")
+                    preview_data = {
+                        "PatientID": [new_patient_id],
+                        "Study": [new_study], 
+                        "StartDate": [new_start_date.strftime('%Y-%m-%d')],
+                        (patient_origin_col or "PatientPractice"): [new_site]
                     }
-                    
-                    if patient_origin_col:
-                        new_patient_data[patient_origin_col] = new_site
-                    else:
-                        new_patient_data["PatientPractice"] = new_site
-                    
-                    # Add any other columns with empty values, preserving data types
-                    for col in existing_patients.columns:
-                        if col not in new_patient_data:
-                            # Try to preserve the data type of existing columns
-                            if len(existing_patients[col].dropna()) > 0:
-                                sample_value = existing_patients[col].dropna().iloc[0]
-                                if isinstance(sample_value, (int, float)):
-                                    new_patient_data[col] = 0 if isinstance(sample_value, int) else 0.0
+                    preview_df = pd.DataFrame(preview_data)
+                    st.dataframe(preview_df, use_container_width=True)
+                
+                # Action buttons
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Add Patient", 
+                                disabled=bool(validation_errors) or not all([new_patient_id, new_study, new_start_date, new_site]),
+                                use_container_width=True):
+                        # Determine the correct data type for PatientID based on existing data
+                        existing_patient_ids = existing_patients["PatientID"]
+                        
+                        # Check if existing IDs are numeric
+                        if existing_patient_ids.dtype in ['int64', 'float64'] or all(pd.to_numeric(existing_patient_ids, errors='coerce').notna()):
+                            # Convert new ID to numeric to match existing format
+                            try:
+                                processed_patient_id = int(new_patient_id) if new_patient_id.isdigit() else float(new_patient_id)
+                            except:
+                                processed_patient_id = new_patient_id  # Keep as string if conversion fails
+                        else:
+                            # Keep as string to match existing format
+                            processed_patient_id = new_patient_id
+                        
+                        # Create new patient record
+                        new_patient_data = {
+                            "PatientID": processed_patient_id,  # Use processed ID with correct data type
+                            "Study": new_study,
+                            "StartDate": new_start_date,
+                        }
+                        
+                        if patient_origin_col:
+                            new_patient_data[patient_origin_col] = new_site
+                        else:
+                            new_patient_data["PatientPractice"] = new_site
+                        
+                        # Add any other columns with empty values, preserving data types
+                        for col in existing_patients.columns:
+                            if col not in new_patient_data:
+                                # Try to preserve the data type of existing columns
+                                if len(existing_patients[col].dropna()) > 0:
+                                    sample_value = existing_patients[col].dropna().iloc[0]
+                                    if isinstance(sample_value, (int, float)):
+                                        new_patient_data[col] = 0 if isinstance(sample_value, int) else 0.0
+                                    else:
+                                        new_patient_data[col] = ""
                                 else:
                                     new_patient_data[col] = ""
-                            else:
-                                new_patient_data[col] = ""
-                    
-                    # Add to existing dataframe
-                    new_row_df = pd.DataFrame([new_patient_data])
-                    updated_patients_df = pd.concat([existing_patients, new_row_df], ignore_index=True)
-                    
-                    # Create download
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        updated_patients_df.to_excel(writer, index=False, sheet_name="Patients")
-                    
-                    # Store in session state for download
-                    st.session_state.updated_patients_file = output.getvalue()
-                    st.session_state.updated_filename = f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx"
-                    st.session_state.patient_added = True
-                    st.session_state.show_patient_form = False
-                    
-                    st.success(f"Patient {new_patient_id} added successfully!")
-                    st.rerun()
+                        
+                        # Add to existing dataframe
+                        new_row_df = pd.DataFrame([new_patient_data])
+                        updated_patients_df = pd.concat([existing_patients, new_row_df], ignore_index=True)
+                        
+                        # Create download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            updated_patients_df.to_excel(writer, index=False, sheet_name="Patients")
+                        
+                        # Store in session state for download
+                        st.session_state.updated_patients_file = output.getvalue()
+                        st.session_state.updated_filename = f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx"
+                        st.session_state.patient_added = True
+                        st.session_state.show_patient_form = False
+                        
+                        st.success(f"Patient {new_patient_id} added successfully!")
+                        st.rerun()
+                
+                with col2:
+                    if st.button("Cancel", use_container_width=True):
+                        st.session_state.show_patient_form = False
+                        st.rerun()
             
-            with col2:
-                if st.button("❌ Cancel", use_container_width=True):
-                    st.session_state.show_patient_form = False
-                    st.rerun()
-        
-        patient_entry_form()
+            patient_entry_form()
+            
+        except AttributeError:
+            # Fallback for older Streamlit versions without @st.dialog
+            st.error("Modal dialogs require Streamlit version 1.28 or newer. Please upgrade Streamlit or use an alternative interface.")
+            st.session_state.show_patient_form = False
     
     # Visit Entry Modal using session state
     if st.session_state.get('show_visit_form', False):
@@ -794,30 +810,31 @@ if patients_file and trials_file:
             date_range_days = (latest_date - earliest_date).days
             processing_messages.append(f"Calendar spans {date_range_days} days ({earliest_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')})")
         
-        # Study completion statistics
-        if actual_visits_df is not None:
+        # Study completion statistics (with safety checks)
+        if actual_visits_df is not None and len(actual_visits_df) > 0:
             study_stats = []
             for study in patient_studies:
                 study_patients = patients_df[patients_df["Study"] == study]
-                study_actual_visits = actual_visits_df[actual_visits_df["Study"] == study] if len(actual_visits_df) > 0 else pd.DataFrame()
+                study_actual_visits = actual_visits_df[actual_visits_df["Study"] == study]
                 
-                if len(study_actual_visits) > 0:
-                    completion_rate = (len(study_actual_visits) / len(study_patients)) * 100 if len(study_patients) > 0 else 0
-                    study_stats.append(f"{study}: {completion_rate:.1f}% visit activity")
-                else:
-                    study_stats.append(f"{study}: 0% visit activity")
+                if len(study_patients) > 0:  # Prevent division by zero
+                    if len(study_actual_visits) > 0:
+                        completion_rate = (len(study_actual_visits) / len(study_patients)) * 100
+                        study_stats.append(f"{study}: {completion_rate:.1f}% visit activity")
+                    else:
+                        study_stats.append(f"{study}: 0% visit activity")
             
             if study_stats:
                 processing_messages.append(f"Study activity rates: {', '.join(study_stats)}")
         
-        # Financial statistics
+        # Financial statistics (with safety checks)
         if not financial_df.empty:
             total_income = financial_df["Payment"].sum()
             processing_messages.append(f"Total financial value: £{total_income:,.2f}")
             
-            if actual_visits_df is not None:
-                actual_income = actual_financial["Payment"].sum() if not actual_financial.empty else 0
-                scheduled_income = scheduled_financial["Payment"].sum() if not scheduled_financial.empty else 0
+            if actual_visits_df is not None and len(actual_financial) > 0:
+                actual_income = actual_financial["Payment"].sum()
+                scheduled_income = scheduled_financial["Payment"].sum() if len(scheduled_financial) > 0 else 0
                 processing_messages.append(f"Income breakdown: £{actual_income:,.2f} actual, £{scheduled_income:,.2f} projected")
 
         visits_df = pd.DataFrame(visit_records)
