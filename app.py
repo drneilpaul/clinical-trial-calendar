@@ -1285,15 +1285,162 @@ if patients_file and trials_file:
         # Quarterly Profit Sharing Analysis
         st.subheader("📊 Quarterly Profit Sharing Analysis")
         
-        # Fixed list sizes and weights for calculations
+        # Weighting adjustment button
+        if st.button("⚙️ Adjust Profit Sharing Weights", use_container_width=False):
+            st.session_state.show_weights_form = True
+        
+        # Initialize default weights
+        if 'list_weight' not in st.session_state:
+            st.session_state.list_weight = 35
+        if 'work_weight' not in st.session_state:
+            st.session_state.work_weight = 35
+        if 'recruitment_weight' not in st.session_state:
+            st.session_state.recruitment_weight = 30
+            
+        # Modal for weight adjustment
+        if st.session_state.get('show_weights_form', False):
+            @st.dialog("Adjust Profit Sharing Weights")
+            def weights_adjustment_form():
+                st.write("**Current Formula:** List Sizes + Work Done + Patient Recruitment = 100%")
+                st.write("Adjust the weightings below (must total 100%):")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write("**List Sizes Weight**")
+                    new_list_weight = st.slider(
+                        "List Size %", 
+                        min_value=0, 
+                        max_value=100, 
+                        value=st.session_state.list_weight,
+                        step=5,
+                        key="list_slider"
+                    )
+                    list_input = st.number_input(
+                        "Or enter exact %:",
+                        min_value=0,
+                        max_value=100,
+                        value=new_list_weight,
+                        step=1,
+                        key="list_input"
+                    )
+                
+                with col2:
+                    st.write("**Work Done Weight**")
+                    new_work_weight = st.slider(
+                        "Work Done %", 
+                        min_value=0, 
+                        max_value=100, 
+                        value=st.session_state.work_weight,
+                        step=5,
+                        key="work_slider"
+                    )
+                    work_input = st.number_input(
+                        "Or enter exact %:",
+                        min_value=0,
+                        max_value=100,
+                        value=new_work_weight,
+                        step=1,
+                        key="work_input"
+                    )
+                
+                with col3:
+                    st.write("**Patient Recruitment Weight**")
+                    new_recruitment_weight = st.slider(
+                        "Recruitment %", 
+                        min_value=0, 
+                        max_value=100, 
+                        value=st.session_state.recruitment_weight,
+                        step=5,
+                        key="recruitment_slider"
+                    )
+                    recruitment_input = st.number_input(
+                        "Or enter exact %:",
+                        min_value=0,
+                        max_value=100,
+                        value=new_recruitment_weight,
+                        step=1,
+                        key="recruitment_input"
+                    )
+                
+                # Use input values if they differ from sliders
+                final_list = list_input
+                final_work = work_input  
+                final_recruitment = recruitment_input
+                
+                # Calculate total and validate
+                total_weight = final_list + final_work + final_recruitment
+                
+                # Show current total with color coding
+                if total_weight == 100:
+                    st.success(f"✅ Total: {total_weight}% (Perfect!)")
+                elif total_weight < 100:
+                    st.warning(f"⚠️ Total: {total_weight}% (Need {100 - total_weight}% more)")
+                else:
+                    st.error(f"❌ Total: {total_weight}% (Reduce by {total_weight - 100}%)")
+                
+                # Show preview of what this means
+                st.write("**Weight Breakdown:**")
+                preview_data = {
+                    "Component": ["List Sizes", "Work Done", "Patient Recruitment"],
+                    "Current %": [f"{st.session_state.list_weight}%", f"{st.session_state.work_weight}%", f"{st.session_state.recruitment_weight}%"],
+                    "New %": [f"{final_list}%", f"{final_work}%", f"{final_recruitment}%"],
+                    "Change": [
+                        f"{final_list - st.session_state.list_weight:+d}%",
+                        f"{final_work - st.session_state.work_weight:+d}%", 
+                        f"{final_recruitment - st.session_state.recruitment_weight:+d}%"
+                    ]
+                }
+                preview_df = pd.DataFrame(preview_data)
+                st.dataframe(preview_df, use_container_width=True)
+                
+                # Action buttons
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("✅ Apply Changes", 
+                                disabled=(total_weight != 100),
+                                use_container_width=True):
+                        st.session_state.list_weight = final_list
+                        st.session_state.work_weight = final_work
+                        st.session_state.recruitment_weight = final_recruitment
+                        st.session_state.show_weights_form = False
+                        st.success("Weights updated! The analysis will refresh with new calculations.")
+                        st.rerun()
+                
+                with col2:
+                    if st.button("🔄 Reset to Default (35/35/30)", use_container_width=True):
+                        st.session_state.list_weight = 35
+                        st.session_state.work_weight = 35
+                        st.session_state.recruitment_weight = 30
+                        st.session_state.show_weights_form = False
+                        st.success("Reset to default weights!")
+                        st.rerun()
+                
+                with col3:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.session_state.show_weights_form = False
+                        st.rerun()
+                        
+                if total_weight != 100:
+                    st.info("💡 **Tip:** The three weights must add up to exactly 100% to apply changes.")
+            
+            weights_adjustment_form()
+        
+        # Use current weights from session state
+        list_weight = st.session_state.list_weight / 100
+        work_weight = st.session_state.work_weight / 100
+        recruitment_weight = st.session_state.recruitment_weight / 100
+        
+        # Display current weights
+        st.info(f"**Current Weights:** List Sizes {st.session_state.list_weight}% • Work Done {st.session_state.work_weight}% • Patient Recruitment {st.session_state.recruitment_weight}%")
+        
+        # Fixed list sizes and calculations using current weights
         ashfields_list_size = 28500
         kiltearn_list_size = 12500
         total_list_size = ashfields_list_size + kiltearn_list_size
         ashfields_list_ratio = ashfields_list_size / total_list_size
         kiltearn_list_ratio = kiltearn_list_size / total_list_size
-        list_weight = 0.35
-        work_weight = 0.35
-        recruitment_weight = 0.30
         
         # Create quarterly data with financial years
         financial_df['Quarter'] = financial_df['Date'].dt.quarter
