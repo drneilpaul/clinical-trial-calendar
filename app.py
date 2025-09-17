@@ -1352,6 +1352,11 @@ if patients_file and trials_file:
                 # Calculate quarterly income
                 quarter_income = quarter_data['Payment'].sum()
                 
+                # Calculate income by site for this quarter
+                quarter_income_by_site = quarter_data.groupby('SiteofVisit')['Payment'].sum()
+                ashfields_quarter_income = quarter_income_by_site.get('Ashfields', 0)
+                kiltearn_quarter_income = quarter_income_by_site.get('Kiltearn', 0)
+                
                 # Get financial year for this quarter
                 fy = quarter_data['FinancialYear'].iloc[0] if len(quarter_data) > 0 else ""
                 
@@ -1366,7 +1371,9 @@ if patients_file and trials_file:
                     'Kiltearn Patients': quarter_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in quarter_recruitment.index else 0,
                     'Ashfields Share': f"{q_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{q_kiltearn_final_ratio:.1%}",
-                    'Income': f"£{quarter_income:,.2f}"
+                    'Total Income': f"£{quarter_income:,.2f}",
+                    'Ashfields Income': f"£{ashfields_quarter_income:,.2f}",
+                    'Kiltearn Income': f"£{kiltearn_quarter_income:,.2f}"
                 })
             
             # Add financial year summaries
@@ -1408,6 +1415,11 @@ if patients_file and trials_file:
                 # Calculate financial year income
                 fy_income = fy_data['Payment'].sum()
                 
+                # Calculate income by site for this financial year
+                fy_income_by_site = fy_data.groupby('SiteofVisit')['Payment'].sum()
+                ashfields_fy_income = fy_income_by_site.get('Ashfields', 0)
+                kiltearn_fy_income = fy_income_by_site.get('Kiltearn', 0)
+                
                 quarterly_ratios.append({
                     'Period': f"FY {fy}",
                     'Financial Year': fy,
@@ -1419,7 +1431,9 @@ if patients_file and trials_file:
                     'Kiltearn Patients': fy_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in fy_recruitment.index else 0,
                     'Ashfields Share': f"{fy_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{fy_kiltearn_final_ratio:.1%}",
-                    'Income': f"£{fy_income:,.2f}"
+                    'Total Income': f"£{fy_income:,.2f}",
+                    'Ashfields Income': f"£{ashfields_fy_income:,.2f}",
+                    'Kiltearn Income': f"£{kiltearn_fy_income:,.2f}"
                 })
             
             if quarterly_ratios:
@@ -1463,8 +1477,11 @@ if patients_file and trials_file:
                 **Analysis Notes:**
                 - **Blue highlighted rows** = Financial Year totals (April to March)
                 - Use **Financial Year ratios** for annual profit sharing decisions
+                - **Total Income** = Combined clinical trial income from all studies
+                - **Ashfields/Kiltearn Income** = Trial income generated at each practice site
                 - Quarterly ratios show seasonal variations within each financial year
                 - List sizes (35% weight) remain constant; work done and recruitment vary by period
+                - **Note:** Income shown is clinical trial income only, not total practice revenue
                 """)
             else:
                 st.warning("No quarterly data available for profit sharing analysis.")
