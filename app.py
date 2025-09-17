@@ -1335,17 +1335,24 @@ if patients_file and trials_file:
         # Quarterly Profit Sharing Analysis
         st.subheader("📊 Quarterly Profit Sharing Analysis")
         
-        # Create quarterly data
+        # Create quarterly data with financial years
         financial_df['Quarter'] = financial_df['Date'].dt.quarter
         financial_df['Year'] = financial_df['Date'].dt.year
         financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
         
-        # Get unique quarters
+        # Calculate financial year (April to March)
+        financial_df['FinancialYear'] = financial_df['Date'].apply(
+            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+        )
+        
+        # Get unique quarters and financial years
         quarters = sorted(financial_df['QuarterYear'].unique())
+        financial_years = sorted(financial_df['FinancialYear'].unique())
         
         if len(quarters) > 0:
             quarterly_ratios = []
             
+            # Process quarterly data
             for quarter in quarters:
                 quarter_data = financial_df[financial_df['QuarterYear'] == quarter]
                 
@@ -1385,8 +1392,13 @@ if patients_file and trials_file:
                 # Calculate quarterly income
                 quarter_income = quarter_data['Payment'].sum()
                 
+                # Get financial year for this quarter
+                fy = quarter_data['FinancialYear'].iloc[0] if len(quarter_data) > 0 else ""
+                
                 quarterly_ratios.append({
-                    'Quarter': quarter,
+                    'Period': quarter,
+                    'Financial Year': fy,
+                    'Type': 'Quarter',
                     'Total Visits': quarter_total_work,
                     'Ashfields Visits': quarter_site_work.get('Ashfields', 0),
                     'Kiltearn Visits': quarter_site_work.get('Kiltearn', 0),
@@ -1394,38 +1406,105 @@ if patients_file and trials_file:
                     'Kiltearn Patients': quarter_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in quarter_recruitment.index else 0,
                     'Ashfields Share': f"{q_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{q_kiltearn_final_ratio:.1%}",
-                    'Quarter Income': f"£{quarter_income:,.2f}"
+                    'Income': f"£{quarter_income:,.2f}"
+                })
+            
+            # Add financial year summaries
+            for fy in financial_years:
+                fy_data = financial_df[financial_df['FinancialYear'] == fy]
+                
+                if len(fy_data) == 0:
+                    continue
+                
+                # Work done ratios for this financial year
+                fy_site_work = fy_data.groupby('SiteofVisit').size()
+                fy_total_work = fy_site_work.sum()
+                
+                fy_ashfields_work_ratio = fy_site_work.get('Ashfields', 0) / fy_total_work if fy_total_work > 0 else 0
+                fy_kiltearn_work_ratio = fy_site_work.get('Kiltearn', 0) / fy_total_work if fy_total_work > 0 else 0
+                
+                # Patient recruitment ratios for this financial year
+                fy_recruitment = fy_data.groupby('PatientOrigin').agg({'PatientID': 'nunique'})
+                fy_total_patients = fy_recruitment['PatientID'].sum()
+                
+                fy_ashfields_recruitment_ratio = fy_recruitment.loc['Ashfields', 'PatientID'] / fy_total_patients if 'Ashfields' in fy_recruitment.index and fy_total_patients > 0 else 0
+                fy_kiltearn_recruitment_ratio = fy_recruitment.loc['Kiltearn', 'PatientID'] / fy_total_patients if 'Kiltearn' in fy_recruitment.index and fy_total_patients > 0 else 0
+                
+                # Calculate weighted ratios for financial year
+                fy_ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                                           fy_ashfields_work_ratio * work_weight + 
+                                           fy_ashfields_recruitment_ratio * recruitment_weight)
+                
+                fy_kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                                          fy_kiltearn_work_ratio * work_weight + 
+                                          fy_kiltearn_recruitment_ratio * recruitment_weight)
+                
+                # Normalize
+                fy_total_ratio = fy_ashfields_final_ratio + fy_kiltearn_final_ratio
+                if fy_total_ratio > 0:
+                    fy_ashfields_final_ratio = fy_ashfields_final_ratio / fy_total_ratio
+                    fy_kiltearn_final_ratio = fy_kiltearn_final_ratio / fy_total_ratio
+                
+                # Calculate financial year income
+                fy_income = fy_data['Payment'].sum()
+                
+                quarterly_ratios.append({
+                    'Period': f"FY {fy}",
+                    'Financial Year': fy,
+                    'Type': 'Financial Year',
+                    'Total Visits': fy_total_work,
+                    'Ashfields Visits': fy_site_work.get('Ashfields', 0),
+                    'Kiltearn Visits': fy_site_work.get('Kiltearn', 0),
+                    'Ashfields Patients': fy_recruitment.loc['Ashfields', 'PatientID'] if 'Ashfields' in fy_recruitment.index else 0,
+                    'Kiltearn Patients': fy_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in fy_recruitment.index else 0,
+                    'Ashfields Share': f"{fy_ashfields_final_ratio:.1%}",
+                    'Kiltearn Share': f"{fy_kiltearn_final_ratio:.1%}",
+                    'Income': f"£{fy_income:,.2f}"
                 })
             
             if quarterly_ratios:
-                quarterly_df = pd.DataFrame(quarterly_ratios)
-                st.dataframe(quarterly_df, use_container_width=True)
+                # Sort by financial year and type (FY summaries at end of each year)
+                quarterly_ratios.sort(key=lambda x: (x['Financial Year'], x['Type'] == 'Financial Year', x['Period']))
                 
-                # Visual chart of quarterly ratios
+                quarterly_df = pd.DataFrame(quarterly_ratios)
+                
+                # Style the dataframe to highlight financial year rows
+                def highlight_fy_rows(row):
+                    if row['Type'] == 'Financial Year':
+                        return ['background-color: #e6f3ff; font-weight: bold'] * len(row)
+                    else:
+                        return [''] * len(row)
+                
+                styled_quarterly_df = quarterly_df.style.apply(highlight_fy_rows, axis=1)
+                st.dataframe(styled_quarterly_df, use_container_width=True)
+                
+                # Visual chart of quarterly ratios (quarters only, not FY summaries)
                 st.write("**Quarterly Profit Sharing Trends**")
                 
-                # Prepare chart data
+                # Prepare chart data - quarters only
                 chart_data = []
                 for ratio in quarterly_ratios:
-                    # Convert percentages back to numbers for charting
-                    ashfields_pct = float(ratio['Ashfields Share'].rstrip('%')) / 100
-                    kiltearn_pct = float(ratio['Kiltearn Share'].rstrip('%')) / 100
-                    
-                    chart_data.append({
-                        'Quarter': ratio['Quarter'],
-                        'Ashfields': ashfields_pct,
-                        'Kiltearn': kiltearn_pct
-                    })
+                    if ratio['Type'] == 'Quarter':
+                        # Convert percentages back to numbers for charting
+                        ashfields_pct = float(ratio['Ashfields Share'].rstrip('%')) / 100
+                        kiltearn_pct = float(ratio['Kiltearn Share'].rstrip('%')) / 100
+                        
+                        chart_data.append({
+                            'Quarter': ratio['Period'],
+                            'Ashfields': ashfields_pct,
+                            'Kiltearn': kiltearn_pct
+                        })
                 
-                chart_df = pd.DataFrame(chart_data).set_index('Quarter')
-                st.bar_chart(chart_df)
+                if chart_data:
+                    chart_df = pd.DataFrame(chart_data).set_index('Quarter')
+                    st.bar_chart(chart_df)
                 
                 st.info("""
-                **Quarterly Analysis Notes:**
-                - List sizes (35% weight) remain constant across quarters
-                - Work done and recruitment ratios vary by quarter based on actual activity
-                - Use these quarterly ratios for period-specific profit distributions
-                - Variations show the impact of changing activity levels between sites
+                **Analysis Notes:**
+                - **Blue highlighted rows** = Financial Year totals (April to March)
+                - Use **Financial Year ratios** for annual profit sharing decisions
+                - Quarterly ratios show seasonal variations within each financial year
+                - List sizes (35% weight) remain constant; work done and recruitment vary by period
                 """)
             else:
                 st.warning("No quarterly data available for profit sharing analysis.")
