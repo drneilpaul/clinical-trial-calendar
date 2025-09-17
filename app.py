@@ -432,6 +432,31 @@ if patients_file and trials_file:
             st.error(f"❌ Trials file missing required columns: {required_trials - set(trials_df.columns)}")
             st.stop()
 
+        # Check for missing studies in trials file
+        patient_studies = set(patients_df["Study"].unique())
+        trials_studies = set(trials_df["Study"].unique())
+        missing_studies = patient_studies - trials_studies
+        
+        if missing_studies:
+            st.error(f"⚠️ **Missing Study Definitions**: The following studies appear in your patients file but are missing from your trials file:")
+            for study in sorted(missing_studies):
+                patient_count = len(patients_df[patients_df["Study"] == study])
+                st.write(f"   • **{study}** ({patient_count} patients)")
+            
+            st.warning("""
+            **Action Required:** 
+            - Add visit schedules for these studies to your trials file, OR
+            - Remove patients with undefined studies from your patients file
+            
+            **Impact:** Patients with missing study definitions will be assigned to their PatientPractice site but won't have any visit schedules generated.
+            """)
+        
+        # Show which studies are properly defined
+        if trials_studies:
+            defined_studies = patient_studies & trials_studies
+            if defined_studies:
+                st.success(f"✅ **Properly Defined Studies**: {', '.join(sorted(defined_studies))}")
+
         # Check for SiteforVisit column
         if "SiteforVisit" not in trials_df.columns:
             st.warning("⚠️ No 'SiteforVisit' column found in trials file. Using default site grouping.")
@@ -515,18 +540,25 @@ if patients_file and trials_file:
             st.warning("No patient origin site column found.")
             patients_df['OriginSite'] = "Unknown Origin"
 
-        # Create patient-site mapping
-        patient_site_mapping = {}
-        for _, patient in patients_df.iterrows():
-            patient_id = patient["PatientID"]
-            study = patient["Study"]
-            study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
-            if len(study_sites) > 0:
-                patient_site_mapping[patient_id] = study_sites[0]
-            else:
-                patient_site_mapping[patient_id] = "Unknown Site"
-
-        patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
+        # Create patient-site mapping - use patient origin site directly instead of trials mapping
+        if patient_origin_col:
+            patients_df['Site'] = patients_df['OriginSite']
+        else:
+            # Fallback: try to map from trials, but prioritize patient's own site info
+            patient_site_mapping = {}
+            for _, patient in patients_df.iterrows():
+                patient_id = patient["PatientID"]
+                study = patient["Study"]
+                
+                # First try to get site from trials file for this study
+                study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
+                if len(study_sites) > 0:
+                    patient_site_mapping[patient_id] = study_sites[0]
+                else:
+                    # If study not found in trials, use a default based on study name
+                    patient_site_mapping[patient_id] = f"{study}_Site"
+            
+            patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
 
         # Build visit records with recalculation logic
         visit_records = []
@@ -534,6 +566,7 @@ if patients_file and trials_file:
         actual_visits_used = 0
         recalculated_patients = []
         out_of_window_visits = []
+        patients_with_no_visits = []
         processing_messages = []  # Initialize processing messages list here
         
         for _, patient in patients_df.iterrows():
@@ -551,6 +584,11 @@ if patients_file and trials_file:
 
             # Get all visits for this study and sort by visit number/day
             study_visits = trials_df[trials_df["Study"] == study].sort_values(['VisitNo', 'Day']).copy()
+            
+            # Check if this study has any visit definitions
+            if len(study_visits) == 0:
+                patients_with_no_visits.append(f"{patient_id} (Study: {study})")
+                continue  # Skip this patient as no visit schedule is defined
             
             # Get all actual visits for this patient
             patient_actual_visits = {}
@@ -742,6 +780,9 @@ if patients_file and trials_file:
             st.stop()
 
         # Collect processing messages
+        if len(patients_with_no_visits) > 0:
+            processing_messages.append(f"⚠️ {len(patients_with_no_visits)} patient(s) skipped due to missing study definitions: {', '.join(patients_with_no_visits)}")
+            
         if len(recalculated_patients) > 0:
             processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s): {', '.join(recalculated_patients)}")
 
