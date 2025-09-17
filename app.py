@@ -1234,6 +1234,104 @@ if patients_file and trials_file:
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
 
+        # Profit Sharing Ratio Calculation
+        st.subheader("💼 Joint Venture Profit Sharing Calculation")
+        
+        # Fixed list sizes
+        ashfields_list_size = 28500
+        kiltearn_list_size = 12500
+        total_list_size = ashfields_list_size + kiltearn_list_size
+        
+        # Calculate list size ratios (35% weight)
+        ashfields_list_ratio = ashfields_list_size / total_list_size
+        kiltearn_list_ratio = kiltearn_list_size / total_list_size
+        
+        # Calculate work done ratios (35% weight) - visits conducted at each site
+        site_work = financial_df.groupby('SiteofVisit').size()
+        total_work = site_work.sum()
+        
+        ashfields_work_ratio = site_work.get('Ashfields', 0) / total_work if total_work > 0 else 0
+        kiltearn_work_ratio = site_work.get('Kiltearn', 0) / total_work if total_work > 0 else 0
+        
+        # Calculate patient recruitment ratios (30% weight) - patients recruited from each site
+        recruitment_data = financial_df.groupby('PatientOrigin').agg({'PatientID': 'nunique'})
+        total_patients = recruitment_data['PatientID'].sum()
+        
+        ashfields_recruitment_ratio = recruitment_data.loc['Ashfields', 'PatientID'] / total_patients if 'Ashfields' in recruitment_data.index and total_patients > 0 else 0
+        kiltearn_recruitment_ratio = recruitment_data.loc['Kiltearn', 'PatientID'] / total_patients if 'Kiltearn' in recruitment_data.index and total_patients > 0 else 0
+        
+        # Calculate weighted profit sharing ratios
+        list_weight = 0.35
+        work_weight = 0.35
+        recruitment_weight = 0.30
+        
+        ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                                ashfields_work_ratio * work_weight + 
+                                ashfields_recruitment_ratio * recruitment_weight)
+        
+        kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                               kiltearn_work_ratio * work_weight + 
+                               kiltearn_recruitment_ratio * recruitment_weight)
+        
+        # Normalize to ensure they sum to 100%
+        total_ratio = ashfields_final_ratio + kiltearn_final_ratio
+        if total_ratio > 0:
+            ashfields_final_ratio = ashfields_final_ratio / total_ratio
+            kiltearn_final_ratio = kiltearn_final_ratio / total_ratio
+        
+        # Create detailed breakdown table
+        breakdown_data = [
+            {
+                "Component": "List Sizes",
+                "Weight": f"{list_weight:.0%}",
+                "Ashfields": f"{ashfields_list_size:,} ({ashfields_list_ratio:.1%})",
+                "Kiltearn": f"{kiltearn_list_size:,} ({kiltearn_list_ratio:.1%})",
+                "Ashfields Weighted": f"{ashfields_list_ratio * list_weight:.1%}",
+                "Kiltearn Weighted": f"{kiltearn_list_ratio * list_weight:.1%}"
+            },
+            {
+                "Component": "Work Done (Visits)",
+                "Weight": f"{work_weight:.0%}",
+                "Ashfields": f"{site_work.get('Ashfields', 0)} visits ({ashfields_work_ratio:.1%})",
+                "Kiltearn": f"{site_work.get('Kiltearn', 0)} visits ({kiltearn_work_ratio:.1%})",
+                "Ashfields Weighted": f"{ashfields_work_ratio * work_weight:.1%}",
+                "Kiltearn Weighted": f"{kiltearn_work_ratio * work_weight:.1%}"
+            },
+            {
+                "Component": "Patient Recruitment",
+                "Weight": f"{recruitment_weight:.0%}",
+                "Ashfields": f"{recruitment_data.loc['Ashfields', 'PatientID'] if 'Ashfields' in recruitment_data.index else 0} patients ({ashfields_recruitment_ratio:.1%})",
+                "Kiltearn": f"{recruitment_data.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in recruitment_data.index else 0} patients ({kiltearn_recruitment_ratio:.1%})",
+                "Ashfields Weighted": f"{ashfields_recruitment_ratio * recruitment_weight:.1%}",
+                "Kiltearn Weighted": f"{kiltearn_recruitment_ratio * recruitment_weight:.1%}"
+            }
+        ]
+        
+        breakdown_df = pd.DataFrame(breakdown_data)
+        st.dataframe(breakdown_df, use_container_width=True)
+        
+        # Final profit sharing ratios
+        st.subheader("🎯 Final Profit Sharing Ratios")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Ashfields Share", f"{ashfields_final_ratio:.1%}", 
+                     help="Weighted average of list size, work done, and recruitment")
+        
+        with col2:
+            st.metric("Kiltearn Share", f"{kiltearn_final_ratio:.1%}",
+                     help="Weighted average of list size, work done, and recruitment")
+        
+        # Summary explanation
+        st.info(f"""
+        **Calculation Method:**
+        - List sizes (35%): Ashfields {ashfields_list_size:,} vs Kiltearn {kiltearn_list_size:,}
+        - Work done (35%): Based on number of visits conducted at each site
+        - Patient recruitment (30%): Based on number of patients recruited from each practice
+        
+        **Usage:** Apply these percentages to total joint venture profit after all income and expenses.
+        """)
+
         # Downloads section
         st.subheader("💾 Download Options")
 
