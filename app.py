@@ -877,10 +877,23 @@ if patients_file and trials_file:
                 is_out_of_window = visit.get("IsOutOfWindow", False)
 
                 if col_id in calendar_df.columns:
-                    if calendar_df.at[i, col_id] == "":
+                    # Handle concatenation more carefully to avoid "Visit 1, -" issues
+                    current_value = calendar_df.at[i, col_id]
+                    
+                    if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
                     else:
-                        calendar_df.at[i, col_id] += f", {visit_info}"
+                        # Only concatenate if it's not a tolerance period conflicting with main visit
+                        if visit_info in ["-", "+"]:
+                            # Don't add tolerance symbols if there's already a main visit
+                            if not any(x in current_value for x in ["Visit", "✅", "⚠️", "❌"]):
+                                calendar_df.at[i, col_id] = visit_info if current_value in ["-", "+"] else f"{current_value}, {visit_info}"
+                        else:
+                            # This is a main visit - replace any tolerance periods
+                            if current_value in ["-", "+", "", "-", "+"]:
+                                calendar_df.at[i, col_id] = visit_info
+                            else:
+                                calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
 
                 # Count payments for actual visits and scheduled main visits (not tolerance periods)
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
