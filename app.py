@@ -83,16 +83,6 @@ with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("- Use 'ScreenFail' in Notes to stop future visits")
 
 
-# === File Loading Helper ===
-def load_file(uploaded_file):
-    if uploaded_file is None:
-        return None
-    if uploaded_file.name.endswith(".csv"):
-        return pd.read_csv(uploaded_file, dayfirst=True)
-    else:
-        return pd.read_excel(uploaded_file, engine="openpyxl")
-
-
 # === Main Logic ===
 if patients_file and trials_file:
     # Add Patient Entry Button at the top
@@ -672,7 +662,7 @@ if patients_file and trials_file:
                     elif is_out_of_window:
                         visit_status = f"⚠️ Visit {visit_no}"
                     else:
-                        visit_status = f"✓ Visit {visit_no}"
+                        visit_status = f"✅ Visit {visit_no}"
                     
                     # Check if actual visit is after screen failure
                     if screen_fail_date is not None and visit_date > screen_fail_date:
@@ -773,6 +763,13 @@ if patients_file and trials_file:
             if patient_needs_recalc:
                 recalculated_patients.append(f"{patient_id} ({study})")
 
+        # Create visits DataFrame
+        visits_df = pd.DataFrame(visit_records)
+
+        if visits_df.empty:
+            st.error("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
+            st.stop()
+
         # Collect processing messages
         if len(recalculated_patients) > 0:
             processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s): {', '.join(recalculated_patients)}")
@@ -810,6 +807,9 @@ if patients_file and trials_file:
             date_range_days = (latest_date - earliest_date).days
             processing_messages.append(f"Calendar spans {date_range_days} days ({earliest_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')})")
         
+        # Get patient studies for study completion statistics
+        patient_studies = patients_df["Study"].unique()
+        
         # Study completion statistics (with safety checks)
         if actual_visits_df is not None and len(actual_visits_df) > 0:
             study_stats = []
@@ -828,6 +828,15 @@ if patients_file and trials_file:
                 processing_messages.append(f"Study activity rates: {', '.join(study_stats)}")
         
         # Financial statistics (with safety checks)
+        financial_df = visits_df[
+            (visits_df['Visit'].str.startswith("✅")) |
+            (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
+            (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
+        ].copy()
+        
+        actual_financial = financial_df[financial_df.get('IsActual', False)]
+        scheduled_financial = financial_df[~financial_df.get('IsActual', True)]
+        
         if not financial_df.empty:
             total_income = financial_df["Payment"].sum()
             processing_messages.append(f"Total financial value: £{total_income:,.2f}")
@@ -836,12 +845,6 @@ if patients_file and trials_file:
                 actual_income = actual_financial["Payment"].sum()
                 scheduled_income = scheduled_financial["Payment"].sum() if len(scheduled_financial) > 0 else 0
                 processing_messages.append(f"Income breakdown: £{actual_income:,.2f} actual, £{scheduled_income:,.2f} projected")
-
-        visits_df = pd.DataFrame(visit_records)
-
-        if visits_df.empty:
-            st.error("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
-            st.stop()
 
         # Processing Log (expandable)
         with st.expander("📋 View Processing Log", expanded=False):
@@ -967,7 +970,7 @@ if patients_file and trials_file:
             **Legend with Color Coding:**
             
             **Actual Visits:**
-            - ✓ Visit X (Green background) = Completed Visit (within tolerance window)  
+            - ✅ Visit X (Green background) = Completed Visit (within tolerance window)  
             - ⚠️ Visit X (Yellow background) = Completed Visit (outside tolerance window)
             - ❌ Screen Fail X (Red background) = Screen failure (no future visits)
             
@@ -1037,13 +1040,13 @@ if patients_file and trials_file:
                         if col_name not in ["Date", "Day"] and str(cell_value) != "" and style == "":
                             cell_str = str(cell_value)
                             
-                            if "✓ Visit" in cell_str:  # Completed visits
+                            if "✅ Visit" in cell_str:  # Completed visits
                                 style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
                             elif "⚠️ Visit" in cell_str:  # Out of window visits
                                 style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
                             elif "❌ Screen Fail" in cell_str:  # Screen failures
                                 style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                            elif "Visit " in cell_str and not cell_str.startswith("✓") and not cell_str.startswith("⚠️"):  # Scheduled
+                            elif "Visit " in cell_str and not cell_str.startswith("✅") and not cell_str.startswith("⚠️"):  # Scheduled
                                 style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
                             elif cell_str in ["+", "-"]:  # Tolerance periods
                                 style = 'background-color: #f8f9fa; color: #6c757d; font-style: italic;'
@@ -1068,20 +1071,6 @@ if patients_file and trials_file:
         # Financial Analysis
         st.subheader("💰 Financial Analysis")
         
-        financial_df = visits_df[
-            (visits_df['Visit'].str.startswith("✓")) |
-            (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
-            (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
-        ].copy()
-        
-        financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
-        financial_df['Quarter'] = financial_df['Date'].dt.quarter
-        financial_df['Year'] = financial_df['Date'].dt.year
-        financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
-        
-        actual_financial = financial_df[financial_df.get('IsActual', False)]
-        scheduled_financial = financial_df[~financial_df.get('IsActual', True)]
-        
         if not actual_financial.empty:
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -1101,6 +1090,11 @@ if patients_file and trials_file:
             st.metric("Visit Completion Rate", f"{completion_rate:.1f}%")
 
         # Monthly income analysis
+        financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
+        financial_df['Quarter'] = financial_df['Date'].dt.quarter
+        financial_df['Year'] = financial_df['Date'].dt.year
+        financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
+        
         monthly_income_by_site = financial_df.groupby(['SiteofVisit', 'MonthYear'])['Payment'].sum().reset_index()
         monthly_pivot = monthly_income_by_site.pivot(index='MonthYear', columns='SiteofVisit', values='Payment').fillna(0)
         monthly_pivot['Total'] = monthly_pivot.sum(axis=1)
@@ -1257,7 +1251,7 @@ if patients_file and trials_file:
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell_value = str(cell.value) if cell.value else ""
                                         
-                                        if "✓ Visit" in cell_value:
+                                        if "✅ Visit" in cell_value:
                                             cell.fill = completed_visit_fill
                                             cell.font = completed_visit_font
                                         elif "⚠️ Visit" in cell_value:
@@ -1266,7 +1260,7 @@ if patients_file and trials_file:
                                         elif "❌ Screen Fail" in cell_value:
                                             cell.fill = screen_fail_fill
                                             cell.font = screen_fail_font
-                                        elif "Visit " in cell_value and not cell_value.startswith("✓") and not cell_value.startswith("⚠️"):
+                                        elif "Visit " in cell_value and not cell_value.startswith("✅") and not cell_value.startswith("⚠️"):
                                             cell.fill = scheduled_visit_fill
                                             cell.font = scheduled_visit_font
                                         elif cell_value in ["+", "-"]:
@@ -1344,7 +1338,7 @@ if patients_file and trials_file:
                                         cell = ws2.cell(row=row_idx, column=col_idx)
                                         cell_value = str(cell.value) if cell.value else ""
                                         
-                                        if "✓ Visit" in cell_value:
+                                        if "✅ Visit" in cell_value:
                                             cell.fill = completed_visit_fill
                                             cell.font = completed_visit_font
                                         elif "⚠️ Visit" in cell_value:
@@ -1353,7 +1347,7 @@ if patients_file and trials_file:
                                         elif "❌ Screen Fail" in cell_value:
                                             cell.fill = screen_fail_fill
                                             cell.font = screen_fail_font
-                                        elif "Visit " in cell_value and not cell_value.startswith("✓") and not cell_value.startswith("⚠️"):
+                                        elif "Visit " in cell_value and not cell_value.startswith("✅") and not cell_value.startswith("⚠️"):
                                             cell.fill = scheduled_visit_fill
                                             cell.font = scheduled_visit_font
                                         elif cell_value in ["+", "-"]:
@@ -1413,7 +1407,7 @@ if patients_file and trials_file:
         for site in unique_sites:
             site_patients = patients_df[patients_df["Site"] == site]
             site_visits = visits_df[(visits_df["PatientID"].isin(site_patients["PatientID"])) & 
-                                  ((visits_df["Visit"].str.startswith("✓")) | 
+                                  ((visits_df["Visit"].str.startswith("✅")) | 
                                    (visits_df["Visit"].str.startswith("❌ Screen Fail")) | 
                                    (visits_df["Visit"].str.contains("Visit")))]
             site_income = visits_df[visits_df["PatientID"].isin(site_patients["PatientID"])]["Payment"].sum()
@@ -1428,7 +1422,7 @@ if patients_file and trials_file:
             active_patients = len(site_patients) - site_screen_fails
             
             # Count completed vs pending visits for this site
-            completed_visits = len(site_visits[site_visits["Visit"].str.startswith("✓")]) if actual_visits_df is not None else 0
+            completed_visits = len(site_visits[site_visits["Visit"].str.startswith("✅")]) if actual_visits_df is not None else 0
             screen_fail_visits = len(site_visits[site_visits["Visit"].str.startswith("❌ Screen Fail")]) if actual_visits_df is not None else 0
             total_visits = len(site_visits)
             pending_visits = total_visits - completed_visits - screen_fail_visits
@@ -1456,7 +1450,7 @@ if patients_file and trials_file:
         
         # Filter only actual visits and main scheduled visits
         analysis_visits = visits_df[
-            (visits_df['Visit'].str.startswith("✓")) |  # Actual completed visits
+            (visits_df['Visit'].str.startswith("✅")) |  # Actual completed visits
             (visits_df['Visit'].str.startswith("❌ Screen Fail")) |  # Screen failure visits
             (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
         ]
