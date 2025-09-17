@@ -16,39 +16,6 @@ if 'patient_added' not in st.session_state:
 if 'visit_added' not in st.session_state:
     st.session_state.visit_added = False
 
-# === Styling Functions ===
-def highlight_special_days(row):
-    try:
-        date_obj = pd.to_datetime(row.get("Date"))
-        if pd.isna(date_obj):
-            return [''] * len(row)
-
-        # Financial year end (31 March)
-        if date_obj.month == 3 and date_obj.day == 31:
-            return ['background-color: #1e40af; color: white; font-weight: bold'] * len(row)
-
-        # Month end
-        # Using pandas offset check
-        if date_obj == date_obj + pd.offsets.MonthEnd(0):
-            return ['background-color: #3b82f6; color: white; font-weight: bold'] * len(row)
-
-    except Exception:
-        pass
-    return [''] * len(row)
-
-
-def highlight_weekends(row):
-    try:
-        date_obj = pd.to_datetime(row.get("Date"))
-        if pd.isna(date_obj):
-            return [''] * len(row)
-        if date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-            return ['background-color: #f3f4f6'] * len(row)
-    except Exception:
-        pass
-    return [''] * len(row)
-
-
 # === File Loading Helper ===
 def load_file(uploaded_file):
     if uploaded_file is None:
@@ -58,16 +25,16 @@ def load_file(uploaded_file):
     else:
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
-
 # === UI ===
 st.title("🏥 Clinical Trial Calendar Generator")
-st.caption("v2.2.1 | Fixed: SiteforVisit column detection issue")
+st.caption("v2.2.2 | Fixed: Date formatting for weekends, month ends, and financial year ends")
 
 st.sidebar.header("📁 Upload Data Files")
 patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'], key="patients")
 trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'], key="trials")
 actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'], key="actual_visits")
-                # Information about required columns
+
+# Information about required columns
 with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("**Patients File:**")
     st.write("- PatientID, Study, StartDate")
@@ -81,7 +48,6 @@ with st.sidebar.expander("ℹ️ Required Columns"):
     st.write("- PatientID, Study, VisitNo, ActualDate")
     st.write("- ActualPayment, Notes (optional)")
     st.write("- Use 'ScreenFail' in Notes to stop future visits")
-
 
 # === Main Logic ===
 if patients_file and trials_file:
@@ -412,7 +378,7 @@ if patients_file and trials_file:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.download_button(
-                "📥 Download Updated Patients File",
+                "💾 Download Updated Patients File",
                 data=st.session_state.updated_patients_file,
                 file_name=st.session_state.updated_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -430,7 +396,7 @@ if patients_file and trials_file:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.download_button(
-                "📥 Download Updated Actual Visits File",
+                "💾 Download Updated Actual Visits File",
                 data=st.session_state.updated_visits_file,
                 file_name=st.session_state.updated_visits_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -978,11 +944,24 @@ if patients_file and trials_file:
             - Visit X (Gray background) = Scheduled/Planned Visit
             - \\- (Light gray, italic) = Before tolerance period
             - \\+ (Light gray, italic) = After tolerance period
+            
+            **Date Formatting:**
+            - Blue background = Month end
+            - Dark blue background = Financial year end (31 March)
+            - Light gray background = Weekend
             """)
         else:
-            st.info("**Legend:** Visit X (Gray) = Scheduled Visit, - = Before tolerance, + = After tolerance")
+            st.info("""
+            **Legend:** 
+            - Visit X (Gray) = Scheduled Visit
+            - - = Before tolerance period
+            - + = After tolerance period
+            - Blue background = Month end
+            - Dark blue background = Financial year end (31 March)
+            - Light gray background = Weekend
+            """)
 
-        # Display calendar with site headers
+        # Display calendar with site headers and improved styling
         st.subheader("Generated Visit Calendar")
         display_df = calendar_df_display.copy()
         display_df_for_view = display_df.copy()
@@ -1005,57 +984,66 @@ if patients_file and trials_file:
         site_header_df = pd.DataFrame([site_header_row])
         display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
 
-        try:
-            # Apply color-coded styling
-            def highlight_with_header(row):
-                if row.name == 0:  # Site header row
-                    styles = []
-                    for col_name in row.index:
-                        if row[col_name] != "":
-                            styles.append('background-color: #e6f3ff; font-weight: bold; text-align: center; border: 1px solid #ccc;')
-                        else:
-                            styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
-                    return styles
-                else:
-                    # Data rows with visit type color coding
-                    styles = []
-                    for col_idx, (col_name, cell_value) in enumerate(row.items()):
-                        style = ""
-                        
-                        # Date-based styling
-                        try:
-                            if col_name == "Date":
-                                date_obj = pd.to_datetime(cell_value)
-                                if not pd.isna(date_obj):
-                                    if date_obj.month == 3 and date_obj.day == 31:
-                                        style = 'background-color: #1e40af; color: white; font-weight: bold;'
-                                    elif date_obj == date_obj + pd.offsets.MonthEnd(0):
-                                        style = 'background-color: #3b82f6; color: white; font-weight: bold;'
-                                    elif date_obj.weekday() in (5, 6):
-                                        style = 'background-color: #f3f4f6;'
-                        except Exception:
-                            pass
+        # Create improved styling function
+        def highlight_with_header_fixed(row):
+            if row.name == 0:  # Site header row
+                styles = []
+                for col_name in row.index:
+                    if row[col_name] != "":
+                        styles.append('background-color: #e6f3ff; font-weight: bold; text-align: center; border: 1px solid #ccc;')
+                    else:
+                        styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
+                return styles
+            else:
+                # Data rows - first apply date-based styling, then visit-specific styling
+                styles = []
+                
+                # Get the actual date for this row
+                date_str = row.get("Date", "")
+                date_obj = None
+                try:
+                    if date_str:
+                        date_obj = pd.to_datetime(date_str)
+                except:
+                    pass
+                
+                for col_idx, (col_name, cell_value) in enumerate(row.items()):
+                    style = ""
+                    
+                    # First check for date-based styling (applies to entire row)
+                    if date_obj is not None and not pd.isna(date_obj):
+                        # Financial year end (31 March) - highest priority
+                        if date_obj.month == 3 and date_obj.day == 31:
+                            style = 'background-color: #1e40af; color: white; font-weight: bold;'
+                        # Month end - second priority
+                        elif date_obj == date_obj + pd.offsets.MonthEnd(0):
+                            style = 'background-color: #3b82f6; color: white; font-weight: bold;'
+                        # Weekend - third priority
+                        elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
+                            style = 'background-color: #f3f4f6;'
+                    
+                    # Only apply visit-specific styling if no date styling was applied
+                    if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
+                        cell_str = str(cell_value)
                         
                         # Visit-specific color coding
-                        if col_name not in ["Date", "Day"] and str(cell_value) != "" and style == "":
-                            cell_str = str(cell_value)
-                            
-                            if "✅ Visit" in cell_str:  # Completed visits
-                                style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
-                            elif "⚠️ Visit" in cell_str:  # Out of window visits
-                                style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
-                            elif "❌ Screen Fail" in cell_str:  # Screen failures
-                                style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                            elif "Visit " in cell_str and not cell_str.startswith("✅") and not cell_str.startswith("⚠️"):  # Scheduled
-                                style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
-                            elif cell_str in ["+", "-"]:  # Tolerance periods
-                                style = 'background-color: #f8f9fa; color: #6c757d; font-style: italic;'
-                        
-                        styles.append(style)
+                        if "✅ Visit" in cell_str:  # Completed visits
+                            style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                        elif "⚠️ Visit" in cell_str:  # Out of window visits
+                            style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+                        elif "❌ Screen Fail" in cell_str:  # Screen failures
+                            style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                        elif "Visit " in cell_str and not cell_str.startswith("✅") and not cell_str.startswith("⚠️"):  # Scheduled
+                            style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
+                        elif cell_str in ["+", "-"]:  # Tolerance periods
+                            style = 'background-color: #f8f9fa; color: #6c757d; font-style: italic;'
                     
-                    return styles
+                    styles.append(style)
+                
+                return styles
 
-            styled_df = display_with_header.style.apply(highlight_with_header, axis=1)
+        try:
+            styled_df = display_with_header.style.apply(highlight_with_header_fixed, axis=1)
             
             import streamlit.components.v1 as components
             html_table = f"""
@@ -1194,7 +1182,7 @@ if patients_file and trials_file:
                     max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_full_df[col].tolist()] + [len(col)])
                     ws.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Define fills and fonts for visit type color coding
+                # Define fills and fonts for formatting
                 weekend_fill = PatternFill(start_color="FFF3F4F6", end_color="FFF3F4F6", fill_type="solid")
                 month_end_fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
                 fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
@@ -1216,35 +1204,38 @@ if patients_file and trials_file:
                 tolerance_fill = PatternFill(start_color="FFF8F9FA", end_color="FFF8F9FA", fill_type="solid")
                 tolerance_font = Font(color="FF6C757D", italic=True)
 
-                # Apply formatting row-by-row and cell-by-cell
+                # Apply formatting row-by-row with proper date-based styling
                 for row_idx in range(3, len(excel_full_df) + 3):
                     try:
                         date_idx = row_idx - 3
                         if date_idx < len(calendar_df):
                             date_obj = calendar_df.iloc[date_idx]["Date"]
                             
-                            # Apply date-based formatting first
+                            # Apply date-based formatting first (takes priority)
                             date_style_applied = False
                             if not pd.isna(date_obj):
+                                # Financial year end (highest priority)
                                 if date_obj.month == 3 and date_obj.day == 31:
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = fy_end_fill
                                         cell.font = white_font
                                     date_style_applied = True
+                                # Month end (second priority)
                                 elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = month_end_fill
                                         cell.font = white_font
                                     date_style_applied = True
+                                # Weekend (third priority)
                                 elif date_obj.weekday() in (5, 6):
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = weekend_fill
                                     date_style_applied = True
                             
-                            # Apply visit-specific styling if no date styling
+                            # Apply visit-specific styling only if no date styling was applied
                             if not date_style_applied:
                                 for col_idx, col_name in enumerate(excel_full_df.columns, 1):
                                     if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
@@ -1277,7 +1268,7 @@ if patients_file and trials_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # Schedule-only Excel
+            # Schedule-only Excel with same formatting
             schedule_df = display_df.copy()
             schedule_df["Date"] = schedule_df["Date"].dt.strftime("%d/%m/%Y")
                 
@@ -1441,148 +1432,6 @@ if patients_file and trials_file:
         
         site_stats_df = pd.DataFrame(site_stats)
         st.dataframe(site_stats_df, use_container_width=True)
-
-        # Monthly analysis by site
-        st.subheader("📅 Monthly Analysis by Site")
-        
-        # Create month-year period for analysis
-        visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
-        
-        # Filter only actual visits and main scheduled visits
-        analysis_visits = visits_df[
-            (visits_df['Visit'].str.startswith("✅")) |  # Actual completed visits
-            (visits_df['Visit'].str.startswith("❌ Screen Fail")) |  # Screen failure visits
-            (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
-        ]
-        
-        # Analysis 1: Visits by Site of Visit (where visits happen)
-        st.write("**Analysis by Visit Location (Where visits occur)**")
-        visits_by_site_month = analysis_visits.groupby(['SiteofVisit', 'MonthYear']).size().reset_index(name='Visits')
-        visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Visits').fillna(0)
-        
-        # Calculate visit ratios
-        visits_pivot['Total_Visits'] = visits_pivot.sum(axis=1)
-        visit_sites = [col for col in visits_pivot.columns if col != 'Total_Visits']
-        for site in visit_sites:
-            visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
-        
-        # Count unique patients by visit site per month
-        patients_by_visit_site_month = analysis_visits.groupby(['SiteofVisit', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
-        patients_visit_pivot = patients_by_visit_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Patients').fillna(0)
-        
-        # Calculate patient ratios for visit site
-        patients_visit_pivot['Total_Patients'] = patients_visit_pivot.sum(axis=1)
-        for site in visit_sites:
-            if site in patients_visit_pivot.columns:
-                patients_visit_pivot[f'{site}_Ratio'] = (patients_visit_pivot[site] / patients_visit_pivot['Total_Patients'] * 100).round(1)
-        
-        # Analysis 2: Patients by Origin Site (where patients come from)
-        st.write("**Analysis by Patient Origin (Where patients come from)**")
-        patients_by_origin_month = analysis_visits.groupby(['PatientOrigin', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
-        patients_origin_pivot = patients_by_origin_month.pivot(index='MonthYear', columns='PatientOrigin', values='Patients').fillna(0)
-        
-        # Calculate patient origin ratios
-        patients_origin_pivot['Total_Patients'] = patients_origin_pivot.sum(axis=1)
-        origin_sites = [col for col in patients_origin_pivot.columns if col != 'Total_Patients']
-        for site in origin_sites:
-            patients_origin_pivot[f'{site}_Ratio'] = (patients_origin_pivot[site] / patients_origin_pivot['Total_Patients'] * 100).round(1)
-        
-        # Display tables
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Monthly Visits by Visit Site**")
-            visits_display = visits_pivot.copy()
-            visits_display.index = visits_display.index.astype(str)
-            
-            # Reorder columns
-            display_cols = []
-            for site in sorted(visit_sites):
-                display_cols.append(site)
-            for site in sorted(visit_sites):
-                ratio_col = f'{site}_Ratio'
-                if ratio_col in visits_display.columns:
-                    display_cols.append(ratio_col)
-            display_cols.append('Total_Visits')
-            
-            visits_display = visits_display[display_cols]
-            st.dataframe(visits_display, use_container_width=True)
-        
-        with col2:
-            st.write("**Monthly Patients by Visit Site**")
-            patients_visit_display = patients_visit_pivot.copy()
-            patients_visit_display.index = patients_visit_display.index.astype(str)
-            
-            # Reorder columns
-            display_cols = []
-            for site in sorted(visit_sites):
-                if site in patients_visit_display.columns:
-                    display_cols.append(site)
-            for site in sorted(visit_sites):
-                ratio_col = f'{site}_Ratio'
-                if ratio_col in patients_visit_display.columns:
-                    display_cols.append(ratio_col)
-            display_cols.append('Total_Patients')
-            
-            patients_visit_display = patients_visit_display[display_cols]
-            st.dataframe(patients_visit_display, use_container_width=True)
-        
-        # Patient Origin Analysis
-        st.write("**Monthly Patients by Origin Site (Where patients come from)**")
-        patients_origin_display = patients_origin_pivot.copy()
-        patients_origin_display.index = patients_origin_display.index.astype(str)
-        
-        # Reorder columns
-        display_cols = []
-        for site in sorted(origin_sites):
-            display_cols.append(site)
-        for site in sorted(origin_sites):
-            ratio_col = f'{site}_Ratio'
-            if ratio_col in patients_origin_display.columns:
-                display_cols.append(ratio_col)
-        display_cols.append('Total_Patients')
-        
-        patients_origin_display = patients_origin_display[display_cols]
-        st.dataframe(patients_origin_display, use_container_width=True)
-        
-        # Cross-tabulation: Origin vs Visit Site
-        st.write("**Cross-Analysis: Patient Origin vs Visit Site**")
-        cross_tab = analysis_visits.groupby(['PatientOrigin', 'SiteofVisit'])['PatientID'].nunique().reset_index(name='Patients')
-        cross_pivot = cross_tab.pivot(index='PatientOrigin', columns='SiteofVisit', values='Patients').fillna(0)
-        cross_pivot['Total'] = cross_pivot.sum(axis=1)
-        
-        # Add row percentages
-        for col in cross_pivot.columns:
-            if col != 'Total':
-                cross_pivot[f'{col}_%'] = (cross_pivot[col] / cross_pivot['Total'] * 100).round(1)
-        
-        st.dataframe(cross_pivot, use_container_width=True)
-        
-        # Charts
-        st.subheader("📊 Monthly Trends")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.write("**Visits by Visit Site**")
-            if not visits_pivot.empty:
-                chart_data = visits_pivot[[col for col in visits_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Visits']]
-                chart_data.index = chart_data.index.astype(str)
-                st.bar_chart(chart_data)
-        
-        with col2:
-            st.write("**Patients by Visit Site**") 
-            if not patients_visit_pivot.empty:
-                chart_data = patients_visit_pivot[[col for col in patients_visit_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
-                chart_data.index = chart_data.index.astype(str)
-                st.bar_chart(chart_data)
-        
-        with col3:
-            st.write("**Patients by Origin Site**")
-            if not patients_origin_pivot.empty:
-                chart_data = patients_origin_pivot[[col for col in patients_origin_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
-                chart_data.index = chart_data.index.astype(str)
-                st.bar_chart(chart_data)
 
     except Exception as e:
         st.error(f"Error processing files: {e}")
