@@ -623,12 +623,15 @@ if patients_file and trials_file:
                     current_baseline_visit = visit_no
                     
                     # Mark visit status based on notes and window compliance
+                    # Convert visit_no to int to remove .0 decimal
+                    visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
+                    
                     if "ScreenFail" in str(notes):
-                        visit_status = f"❌ Screen Fail {visit_no}"
+                        visit_status = f"❌ Screen Fail {visit_no_clean}"
                     elif is_out_of_window:
-                        visit_status = f"⚠️ Visit {visit_no}"
+                        visit_status = f"⚠️ Visit {visit_no_clean}"
                     else:
-                        visit_status = f"✅ Visit {visit_no}"
+                        visit_status = f"✅ Visit {visit_no_clean}"
                     
                     # Check if actual visit is after screen failure
                     if screen_fail_date is not None and visit_date > screen_fail_date:
@@ -670,7 +673,9 @@ if patients_file and trials_file:
                     
                     visit_date = scheduled_date
                     payment = float(visit.get("Payment", 0) or 0.0)
-                    visit_status = f"Visit {visit_no}"
+                    # Convert visit_no to int to remove .0 decimal  
+                    visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
+                    visit_status = f"Visit {visit_no_clean}"
                     
                     tol_before = int(visit.get("ToleranceBefore", 0) or 0)
                     tol_after = int(visit.get("ToleranceAfter", 0) or 0)
