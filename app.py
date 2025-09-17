@@ -948,7 +948,7 @@ if patients_file and trials_file:
         site_summary_df = pd.DataFrame(site_summary_data)
         st.dataframe(site_summary_df, use_container_width=True)
 
-        # Display legend with color coding
+        # Display legend with updated color coding
         if actual_visits_df is not None:
             st.info("""
             **Legend with Color Coding:**
@@ -960,23 +960,25 @@ if patients_file and trials_file:
             
             **Scheduled Visits:**
             - Visit X (Gray background) = Scheduled/Planned Visit
-            - \\- (Light gray, italic) = Before tolerance period
-            - \\+ (Light gray, italic) = After tolerance period
+            - \\- (Light blue-gray, italic) = Before tolerance period
+            - \\+ (Light blue-gray, italic) = After tolerance period
             
             **Date Formatting:**
-            - Blue background = Month end
+            - Light blue background = Month end (softer highlighting)
             - Dark blue background = Financial year end (31 March)
-            - Light gray background = Weekend
+            - Gray background with left border = Weekend (more distinctive)
+            - Blue separator lines = Month boundaries (screen only)
             """)
         else:
             st.info("""
             **Legend:** 
             - Visit X (Gray) = Scheduled Visit
-            - - = Before tolerance period
-            - + = After tolerance period
-            - Blue background = Month end
+            - - (Light blue-gray) = Before tolerance period
+            - + (Light blue-gray) = After tolerance period
+            - Light blue background = Month end (softer highlighting)
             - Dark blue background = Financial year end (31 March)
-            - Light gray background = Weekend
+            - Gray background with left border = Weekend (more distinctive)
+            - Blue separator lines = Month boundaries (screen only)
             """)
 
         # Display calendar with site headers and improved styling
@@ -1002,7 +1004,7 @@ if patients_file and trials_file:
         site_header_df = pd.DataFrame([site_header_row])
         display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
 
-        # Create improved styling function
+        # Create improved styling function with better colors
         def highlight_with_header_fixed(row):
             if row.name == 0:  # Site header row
                 styles = []
@@ -1033,12 +1035,12 @@ if patients_file and trials_file:
                         # Financial year end (31 March) - highest priority
                         if date_obj.month == 3 and date_obj.day == 31:
                             style = 'background-color: #1e40af; color: white; font-weight: bold;'
-                        # Month end - second priority
+                        # Month end - softer blue, second priority  
                         elif date_obj == date_obj + pd.offsets.MonthEnd(0):
-                            style = 'background-color: #3b82f6; color: white; font-weight: bold;'
-                        # Weekend - third priority
+                            style = 'background-color: #60a5fa; color: white; font-weight: normal;'
+                        # Weekend - more obvious gray, third priority
                         elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-                            style = 'background-color: #f3f4f6;'
+                            style = 'background-color: #e5e7eb; border-left: 3px solid #9ca3af;'
                     
                     # Only apply visit-specific styling if no date styling was applied
                     if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
@@ -1053,8 +1055,8 @@ if patients_file and trials_file:
                             style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                         elif "Visit " in cell_str and not cell_str.startswith("✅") and not cell_str.startswith("⚠️"):  # Scheduled
                             style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
-                        elif cell_str in ["+", "-"]:  # Tolerance periods
-                            style = 'background-color: #f8f9fa; color: #6c757d; font-style: italic;'
+                        elif cell_str in ["+", "-"]:  # Tolerance periods - different from weekends
+                            style = 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
                     
                     styles.append(style)
                 
@@ -1063,10 +1065,46 @@ if patients_file and trials_file:
         try:
             styled_df = display_with_header.style.apply(highlight_with_header_fixed, axis=1)
             
+            # Add month separators by modifying the HTML
+            html_table_base = styled_df.to_html(escape=False)
+            
+            # Add month separators in the HTML by finding month boundaries
+            html_lines = html_table_base.split('\n')
+            modified_html_lines = []
+            
+            prev_month = None
+            for i, line in enumerate(html_lines):
+                # Check if this is a data row with a date
+                if '<td>' in line and len(html_lines) > i+1:
+                    # Try to extract date from the line
+                    date_match = None
+                    import re
+                    date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
+                    match = re.search(date_pattern, line)
+                    if match:
+                        try:
+                            date_obj = pd.to_datetime(match.group(1))
+                            current_month = date_obj.to_period('M')
+                            
+                            # Add separator line if month changed
+                            if prev_month is not None and current_month != prev_month:
+                                # Count columns for proper separator
+                                col_count = line.count('<td>')
+                                separator_line = f'<tr style="border-top: 3px solid #3b82f6; background-color: #eff6ff;"><td colspan="{col_count}" style="text-align: center; font-weight: bold; color: #1e40af; padding: 2px;">{current_month}</td></tr>'
+                                modified_html_lines.append(separator_line)
+                            
+                            prev_month = current_month
+                        except:
+                            pass
+                
+                modified_html_lines.append(line)
+            
+            html_table_with_separators = '\n'.join(modified_html_lines)
+            
             import streamlit.components.v1 as components
             html_table = f"""
             <div style='max-height: 700px; overflow: auto; border: 1px solid #ddd;'>
-                {styled_df.to_html(escape=False)}
+                {html_table_with_separators}
             </div>
             """
             components.html(html_table, height=720, scrolling=True)
@@ -1200,11 +1238,12 @@ if patients_file and trials_file:
                     max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_full_df[col].tolist()] + [len(col)])
                     ws.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Define fills and fonts for formatting
-                weekend_fill = PatternFill(start_color="FFF3F4F6", end_color="FFF3F4F6", fill_type="solid")
-                month_end_fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
-                fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
+                # Define fills and fonts for formatting with improved colors
+                weekend_fill = PatternFill(start_color="FFE5E7EB", end_color="FFE5E7EB", fill_type="solid")  # More obvious gray
+                month_end_fill = PatternFill(start_color="FF60A5FA", end_color="FF60A5FA", fill_type="solid")  # Softer blue
+                fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")  # Keep dark blue
                 white_font = Font(color="FFFFFFFF", bold=True)
+                normal_white_font = Font(color="FFFFFFFF", bold=False)  # For softer month ends
                 
                 # Visit type color fills
                 completed_visit_fill = PatternFill(start_color="FFD4EDDA", end_color="FFD4EDDA", fill_type="solid")
@@ -1219,8 +1258,9 @@ if patients_file and trials_file:
                 scheduled_visit_fill = PatternFill(start_color="FFE2E3E5", end_color="FFE2E3E5", fill_type="solid")
                 scheduled_visit_font = Font(color="FF383D41", bold=False)
                 
-                tolerance_fill = PatternFill(start_color="FFF8F9FA", end_color="FFF8F9FA", fill_type="solid")
-                tolerance_font = Font(color="FF6C757D", italic=True)
+                # Different color for tolerance periods to distinguish from weekends
+                tolerance_fill = PatternFill(start_color="FFF1F5F9", end_color="FFF1F5F9", fill_type="solid")
+                tolerance_font = Font(color="FF64748B", italic=True)
 
                 # Apply formatting row-by-row with proper date-based styling
                 for row_idx in range(3, len(excel_full_df) + 3):
@@ -1239,12 +1279,12 @@ if patients_file and trials_file:
                                         cell.fill = fy_end_fill
                                         cell.font = white_font
                                     date_style_applied = True
-                                # Month end (second priority)
+                                # Month end (second priority) - softer styling
                                 elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = month_end_fill
-                                        cell.font = white_font
+                                        cell.font = normal_white_font
                                     date_style_applied = True
                                 # Weekend (third priority)
                                 elif date_obj.weekday() in (5, 6):
@@ -1332,7 +1372,7 @@ if patients_file and trials_file:
                                     for col_idx in range(1, len(schedule_df.columns) + 1):
                                         cell = ws2.cell(row=row_idx, column=col_idx)
                                         cell.fill = month_end_fill
-                                        cell.font = white_font
+                                        cell.font = normal_white_font
                                     date_style_applied = True
                                 elif date_obj.weekday() in (5, 6):
                                     for col_idx in range(1, len(schedule_df.columns) + 1):
