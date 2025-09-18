@@ -1005,6 +1005,7 @@ if patients_file and trials_file:
             - \\+ (Light blue-gray, italic) = After tolerance period
             
             **Date Formatting:**
+            - Red background = Today's date
             - Light blue background = Month end (softer highlighting)
             - Dark blue background = Financial year end (31 March)
             - Gray background = Weekend
@@ -1067,21 +1068,28 @@ if patients_file and trials_file:
                         date_obj = pd.to_datetime(date_str)
                 except:
                     pass
+
+                # Get today's date for comparison
+                from datetime import date
+                today = pd.to_datetime(date.today())
                 
                 for col_idx, (col_name, cell_value) in enumerate(row.items()):
                     style = ""
                     
                     # First check for date-based styling (applies to entire row)
                     if date_obj is not None and not pd.isna(date_obj):
-                        # Financial year end (31 March) - highest priority
-                        if date_obj.month == 3 and date_obj.day == 31:
+                        # Today's date - highest priority (RED)
+                        if date_obj.date() == today.date():
+                            style = 'background-color: #dc2626; color: white; font-weight: bold;'
+                        # Financial year end (31 March) - second priority
+                        elif date_obj.month == 3 and date_obj.day == 31:
                             style = 'background-color: #1e40af; color: white; font-weight: bold;'
-                        # Month end - softer blue, second priority  
+                        # Month end - softer blue, third priority  
                         elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                             style = 'background-color: #60a5fa; color: white; font-weight: normal;'
-                        # Weekend - more obvious gray, third priority
+                        # Weekend - more obvious gray, fourth priority
                         elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-                            style = 'background-color: #e5e7eb;'
+                            style = 'background-color: #e5e7eb;
                     
                     # Only apply visit-specific styling if no date styling was applied
                     if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
