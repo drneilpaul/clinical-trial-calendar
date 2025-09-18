@@ -1089,7 +1089,7 @@ if patients_file and trials_file:
                             style = 'background-color: #60a5fa; color: white; font-weight: normal;'
                         # Weekend - more obvious gray, fourth priority
                         elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-                            style = 'background-color: #e5e7eb;
+                            style = 'background-color: #e5e7eb;'
                     
                     # Only apply visit-specific styling if no date styling was applied
                     if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
