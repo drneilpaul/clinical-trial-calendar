@@ -1001,8 +1001,8 @@ if patients_file and trials_file:
             
             **Scheduled Visits:**
             - Visit X (Gray background) = Scheduled/Planned Visit
-            - \\- (Light blue-gray, italic) = Before tolerance period
-            - \\+ (Light blue-gray, italic) = After tolerance period
+            - "-" (Light blue-gray, italic) = Before tolerance period
+            - "+" (Light blue-gray, italic) = After tolerance period
             
             **Date Formatting:**
             - Red background = Today's date
@@ -1015,8 +1015,8 @@ if patients_file and trials_file:
             st.info("""
             **Legend:** 
             - Visit X (Gray) = Scheduled Visit
-            - - (Light blue-gray) = Before tolerance period
-            - + (Light blue-gray) = After tolerance period
+            - "-" (Light blue-gray) = Before tolerance period
+            - "+" (Light blue-gray) = After tolerance period
             - Light blue background = Month end (softer highlighting)
             - Dark blue background = Financial year end (31 March)
             - Gray background = Weekend
@@ -1162,166 +1162,165 @@ if patients_file and trials_file:
             st.dataframe(display_with_header, use_container_width=True)
 
         # Financial Analysis by Financial Year
-st.subheader("💰 Financial Analysis by Financial Year")
+        st.subheader("💰 Financial Analysis by Financial Year")
 
-# Add financial year to financial_df if not already present
-if 'FinancialYear' not in financial_df.columns:
-    financial_df['FinancialYear'] = financial_df['Date'].apply(
-        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-    )
+        # Add financial year to financial_df if not already present
+        if 'FinancialYear' not in financial_df.columns:
+            financial_df['FinancialYear'] = financial_df['Date'].apply(
+                lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+            )
 
-# Get unique financial years
-financial_years = sorted(financial_df['FinancialYear'].unique())
+        # Get unique financial years
+        financial_years = sorted(financial_df['FinancialYear'].unique())
 
-# Create tabs for each financial year plus an "All Years" overview
-tab_labels = ["All Years Overview"] + [f"FY {fy}" for fy in financial_years]
-tabs = st.tabs(tab_labels)
+        # Create tabs for each financial year plus an "All Years" overview
+        tab_labels = ["All Years Overview"] + [f"FY {fy}" for fy in financial_years]
+        tabs = st.tabs(tab_labels)
 
-# All Years Overview Tab
-with tabs[0]:
-    st.write("**Summary Across All Financial Years**")
-    
-    # Overall totals
-    if not actual_financial.empty:
-        overall_actual = actual_financial['Payment'].sum()
-        overall_scheduled = scheduled_financial['Payment'].sum()
-        overall_total = overall_actual + overall_scheduled
-        overall_screen_fails = len(actual_financial[actual_financial.get('IsScreenFail', False)])
-        overall_completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Total Actual Income", f"£{overall_actual:,.2f}")
-        with col2:
-            st.metric("Total Scheduled Income", f"£{overall_scheduled:,.2f}")
-        with col3:
-            st.metric("Combined Total", f"£{overall_total:,.2f}")
-        with col4:
-            st.metric("Total Screen Failures", overall_screen_fails)
-        with col5:
-            st.metric("Overall Completion Rate", f"{overall_completion_rate:.1f}%")
-    
-    # Year-by-year summary table
-    st.write("**Financial Year Comparison Table**")
-    yearly_summary = []
-    
-    for fy in financial_years:
-        fy_data = financial_df[financial_df['FinancialYear'] == fy]
-        fy_actual = fy_data[fy_data.get('IsActual', False)]
-        fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
-        
-        actual_income = fy_actual['Payment'].sum()
-        scheduled_income = fy_scheduled['Payment'].sum()
-        total_income = actual_income + scheduled_income
-        screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
-        completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
-        total_visits = len(fy_data)
-        completed_visits = len(fy_actual)
-        
-        yearly_summary.append({
-            'Financial Year': f"FY {fy}",
-            'Completed Visits': completed_visits,
-            'Total Visits': total_visits,
-            'Completion Rate': f"{completion_rate:.1f}%",
-            'Actual Income': f"£{actual_income:,.2f}",
-            'Scheduled Income': f"£{scheduled_income:,.2f}",
-            'Total Income': f"£{total_income:,.2f}",
-            'Screen Failures': screen_fails
-        })
-    
-    if yearly_summary:
-        yearly_df = pd.DataFrame(yearly_summary)
-        st.dataframe(yearly_df, use_container_width=True)
-
-# Individual Financial Year Tabs
-for i, fy in enumerate(financial_years, 1):
-    with tabs[i]:
-        st.write(f"**Financial Year {fy} Analysis** (April {fy.split('-')[0]} - March {fy.split('-')[1]})")
-        
-        # Filter data for this financial year
-        fy_data = financial_df[financial_df['FinancialYear'] == fy]
-        fy_actual = fy_data[fy_data.get('IsActual', False)]
-        fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
-        
-        if not fy_data.empty:
-            # Key metrics for this year
-            actual_income = fy_actual['Payment'].sum()
-            scheduled_income = fy_scheduled['Payment'].sum()
-            total_income = actual_income + scheduled_income
-            screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
-            completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
+        # All Years Overview Tab
+        with tabs[0]:
+            st.write("**Summary Across All Financial Years**")
             
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("Actual Income", f"£{actual_income:,.2f}")
-            with col2:
-                st.metric("Scheduled Income", f"£{scheduled_income:,.2f}")
-            with col3:
-                st.metric("Total Income", f"£{total_income:,.2f}")
-            with col4:
-                st.metric("Screen Failures", screen_fails)
-            with col5:
-                st.metric("Completion Rate", f"{completion_rate:.1f}%")
-            
-            # Monthly breakdown for this financial year
-            st.write(f"**Monthly Breakdown - FY {fy}**")
-            fy_data['Month'] = fy_data['Date'].dt.to_period('M')
-            monthly_breakdown = []
-            
-            for month in sorted(fy_data['Month'].unique()):
-                month_data = fy_data[fy_data['Month'] == month]
-                month_actual = month_data[month_data.get('IsActual', False)]
-                month_scheduled = month_data[~month_data.get('IsActual', True)]
+            # Overall totals
+            if not actual_financial.empty:
+                overall_actual = actual_financial['Payment'].sum()
+                overall_scheduled = scheduled_financial['Payment'].sum()
+                overall_total = overall_actual + overall_scheduled
+                overall_screen_fails = len(actual_financial[actual_financial.get('IsScreenFail', False)])
+                overall_completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
                 
-                monthly_breakdown.append({
-                    'Month': str(month),
-                    'Completed Visits': len(month_actual),
-                    'Scheduled Visits': len(month_scheduled),
-                    'Total Visits': len(month_data),
-                    'Actual Income': f"£{month_actual['Payment'].sum():,.2f}",
-                    'Scheduled Income': f"£{month_scheduled['Payment'].sum():,.2f}",
-                    'Total Income': f"£{month_data['Payment'].sum():,.2f}"
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Total Actual Income", f"£{overall_actual:,.2f}")
+                with col2:
+                    st.metric("Total Scheduled Income", f"£{overall_scheduled:,.2f}")
+                with col3:
+                    st.metric("Combined Total", f"£{overall_total:,.2f}")
+                with col4:
+                    st.metric("Total Screen Failures", overall_screen_fails)
+                with col5:
+                    st.metric("Overall Completion Rate", f"{overall_completion_rate:.1f}%")
+            
+            # Year-by-year summary table
+            st.write("**Financial Year Comparison Table**")
+            yearly_summary = []
+            
+            for fy in financial_years:
+                fy_data = financial_df[financial_df['FinancialYear'] == fy]
+                fy_actual = fy_data[fy_data.get('IsActual', False)]
+                fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
+                
+                actual_income = fy_actual['Payment'].sum()
+                scheduled_income = fy_scheduled['Payment'].sum()
+                total_income = actual_income + scheduled_income
+                screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
+                completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
+                total_visits = len(fy_data)
+                completed_visits = len(fy_actual)
+                
+                yearly_summary.append({
+                    'Financial Year': f"FY {fy}",
+                    'Completed Visits': completed_visits,
+                    'Total Visits': total_visits,
+                    'Completion Rate': f"{completion_rate:.1f}%",
+                    'Actual Income': f"£{actual_income:,.2f}",
+                    'Scheduled Income': f"£{scheduled_income:,.2f}",
+                    'Total Income': f"£{total_income:,.2f}",
+                    'Screen Failures': screen_fails
                 })
             
-            if monthly_breakdown:
-                monthly_df = pd.DataFrame(monthly_breakdown)
-                st.dataframe(monthly_df, use_container_width=True)
-                
-                # Monthly chart for this year
-                chart_data = pd.DataFrame(monthly_breakdown)
-                chart_data['Actual_Amount'] = chart_data['Actual Income'].str.replace('£', '').str.replace(',', '').astype(float)
-                chart_data['Scheduled_Amount'] = chart_data['Scheduled Income'].str.replace('£', '').str.replace(',', '').astype(float)
-                chart_display = chart_data[['Month', 'Actual_Amount', 'Scheduled_Amount']].set_index('Month')
-                chart_display.columns = ['Actual Income', 'Scheduled Income']
-                st.bar_chart(chart_display)
-            
-            # Study breakdown for this financial year
-            st.write(f"**Study Breakdown - FY {fy}**")
-            study_breakdown = []
-            
-            for study in fy_data['Study'].unique():
-                study_data = fy_data[fy_data['Study'] == study]
-                study_actual = study_data[study_data.get('IsActual', False)]
-                study_scheduled = study_data[~study_data.get('IsActual', True)]
-                
-                study_breakdown.append({
-                    'Study': study,
-                    'Completed Visits': len(study_actual),
-                    'Scheduled Visits': len(study_scheduled),
-                    'Total Visits': len(study_data),
-                    'Actual Income': f"£{study_actual['Payment'].sum():,.2f}",
-                    'Scheduled Income': f"£{study_scheduled['Payment'].sum():,.2f}",
-                    'Total Income': f"£{study_data['Payment'].sum():,.2f}",
-                    'Completion Rate': f"{(len(study_actual) / len(study_data) * 100):.1f}%" if len(study_data) > 0 else "0.0%"
-                })
-            
-            if study_breakdown:
-                study_df = pd.DataFrame(study_breakdown)
-                st.dataframe(study_df, use_container_width=True)
-        
-        else:
-            st.info(f"No financial data available for FY {fy}")
+            if yearly_summary:
+                yearly_df = pd.DataFrame(yearly_summary)
+                st.dataframe(yearly_df, use_container_width=True)
 
+        # Individual Financial Year Tabs
+        for i, fy in enumerate(financial_years, 1):
+            with tabs[i]:
+                st.write(f"**Financial Year {fy} Analysis** (April {fy.split('-')[0]} - March {fy.split('-')[1]})")
+                
+                # Filter data for this financial year
+                fy_data = financial_df[financial_df['FinancialYear'] == fy]
+                fy_actual = fy_data[fy_data.get('IsActual', False)]
+                fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
+                
+                if not fy_data.empty:
+                    # Key metrics for this year
+                    actual_income = fy_actual['Payment'].sum()
+                    scheduled_income = fy_scheduled['Payment'].sum()
+                    total_income = actual_income + scheduled_income
+                    screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
+                    completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
+                    
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.metric("Actual Income", f"£{actual_income:,.2f}")
+                    with col2:
+                        st.metric("Scheduled Income", f"£{scheduled_income:,.2f}")
+                    with col3:
+                        st.metric("Total Income", f"£{total_income:,.2f}")
+                    with col4:
+                        st.metric("Screen Failures", screen_fails)
+                    with col5:
+                        st.metric("Completion Rate", f"{completion_rate:.1f}%")
+                    
+                    # Monthly breakdown for this financial year
+                    st.write(f"**Monthly Breakdown - FY {fy}**")
+                    fy_data['Month'] = fy_data['Date'].dt.to_period('M')
+                    monthly_breakdown = []
+                    
+                    for month in sorted(fy_data['Month'].unique()):
+                        month_data = fy_data[fy_data['Month'] == month]
+                        month_actual = month_data[month_data.get('IsActual', False)]
+                        month_scheduled = month_data[~month_data.get('IsActual', True)]
+                        
+                        monthly_breakdown.append({
+                            'Month': str(month),
+                            'Completed Visits': len(month_actual),
+                            'Scheduled Visits': len(month_scheduled),
+                            'Total Visits': len(month_data),
+                            'Actual Income': f"£{month_actual['Payment'].sum():,.2f}",
+                            'Scheduled Income': f"£{month_scheduled['Payment'].sum():,.2f}",
+                            'Total Income': f"£{month_data['Payment'].sum():,.2f}"
+                        })
+                    
+                    if monthly_breakdown:
+                        monthly_df = pd.DataFrame(monthly_breakdown)
+                        st.dataframe(monthly_df, use_container_width=True)
+                        
+                        # Monthly chart for this year
+                        chart_data = pd.DataFrame(monthly_breakdown)
+                        chart_data['Actual_Amount'] = chart_data['Actual Income'].str.replace('£', '').str.replace(',', '').astype(float)
+                        chart_data['Scheduled_Amount'] = chart_data['Scheduled Income'].str.replace('£', '').str.replace(',', '').astype(float)
+                        chart_display = chart_data[['Month', 'Actual_Amount', 'Scheduled_Amount']].set_index('Month')
+                        chart_display.columns = ['Actual Income', 'Scheduled Income']
+                        st.bar_chart(chart_display)
+                    
+                    # Study breakdown for this financial year
+                    st.write(f"**Study Breakdown - FY {fy}**")
+                    study_breakdown = []
+                    
+                    for study in fy_data['Study'].unique():
+                        study_data = fy_data[fy_data['Study'] == study]
+                        study_actual = study_data[study_data.get('IsActual', False)]
+                        study_scheduled = study_data[~study_data.get('IsActual', True)]
+                        
+                        study_breakdown.append({
+                            'Study': study,
+                            'Completed Visits': len(study_actual),
+                            'Scheduled Visits': len(study_scheduled),
+                            'Total Visits': len(study_data),
+                            'Actual Income': f"£{study_actual['Payment'].sum():,.2f}",
+                            'Scheduled Income': f"£{study_scheduled['Payment'].sum():,.2f}",
+                            'Total Income': f"£{study_data['Payment'].sum():,.2f}",
+                            'Completion Rate': f"{(len(study_actual) / len(study_data) * 100):.1f}%" if len(study_data) > 0 else "0.0%"
+                        })
+                    
+                    if study_breakdown:
+                        study_df = pd.DataFrame(study_breakdown)
+                        st.dataframe(study_df, use_container_width=True)
+                
+                else:
+                    st.info(f"No financial data available for FY {fy}")
 
         # Monthly income analysis
         financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
@@ -1786,8 +1785,6 @@ for i, fy in enumerate(financial_years, 1):
             for col in excel_financial_cols:
                 if col in excel_full_df.columns:
                     if col in ["Monthly Total", "FY Total"]:
-                        excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
-                    else:
                         excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
 
             # Excel with finances and site headers
@@ -1818,6 +1815,7 @@ for i, fy in enumerate(financial_years, 1):
                 weekend_fill = PatternFill(start_color="FFE5E7EB", end_color="FFE5E7EB", fill_type="solid")  # More obvious gray
                 month_end_fill = PatternFill(start_color="FF60A5FA", end_color="FF60A5FA", fill_type="solid")  # Softer blue
                 fy_end_fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")  # Keep dark blue
+                today_fill = PatternFill(start_color="FFDC2626", end_color="FFDC2626", fill_type="solid")  # Red for today
                 white_font = Font(color="FFFFFFFF", bold=True)
                 normal_white_font = Font(color="FFFFFFFF", bold=False)  # For softer month ends
                 
@@ -1838,7 +1836,7 @@ for i, fy in enumerate(financial_years, 1):
                 tolerance_fill = PatternFill(start_color="FFF1F5F9", end_color="FFF1F5F9", fill_type="solid")
                 tolerance_font = Font(color="FF64748B", italic=True)
 
-                # Apply formatting row-by-row with proper date-based styling
+                # Apply formatting row-by-row with proper date-based styling including today
                 for row_idx in range(3, len(excel_full_df) + 3):
                     try:
                         date_idx = row_idx - 3
@@ -1848,21 +1846,28 @@ for i, fy in enumerate(financial_years, 1):
                             # Apply date-based formatting first (takes priority)
                             date_style_applied = False
                             if not pd.isna(date_obj):
-                                # Financial year end (highest priority)
-                                if date_obj.month == 3 and date_obj.day == 31:
+                                # Today's date (highest priority)
+                                if date_obj.date() == date.today():
+                                    for col_idx in range(1, len(excel_full_df.columns) + 1):
+                                        cell = ws.cell(row=row_idx, column=col_idx)
+                                        cell.fill = today_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                # Financial year end (second priority)
+                                elif date_obj.month == 3 and date_obj.day == 31:
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = fy_end_fill
                                         cell.font = white_font
                                     date_style_applied = True
-                                # Month end (second priority) - softer styling
+                                # Month end (third priority) - softer styling
                                 elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
                                         cell.fill = month_end_fill
                                         cell.font = normal_white_font
                                     date_style_applied = True
-                                # Weekend (third priority)
+                                # Weekend (fourth priority)
                                 elif date_obj.weekday() in (5, 6):
                                     for col_idx in range(1, len(excel_full_df.columns) + 1):
                                         cell = ws.cell(row=row_idx, column=col_idx)
@@ -1929,7 +1934,7 @@ for i, fy in enumerate(financial_years, 1):
                     max_length = max([len(str(cell)) if cell is not None else 0 for cell in schedule_df[col].tolist()] + [len(col)])
                     ws2.column_dimensions[col_letter].width = max(10, max_length + 2)
 
-                # Apply same formatting to schedule-only file
+                # Apply same formatting to schedule-only file including today's date
                 for row_idx in range(3, len(schedule_df) + 3):
                     try:
                         date_idx = row_idx - 3
@@ -1938,18 +1943,28 @@ for i, fy in enumerate(financial_years, 1):
                             
                             date_style_applied = False
                             if not pd.isna(date_obj):
-                                if date_obj.month == 3 and date_obj.day == 31:
+                                # Today's date (highest priority)
+                                if date_obj.date() == date.today():
+                                    for col_idx in range(1, len(schedule_df.columns) + 1):
+                                        cell = ws2.cell(row=row_idx, column=col_idx)
+                                        cell.fill = today_fill
+                                        cell.font = white_font
+                                    date_style_applied = True
+                                # Financial year end (second priority)
+                                elif date_obj.month == 3 and date_obj.day == 31:
                                     for col_idx in range(1, len(schedule_df.columns) + 1):
                                         cell = ws2.cell(row=row_idx, column=col_idx)
                                         cell.fill = fy_end_fill
                                         cell.font = white_font
                                     date_style_applied = True
+                                # Month end (third priority)
                                 elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                                     for col_idx in range(1, len(schedule_df.columns) + 1):
                                         cell = ws2.cell(row=row_idx, column=col_idx)
                                         cell.fill = month_end_fill
                                         cell.font = normal_white_font
                                     date_style_applied = True
+                                # Weekend (fourth priority)
                                 elif date_obj.weekday() in (5, 6):
                                     for col_idx in range(1, len(schedule_df.columns) + 1):
                                         cell = ws2.cell(row=row_idx, column=col_idx)
@@ -2309,4 +2324,6 @@ else:
     - PatientID, Study, VisitNo, ActualDate
     - ActualPayment, Notes (optional)
     - Use 'ScreenFail' in Notes to stop future visits
-    """)
+    """)] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
+                    else:
+                        excel_full_df[col
