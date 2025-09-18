@@ -1546,18 +1546,12 @@ if patients_file and trials_file:
                     fy_ashfields_final_ratio = fy_ashfields_final_ratio / fy_total_ratio
                     fy_kiltearn_final_ratio = fy_kiltearn_final_ratio / fy_total_ratio
                 
-                # Calculate financial year income - FIXED VERSION
-                fy_income = fy_data['Payment'].sum()
+                # Calculate total financial year income
+                fy_total_income = fy_data['Payment'].sum()
                 
-                # Apply the weighted profit sharing formula percentages  
-                # ashfields_fy_income should be: total * ashfields_percentage
-                # kiltearn_fy_income should be: total * kiltearn_percentage
-                calculated_ashfields_fy_income = fy_income * fy_ashfields_final_ratio
-                calculated_kiltearn_fy_income = fy_income * fy_kiltearn_final_ratio
-                
-                # Use the calculated values (not any groupby results)
-                ashfields_fy_income = calculated_ashfields_fy_income
-                kiltearn_fy_income = calculated_kiltearn_fy_income
+                # THIS IS THE KEY FIX: Calculate income based on profit sharing percentages
+                ashfields_fy_share_amount = fy_total_income * fy_ashfields_final_ratio
+                kiltearn_fy_share_amount = fy_total_income * fy_kiltearn_final_ratio
                 
                 quarterly_ratios.append({
                     'Period': f"FY {fy}",
@@ -1570,9 +1564,9 @@ if patients_file and trials_file:
                     'Kiltearn Patients': fy_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in fy_recruitment.index else 0,
                     'Ashfields Share': f"{fy_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{fy_kiltearn_final_ratio:.1%}",
-                    'Total Income': f"£{fy_income:,.2f}",
-                    'Ashfields Income': f"£{ashfields_fy_income:,.2f}",
-                    'Kiltearn Income': f"£{kiltearn_fy_income:,.2f}"
+                    'Total Income': f"£{fy_total_income:,.2f}",
+                    'Ashfields Income': f"£{ashfields_fy_share_amount:,.2f}",
+                    'Kiltearn Income': f"£{kiltearn_fy_share_amount:,.2f}"
                 })
             
             if quarterly_ratios:
