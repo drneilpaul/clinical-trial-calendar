@@ -1161,26 +1161,167 @@ if patients_file and trials_file:
             st.write(f"Styling error: {e}")
             st.dataframe(display_with_header, use_container_width=True)
 
-        # Financial Analysis
-        st.subheader("💰 Financial Analysis")
+        # Financial Analysis by Financial Year
+st.subheader("💰 Financial Analysis by Financial Year")
+
+# Add financial year to financial_df if not already present
+if 'FinancialYear' not in financial_df.columns:
+    financial_df['FinancialYear'] = financial_df['Date'].apply(
+        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+    )
+
+# Get unique financial years
+financial_years = sorted(financial_df['FinancialYear'].unique())
+
+# Create tabs for each financial year plus an "All Years" overview
+tab_labels = ["All Years Overview"] + [f"FY {fy}" for fy in financial_years]
+tabs = st.tabs(tab_labels)
+
+# All Years Overview Tab
+with tabs[0]:
+    st.write("**Summary Across All Financial Years**")
+    
+    # Overall totals
+    if not actual_financial.empty:
+        overall_actual = actual_financial['Payment'].sum()
+        overall_scheduled = scheduled_financial['Payment'].sum()
+        overall_total = overall_actual + overall_scheduled
+        overall_screen_fails = len(actual_financial[actual_financial.get('IsScreenFail', False)])
+        overall_completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
         
-        if not actual_financial.empty:
-            col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Total Actual Income", f"£{overall_actual:,.2f}")
+        with col2:
+            st.metric("Total Scheduled Income", f"£{overall_scheduled:,.2f}")
+        with col3:
+            st.metric("Combined Total", f"£{overall_total:,.2f}")
+        with col4:
+            st.metric("Total Screen Failures", overall_screen_fails)
+        with col5:
+            st.metric("Overall Completion Rate", f"{overall_completion_rate:.1f}%")
+    
+    # Year-by-year summary table
+    st.write("**Financial Year Comparison Table**")
+    yearly_summary = []
+    
+    for fy in financial_years:
+        fy_data = financial_df[financial_df['FinancialYear'] == fy]
+        fy_actual = fy_data[fy_data.get('IsActual', False)]
+        fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
+        
+        actual_income = fy_actual['Payment'].sum()
+        scheduled_income = fy_scheduled['Payment'].sum()
+        total_income = actual_income + scheduled_income
+        screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
+        completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
+        total_visits = len(fy_data)
+        completed_visits = len(fy_actual)
+        
+        yearly_summary.append({
+            'Financial Year': f"FY {fy}",
+            'Completed Visits': completed_visits,
+            'Total Visits': total_visits,
+            'Completion Rate': f"{completion_rate:.1f}%",
+            'Actual Income': f"£{actual_income:,.2f}",
+            'Scheduled Income': f"£{scheduled_income:,.2f}",
+            'Total Income': f"£{total_income:,.2f}",
+            'Screen Failures': screen_fails
+        })
+    
+    if yearly_summary:
+        yearly_df = pd.DataFrame(yearly_summary)
+        st.dataframe(yearly_df, use_container_width=True)
+
+# Individual Financial Year Tabs
+for i, fy in enumerate(financial_years, 1):
+    with tabs[i]:
+        st.write(f"**Financial Year {fy} Analysis** (April {fy.split('-')[0]} - March {fy.split('-')[1]})")
+        
+        # Filter data for this financial year
+        fy_data = financial_df[financial_df['FinancialYear'] == fy]
+        fy_actual = fy_data[fy_data.get('IsActual', False)]
+        fy_scheduled = fy_data[~fy_data.get('IsActual', True)]
+        
+        if not fy_data.empty:
+            # Key metrics for this year
+            actual_income = fy_actual['Payment'].sum()
+            scheduled_income = fy_scheduled['Payment'].sum()
+            total_income = actual_income + scheduled_income
+            screen_fails = len(fy_actual[fy_actual.get('IsScreenFail', False)])
+            completion_rate = (len(fy_actual) / len(fy_data)) * 100 if len(fy_data) > 0 else 0
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                actual_income = actual_financial['Payment'].sum()
-                st.metric("Actual Income (Completed)", f"£{actual_income:,.2f}")
+                st.metric("Actual Income", f"£{actual_income:,.2f}")
             with col2:
-                scheduled_income = scheduled_financial['Payment'].sum()
-                st.metric("Scheduled Income (Pending)", f"£{scheduled_income:,.2f}")
+                st.metric("Scheduled Income", f"£{scheduled_income:,.2f}")
             with col3:
-                total_income = actual_income + scheduled_income
                 st.metric("Total Income", f"£{total_income:,.2f}")
             with col4:
-                screen_fail_count = len(actual_financial[actual_financial.get('IsScreenFail', False)])
-                st.metric("Screen Failures", screen_fail_count)
+                st.metric("Screen Failures", screen_fails)
+            with col5:
+                st.metric("Completion Rate", f"{completion_rate:.1f}%")
             
-            completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
-            st.metric("Visit Completion Rate", f"{completion_rate:.1f}%")
+            # Monthly breakdown for this financial year
+            st.write(f"**Monthly Breakdown - FY {fy}**")
+            fy_data['Month'] = fy_data['Date'].dt.to_period('M')
+            monthly_breakdown = []
+            
+            for month in sorted(fy_data['Month'].unique()):
+                month_data = fy_data[fy_data['Month'] == month]
+                month_actual = month_data[month_data.get('IsActual', False)]
+                month_scheduled = month_data[~month_data.get('IsActual', True)]
+                
+                monthly_breakdown.append({
+                    'Month': str(month),
+                    'Completed Visits': len(month_actual),
+                    'Scheduled Visits': len(month_scheduled),
+                    'Total Visits': len(month_data),
+                    'Actual Income': f"£{month_actual['Payment'].sum():,.2f}",
+                    'Scheduled Income': f"£{month_scheduled['Payment'].sum():,.2f}",
+                    'Total Income': f"£{month_data['Payment'].sum():,.2f}"
+                })
+            
+            if monthly_breakdown:
+                monthly_df = pd.DataFrame(monthly_breakdown)
+                st.dataframe(monthly_df, use_container_width=True)
+                
+                # Monthly chart for this year
+                chart_data = pd.DataFrame(monthly_breakdown)
+                chart_data['Actual_Amount'] = chart_data['Actual Income'].str.replace('£', '').str.replace(',', '').astype(float)
+                chart_data['Scheduled_Amount'] = chart_data['Scheduled Income'].str.replace('£', '').str.replace(',', '').astype(float)
+                chart_display = chart_data[['Month', 'Actual_Amount', 'Scheduled_Amount']].set_index('Month')
+                chart_display.columns = ['Actual Income', 'Scheduled Income']
+                st.bar_chart(chart_display)
+            
+            # Study breakdown for this financial year
+            st.write(f"**Study Breakdown - FY {fy}**")
+            study_breakdown = []
+            
+            for study in fy_data['Study'].unique():
+                study_data = fy_data[fy_data['Study'] == study]
+                study_actual = study_data[study_data.get('IsActual', False)]
+                study_scheduled = study_data[~study_data.get('IsActual', True)]
+                
+                study_breakdown.append({
+                    'Study': study,
+                    'Completed Visits': len(study_actual),
+                    'Scheduled Visits': len(study_scheduled),
+                    'Total Visits': len(study_data),
+                    'Actual Income': f"£{study_actual['Payment'].sum():,.2f}",
+                    'Scheduled Income': f"£{study_scheduled['Payment'].sum():,.2f}",
+                    'Total Income': f"£{study_data['Payment'].sum():,.2f}",
+                    'Completion Rate': f"{(len(study_actual) / len(study_data) * 100):.1f}%" if len(study_data) > 0 else "0.0%"
+                })
+            
+            if study_breakdown:
+                study_df = pd.DataFrame(study_breakdown)
+                st.dataframe(study_df, use_container_width=True)
+        
+        else:
+            st.info(f"No financial data available for FY {fy}")
+
 
         # Monthly income analysis
         financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
