@@ -1546,12 +1546,18 @@ if patients_file and trials_file:
                     fy_ashfields_final_ratio = fy_ashfields_final_ratio / fy_total_ratio
                     fy_kiltearn_final_ratio = fy_kiltearn_final_ratio / fy_total_ratio
                 
-                # Calculate financial year income
+                # Calculate financial year income - FIXED VERSION
                 fy_income = fy_data['Payment'].sum()
                 
-                # Calculate what each practice should receive based on profit sharing ratios
-                ashfields_fy_income = fy_income * fy_ashfields_final_ratio
-                kiltearn_fy_income = fy_income * fy_kiltearn_final_ratio
+                # Apply the weighted profit sharing formula percentages  
+                # ashfields_fy_income should be: total * ashfields_percentage
+                # kiltearn_fy_income should be: total * kiltearn_percentage
+                calculated_ashfields_fy_income = fy_income * fy_ashfields_final_ratio
+                calculated_kiltearn_fy_income = fy_income * fy_kiltearn_final_ratio
+                
+                # Use the calculated values (not any groupby results)
+                ashfields_fy_income = calculated_ashfields_fy_income
+                kiltearn_fy_income = calculated_kiltearn_fy_income
                 
                 quarterly_ratios.append({
                     'Period': f"FY {fy}",
