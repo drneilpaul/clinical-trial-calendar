@@ -1549,10 +1549,9 @@ if patients_file and trials_file:
                 # Calculate financial year income
                 fy_income = fy_data['Payment'].sum()
                 
-                # Calculate income by site for this financial year
-                fy_income_by_site = fy_data.groupby('SiteofVisit')['Payment'].sum()
-                ashfields_fy_income = fy_income_by_site.get('Ashfields', 0)
-                kiltearn_fy_income = fy_income_by_site.get('Kiltearn', 0)
+                # Calculate what each practice should receive based on profit sharing ratios
+                ashfields_fy_income = fy_income * fy_ashfields_final_ratio
+                kiltearn_fy_income = fy_income * fy_kiltearn_final_ratio
                 
                 quarterly_ratios.append({
                     'Period': f"FY {fy}",
@@ -1612,10 +1611,10 @@ if patients_file and trials_file:
                 - **Blue highlighted rows** = Financial Year totals (April to March)
                 - Use **Financial Year ratios** for annual profit sharing decisions
                 - **Total Income** = Combined clinical trial income from all studies
-                - **Ashfields/Kiltearn Income** = Trial income generated at each practice site
+                - **Ashfields/Kiltearn Income** = Calculated profit share based on weighted formula (not raw income generation)
                 - Quarterly ratios show seasonal variations within each financial year
                 - List sizes (35% weight) remain constant; work done and recruitment vary by period
-                - **Note:** Income shown is clinical trial income only, not total practice revenue
+                - **Income Distribution:** Shows what each practice should receive according to the profit sharing formula
                 """)
             else:
                 st.warning("No quarterly data available for profit sharing analysis.")
