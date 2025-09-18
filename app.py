@@ -1486,10 +1486,9 @@ if patients_file and trials_file:
                 # Calculate quarterly income
                 quarter_income = quarter_data['Payment'].sum()
                 
-                # Calculate income by site for this quarter
-                quarter_income_by_site = quarter_data.groupby('SiteofVisit')['Payment'].sum()
-                ashfields_quarter_income = quarter_income_by_site.get('Ashfields', 0)
-                kiltearn_quarter_income = quarter_income_by_site.get('Kiltearn', 0)
+                # FIXED: Calculate profit sharing amounts (not actual income by site)
+                ashfields_quarter_share_amount = quarter_income * q_ashfields_final_ratio
+                kiltearn_quarter_share_amount = quarter_income * q_kiltearn_final_ratio
                 
                 # Get financial year for this quarter
                 fy = quarter_data['FinancialYear'].iloc[0] if len(quarter_data) > 0 else ""
@@ -1506,8 +1505,8 @@ if patients_file and trials_file:
                     'Ashfields Share': f"{q_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{q_kiltearn_final_ratio:.1%}",
                     'Total Income': f"£{quarter_income:,.2f}",
-                    'Ashfields Income': f"£{ashfields_quarter_income:,.2f}",
-                    'Kiltearn Income': f"£{kiltearn_quarter_income:,.2f}"
+                    'Ashfields Income': f"£{ashfields_quarter_share_amount:,.2f}",
+                    'Kiltearn Income': f"£{kiltearn_quarter_share_amount:,.2f}"
                 })
             
             # Add financial year summaries
