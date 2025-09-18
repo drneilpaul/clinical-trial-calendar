@@ -1005,6 +1005,7 @@ if patients_file and trials_file:
             - \\+ (Light blue-gray, italic) = After tolerance period
             
             **Date Formatting:**
+            - Red background = Today's date
             - Light blue background = Month end (softer highlighting)
             - Dark blue background = Financial year end (31 March)
             - Gray background = Weekend
@@ -1067,21 +1068,28 @@ if patients_file and trials_file:
                         date_obj = pd.to_datetime(date_str)
                 except:
                     pass
+
+                # Get today's date for comparison
+                from datetime import date
+                today = pd.to_datetime(date.today())
                 
                 for col_idx, (col_name, cell_value) in enumerate(row.items()):
                     style = ""
                     
                     # First check for date-based styling (applies to entire row)
                     if date_obj is not None and not pd.isna(date_obj):
-                        # Financial year end (31 March) - highest priority
-                        if date_obj.month == 3 and date_obj.day == 31:
+                        # Today's date - highest priority (RED)
+                        if date_obj.date() == today.date():
+                            style = 'background-color: #dc2626; color: white; font-weight: bold;'
+                        # Financial year end (31 March) - second priority
+                        elif date_obj.month == 3 and date_obj.day == 31:
                             style = 'background-color: #1e40af; color: white; font-weight: bold;'
-                        # Month end - softer blue, second priority  
+                        # Month end - softer blue, third priority  
                         elif date_obj == date_obj + pd.offsets.MonthEnd(0):
                             style = 'background-color: #60a5fa; color: white; font-weight: normal;'
-                        # Weekend - more obvious gray, third priority
+                        # Weekend - more obvious gray, fourth priority
                         elif date_obj.weekday() in (5, 6):  # Saturday=5, Sunday=6
-                            style = 'background-color: #e5e7eb;'
+                            style = 'background-color: #e5e7eb;
                     
                     # Only apply visit-specific styling if no date styling was applied
                     if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
@@ -1486,10 +1494,9 @@ if patients_file and trials_file:
                 # Calculate quarterly income
                 quarter_income = quarter_data['Payment'].sum()
                 
-                # Calculate income by site for this quarter
-                quarter_income_by_site = quarter_data.groupby('SiteofVisit')['Payment'].sum()
-                ashfields_quarter_income = quarter_income_by_site.get('Ashfields', 0)
-                kiltearn_quarter_income = quarter_income_by_site.get('Kiltearn', 0)
+                # FIXED: Calculate profit sharing amounts (not actual income by site)
+                ashfields_quarter_share_amount = quarter_income * q_ashfields_final_ratio
+                kiltearn_quarter_share_amount = quarter_income * q_kiltearn_final_ratio
                 
                 # Get financial year for this quarter
                 fy = quarter_data['FinancialYear'].iloc[0] if len(quarter_data) > 0 else ""
@@ -1506,8 +1513,8 @@ if patients_file and trials_file:
                     'Ashfields Share': f"{q_ashfields_final_ratio:.1%}",
                     'Kiltearn Share': f"{q_kiltearn_final_ratio:.1%}",
                     'Total Income': f"£{quarter_income:,.2f}",
-                    'Ashfields Income': f"£{ashfields_quarter_income:,.2f}",
-                    'Kiltearn Income': f"£{kiltearn_quarter_income:,.2f}"
+                    'Ashfields Income': f"£{ashfields_quarter_share_amount:,.2f}",
+                    'Kiltearn Income': f"£{kiltearn_quarter_share_amount:,.2f}"
                 })
             
             # Add financial year summaries
