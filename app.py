@@ -1,12 +1,27 @@
 import streamlit as st
+import pandas as pd
 from helpers import load_file, normalize_columns, parse_dates_column
 from ui_patient_entry import patient_entry_form
 from ui_visit_entry import visit_entry_form
-from processing_calendar import build_calendar, extract_site_summary
+from processing_calendar import build_calendar  # Remove extract_site_summary import
 from display_components import (
     show_legend, display_calendar, display_financial_tables,
     display_site_statistics, display_download_buttons
 )
+
+def extract_site_summary(patients_df, additional_data=None):
+    """Extract site summary statistics from patients dataframe"""
+    if patients_df.empty:
+        return pd.DataFrame()
+    
+    # Group by site and count patients
+    site_summary = patients_df.groupby('Site').agg({
+        'PatientID': 'count',
+        'Study': lambda x: ', '.join(x.unique())
+    }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
+    
+    site_summary = site_summary.reset_index()
+    return site_summary
 
 def main():
     st.set_page_config(page_title="Clinical Trial Calendar Generator", layout="wide")
