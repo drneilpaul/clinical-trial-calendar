@@ -601,6 +601,288 @@ def main():
                 
                 display_quarterly_profit_sharing(financial_df, patients_df)
 
+            # Site-wise breakdown by month with financial year summaries
+            st.subheader("Site-wise Statistics by Month")
+            
+            # Add month-year and financial year columns to visits_df if not present
+            visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
+            visits_df['FinancialYear'] = visits_df['Date'].apply(
+                lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+            )
+            
+            # Get unique months and financial years, sorted
+            months = sorted(visits_df['MonthYear'].unique())
+            financial_years = sorted(visits_df['FinancialYear'].unique())
+            
+            monthly_site_stats = []
+            
+            # Process monthly data
+            for month in months:
+                month_visits = visits_df[visits_df['MonthYear'] == month]
+                month_patients = patients_df[patients_df['PatientID'].isin(month_visits['PatientID'].unique())]
+                
+                # Get financial year for this month
+                fy = month_visits['FinancialYear'].iloc[0] if len(month_visits) > 0 else ""
+                
+                for site in unique_sites:
+                    # Get patients from this site active in this month
+                    site_patients = month_patients[month_patients["Site"] == site]
+                    
+                    # Get visits for patients from this site in this month
+                    site_patient_ids = site_patients['PatientID'].unique()
+                    site_visits = month_visits[month_visits["PatientID"].isin(site_patient_ids)]
+                    
+                    # Filter relevant visits (exclude tolerance periods)
+                    relevant_visits = site_visits[
+                        (site_visits["Visit"].str.startswith("✅")) | 
+                        (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
+                        (site_visits["Visit"].str.contains("Visit", na=False))
+                    ]
+                    
+                    # Calculate metrics for this site and month
+                    site_income = relevant_visits["Payment"].sum()
+                    completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")])
+                    screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")])
+                    total_visits = len(relevant_visits)
+                    pending_visits = total_visits - completed_visits - screen_fail_visits
+                    
+                    # Count new patients recruited this month
+                    new_patients = len(site_patients)
+                    
+                    monthly_site_stats.append({
+                        'Period': str(month),
+                        'Financial Year': fy,
+                        'Type': 'Month',
+                        'Site': site,
+                        'New Patients': new_patients,
+                        'Completed Visits': completed_visits,
+                        'Screen Fail Visits': screen_fail_visits,
+                        'Pending Visits': pending_visits,
+                        'Total Visits': total_visits,
+                        'Income': f"£{site_income:,.2f}"
+                    })
+            
+            # Add financial year summaries
+            for fy in financial_years:
+                fy_visits = visits_df[visits_df['FinancialYear'] == fy]
+                fy_patients = patients_df[patients_df['PatientID'].isin(fy_visits['PatientID'].unique())]
+                
+                for site in unique_sites:
+                    # Get patients from this site for this financial year
+                    site_patients = fy_patients[fy_patients["Site"] == site]
+                    
+                    # Get visits for patients from this site in this financial year
+                    site_patient_ids = site_patients['PatientID'].unique()
+                    site_visits = fy_visits[fy_visits["PatientID"].isin(site_patient_ids)]
+                    
+                    # Filter relevant visits
+                    relevant_visits = site_visits[
+                        (site_visits["Visit"].str.startswith("✅")) | 
+                        (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
+                        (site_visits["Visit"].str.contains("Visit", na=False))
+                    ]
+                    
+                    # Calculate annual metrics
+                    site_income = relevant_visits["Payment"].sum()
+                    completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")])
+                    screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")])
+                    total_visits = len(relevant_visits)
+                    pending_visits = total_visits - completed_visits - screen_fail_visits
+                    
+                    # Count screen failures for this financial year
+                    site_screen_fails = 0
+                    for _, patient in site_patients.iterrows():
+                        patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
+                        if patient_study_key in screen_failures:
+                            screen_fail_date = screen_failures[patient_study_key]
+                            # Check if screen failure occurred in this financial year
+                            screen_fail_fy = f"{screen_fail_date.year}-{screen_fail_date.year+1}" if screen_fail_date.month >= 4 else f"{screen_fail_date.year-1}-{screen_fail_date.year}"
+                            if screen_fail_fy == fy:
+                                site_screen_fails += 1
+                    
+                    total_patients_fy = len(site_patients)
+                    active_patients = total_patients_fy - site_screen_fails
+                    
+                    monthly_site_stats.append({
+                        'Period': f"FY {fy}",
+                        'Financial Year': fy,
+                        'Type': 'Financial Year',
+                        'Site': site,
+                        'New Patients': f"{total_patients_fy} ({active_patients} active)",
+                        'Completed Visits': completed_visits,
+                        'Screen Fail Visits': screen_fail_visits,
+                        'Pending Visits': pending_visits,
+                        'Total Visits': total_visits,
+                        'Income': f"£{site_income:,.2f}"
+                    })
+            
+            if monthly_site_stats:
+                # Sort by financial year, type, period, and site
+                monthly_site_stats.sort(key=lambda x: (x['Financial Year'], x['Type'] == 'Financial Year', x['Period'], x['Site']))
+                
+                # Create separate tables for each site
+                for site in unique_sites:
+                    st.write(f"**{site} Practice**")
+                    
+                    site_data = [stat for stat in monthly_site_stats if stat['Site'] == site]
+                    site_df = pd.DataFrame(site_data)
+                    
+                    # Drop the Site column since it's redundant in site-specific tables
+                    display_df = site_df.drop('Site', axis=1)
+                    
+                    # Style the dataframe to highlight financial year rows
+                    def highlight_fy_rows(row):
+                        if row['Type'] == 'Financial Year':
+                            return ['background-color: #e6f3ff; font-weight: bold'] * len(row)
+                        else:
+                            return [''] * len(row)
+                    
+                    styled_site_df = display_df.style.apply(highlight_fy_rows, axis=1)
+                    st.dataframe(styled_site_df, use_container_width=True)
+                    st.write("")  # Add space between sites
+
+            # Monthly analysis by site
+            st.subheader("Monthly Analysis by Site")
+            
+            # Filter only actual visits and main scheduled visits
+            analysis_visits = visits_df[
+                (visits_df['Visit'].str.startswith("✅")) |  # Actual completed visits
+                (visits_df['Visit'].str.startswith("❌ Screen Fail")) |  # Screen failure visits
+                (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))  # Scheduled main visits
+            ]
+            
+            if not analysis_visits.empty:
+                # Analysis 1: Visits by Site of Visit (where visits happen)
+                st.write("**Analysis by Visit Location (Where visits occur)**")
+                visits_by_site_month = analysis_visits.groupby(['SiteofVisit', 'MonthYear']).size().reset_index(name='Visits')
+                
+                if not visits_by_site_month.empty:
+                    visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Visits').fillna(0)
+                    
+                    # Calculate visit ratios
+                    visits_pivot['Total_Visits'] = visits_pivot.sum(axis=1)
+                    visit_sites = [col for col in visits_pivot.columns if col != 'Total_Visits']
+                    for site in visit_sites:
+                        visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
+                    
+                    # Count unique patients by visit site per month
+                    patients_by_visit_site_month = analysis_visits.groupby(['SiteofVisit', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
+                    patients_visit_pivot = patients_by_visit_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Patients').fillna(0)
+                    
+                    # Calculate patient ratios for visit site
+                    patients_visit_pivot['Total_Patients'] = patients_visit_pivot.sum(axis=1)
+                    for site in visit_sites:
+                        if site in patients_visit_pivot.columns:
+                            patients_visit_pivot[f'{site}_Ratio'] = (patients_visit_pivot[site] / patients_visit_pivot['Total_Patients'] * 100).round(1)
+                    
+                    # Analysis 2: Patients by Origin Site (where patients come from)
+                    st.write("**Analysis by Patient Origin (Where patients come from)**")
+                    patients_by_origin_month = analysis_visits.groupby(['PatientOrigin', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
+                    patients_origin_pivot = patients_by_origin_month.pivot(index='MonthYear', columns='PatientOrigin', values='Patients').fillna(0)
+                    
+                    # Calculate patient origin ratios
+                    patients_origin_pivot['Total_Patients'] = patients_origin_pivot.sum(axis=1)
+                    origin_sites = [col for col in patients_origin_pivot.columns if col != 'Total_Patients']
+                    for site in origin_sites:
+                        patients_origin_pivot[f'{site}_Ratio'] = (patients_origin_pivot[site] / patients_origin_pivot['Total_Patients'] * 100).round(1)
+                    
+                    # Display tables
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Monthly Visits by Visit Site**")
+                        visits_display = visits_pivot.copy()
+                        visits_display.index = visits_display.index.astype(str)
+                        
+                        # Reorder columns
+                        display_cols = []
+                        for site in sorted(visit_sites):
+                            display_cols.append(site)
+                        for site in sorted(visit_sites):
+                            ratio_col = f'{site}_Ratio'
+                            if ratio_col in visits_display.columns:
+                                display_cols.append(ratio_col)
+                        display_cols.append('Total_Visits')
+                        
+                        visits_display = visits_display[display_cols]
+                        st.dataframe(visits_display, use_container_width=True)
+                    
+                    with col2:
+                        st.write("**Monthly Patients by Visit Site**")
+                        patients_visit_display = patients_visit_pivot.copy()
+                        patients_visit_display.index = patients_visit_display.index.astype(str)
+                        
+                        # Reorder columns
+                        display_cols = []
+                        for site in sorted(visit_sites):
+                            if site in patients_visit_display.columns:
+                                display_cols.append(site)
+                        for site in sorted(visit_sites):
+                            ratio_col = f'{site}_Ratio'
+                            if ratio_col in patients_visit_display.columns:
+                                display_cols.append(ratio_col)
+                        display_cols.append('Total_Patients')
+                        
+                        patients_visit_display = patients_visit_display[display_cols]
+                        st.dataframe(patients_visit_display, use_container_width=True)
+                    
+                    # Patient Origin Analysis
+                    st.write("**Monthly Patients by Origin Site (Where patients come from)**")
+                    patients_origin_display = patients_origin_pivot.copy()
+                    patients_origin_display.index = patients_origin_display.index.astype(str)
+                    
+                    # Reorder columns
+                    display_cols = []
+                    for site in sorted(origin_sites):
+                        display_cols.append(site)
+                    for site in sorted(origin_sites):
+                        ratio_col = f'{site}_Ratio'
+                        if ratio_col in patients_origin_display.columns:
+                            display_cols.append(ratio_col)
+                    display_cols.append('Total_Patients')
+                    
+                    patients_origin_display = patients_origin_display[display_cols]
+                    st.dataframe(patients_origin_display, use_container_width=True)
+                    
+                    # Cross-tabulation: Origin vs Visit Site
+                    st.write("**Cross-Analysis: Patient Origin vs Visit Site**")
+                    cross_tab = analysis_visits.groupby(['PatientOrigin', 'SiteofVisit'])['PatientID'].nunique().reset_index(name='Patients')
+                    cross_pivot = cross_tab.pivot(index='PatientOrigin', columns='SiteofVisit', values='Patients').fillna(0)
+                    cross_pivot['Total'] = cross_pivot.sum(axis=1)
+                    
+                    # Add row percentages
+                    for col in cross_pivot.columns:
+                        if col != 'Total':
+                            cross_pivot[f'{col}_%'] = (cross_pivot[col] / cross_pivot['Total'] * 100).round(1)
+                    
+                    st.dataframe(cross_pivot, use_container_width=True)
+                    
+                    # Charts
+                    st.subheader("Monthly Trends")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.write("**Visits by Visit Site**")
+                        if not visits_pivot.empty:
+                            chart_data = visits_pivot[[col for col in visits_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Visits']]
+                            chart_data.index = chart_data.index.astype(str)
+                            st.bar_chart(chart_data)
+                    
+                    with col2:
+                        st.write("**Patients by Visit Site**") 
+                        if not patients_visit_pivot.empty:
+                            chart_data = patients_visit_pivot[[col for col in patients_visit_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
+                            chart_data.index = chart_data.index.astype(str)
+                            st.bar_chart(chart_data)
+                    
+                    with col3:
+                        st.write("**Patients by Origin Site**")
+                        if not patients_origin_pivot.empty:
+                            chart_data = patients_origin_pivot[[col for col in patients_origin_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
+                            chart_data.index = chart_data.index.astype(str)
+                            st.bar_chart(chart_data)
+
             # Enhanced downloads
             st.subheader("💾 Download Options")
             try:
