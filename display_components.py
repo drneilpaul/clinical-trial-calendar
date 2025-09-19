@@ -119,14 +119,14 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
                 if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
                     cell_str = str(cell_value)
                     
-                    # Visit-specific color coding
-                    if "✅ Visit" in cell_str:  # Completed visits
+                    # Visit-specific color coding - check for multiple possible patterns
+                    if ("✅ Visit" in cell_str) or ("✓ Visit" in cell_str) or (cell_str.startswith("✅")) or (cell_str.startswith("✓")):  # Completed visits
                         style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
-                    elif "⚠️ Visit" in cell_str:  # Out of window visits
+                    elif ("⚠️ Visit" in cell_str) or ("⚠ Visit" in cell_str) or (cell_str.startswith("⚠")):  # Out of window visits
                         style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
-                    elif "❌ Screen Fail" in cell_str:  # Screen failures
+                    elif ("❌ Screen Fail" in cell_str) or ("⚠ Screen Fail" in cell_str) or ("Screen Fail" in cell_str):  # Screen failures
                         style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                    elif "Visit " in cell_str and not cell_str.startswith("✅") and not cell_str.startswith("⚠️"):  # Scheduled
+                    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "✓", "⚠", "❌"]):  # Scheduled
                         style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
                     elif cell_str in ["+", "-"]:  # Tolerance periods - different from weekends
                         style = 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
@@ -194,6 +194,7 @@ def display_financial_analysis(stats, visits_df):
     financial_df = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
         (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
+        (visits_df['Visit'].str.startswith("⚠")) |
         (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
     ].copy()
     
