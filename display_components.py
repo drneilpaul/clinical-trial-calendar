@@ -187,7 +187,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
         st.warning("Some visits were excluded due to screen failure:")
         st.dataframe(pd.DataFrame(excluded_visits))
 
-def display_financial_tables(stats, visits_df):
+def display_financial_analysis(stats, visits_df):
     st.subheader("💰 Financial Analysis")
     
     # Filter for relevant visits (exclude tolerance periods)
@@ -407,6 +407,21 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
                 else:
                     st.error(f"❌ Total: {total_weight}% (Reduce by {total_weight - 100}%)")
                 
+                # Show preview of what this means
+                st.write("**Weight Breakdown:**")
+                preview_data = {
+                    "Component": ["List Sizes", "Work Done", "Patient Recruitment"],
+                    "Current %": [f"{st.session_state.list_weight}%", f"{st.session_state.work_weight}%", f"{st.session_state.recruitment_weight}%"],
+                    "New %": [f"{final_list}%", f"{final_work}%", f"{final_recruitment}%"],
+                    "Change": [
+                        f"{final_list - st.session_state.list_weight:+d}%",
+                        f"{final_work - st.session_state.work_weight:+d}%", 
+                        f"{final_recruitment - st.session_state.recruitment_weight:+d}%"
+                    ]
+                }
+                preview_df = pd.DataFrame(preview_data)
+                st.dataframe(preview_df, use_container_width=True)
+                
                 # Action buttons
                 col1, col2, col3 = st.columns(3)
                 
@@ -524,7 +539,69 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
                 'Kiltearn Income': f"£{kiltearn_quarter_share_amount:,.2f}"
             })
         
+        # Add financial year summaries
+        for fy in financial_years:
+            fy_data = financial_df[financial_df['FinancialYear'] == fy]
+            
+            if len(fy_data) == 0:
+                continue
+            
+            # Work done ratios for this financial year
+            fy_site_work = fy_data.groupby('SiteofVisit').size()
+            fy_total_work = fy_site_work.sum()
+            
+            fy_ashfields_work_ratio = fy_site_work.get('Ashfields', 0) / fy_total_work if fy_total_work > 0 else 0
+            fy_kiltearn_work_ratio = fy_site_work.get('Kiltearn', 0) / fy_total_work if fy_total_work > 0 else 0
+            
+            # Patient recruitment ratios for this financial year
+            fy_recruitment = fy_data.groupby('PatientOrigin').agg({'PatientID': 'nunique'})
+            fy_total_patients = fy_recruitment['PatientID'].sum()
+            
+            fy_ashfields_recruitment_ratio = fy_recruitment.loc['Ashfields', 'PatientID'] / fy_total_patients if 'Ashfields' in fy_recruitment.index and fy_total_patients > 0 else 0
+            fy_kiltearn_recruitment_ratio = fy_recruitment.loc['Kiltearn', 'PatientID'] / fy_total_patients if 'Kiltearn' in fy_recruitment.index and fy_total_patients > 0 else 0
+            
+            # Calculate weighted ratios for financial year
+            fy_ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                                       fy_ashfields_work_ratio * work_weight + 
+                                       fy_ashfields_recruitment_ratio * recruitment_weight)
+            
+            fy_kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                                      fy_kiltearn_work_ratio * work_weight + 
+                                      fy_kiltearn_recruitment_ratio * recruitment_weight)
+            
+            # Normalize
+            fy_total_ratio = fy_ashfields_final_ratio + fy_kiltearn_final_ratio
+            if fy_total_ratio > 0:
+                fy_ashfields_final_ratio = fy_ashfields_final_ratio / fy_total_ratio
+                fy_kiltearn_final_ratio = fy_kiltearn_final_ratio / fy_total_ratio
+            
+            # Calculate total financial year income
+            fy_total_income = fy_data['Payment'].sum()
+            
+            # Calculate income based on profit sharing percentages
+            ashfields_fy_share_amount = fy_total_income * fy_ashfields_final_ratio
+            kiltearn_fy_share_amount = fy_total_income * fy_kiltearn_final_ratio
+            
+            quarterly_ratios.append({
+                'Period': f"FY {fy}",
+                'Financial Year': fy,
+                'Type': 'Financial Year',
+                'Total Visits': fy_total_work,
+                'Ashfields Visits': fy_site_work.get('Ashfields', 0),
+                'Kiltearn Visits': fy_site_work.get('Kiltearn', 0),
+                'Ashfields Patients': fy_recruitment.loc['Ashfields', 'PatientID'] if 'Ashfields' in fy_recruitment.index else 0,
+                'Kiltearn Patients': fy_recruitment.loc['Kiltearn', 'PatientID'] if 'Kiltearn' in fy_recruitment.index else 0,
+                'Ashfields Share': f"{fy_ashfields_final_ratio:.1%}",
+                'Kiltearn Share': f"{fy_kiltearn_final_ratio:.1%}",
+                'Total Income': f"£{fy_total_income:,.2f}",
+                'Ashfields Income': f"£{ashfields_fy_share_amount:,.2f}",
+                'Kiltearn Income': f"£{kiltearn_fy_share_amount:,.2f}"
+            })
+        
         if quarterly_ratios:
+            # Sort by financial year and type (FY summaries at end of each year)
+            quarterly_ratios.sort(key=lambda x: (x['Financial Year'], x['Type'] == 'Financial Year', x['Period']))
+            
             quarterly_df = pd.DataFrame(quarterly_ratios)
             
             # Style the dataframe to highlight financial year rows
@@ -536,6 +613,42 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
             
             styled_quarterly_df = quarterly_df.style.apply(highlight_fy_rows, axis=1)
             st.dataframe(styled_quarterly_df, use_container_width=True)
+            
+            # Visual chart of quarterly ratios (quarters only, not FY summaries)
+            st.write("**Quarterly Profit Sharing Trends**")
+            
+            # Prepare chart data - quarters only
+            chart_data = []
+            for ratio in quarterly_ratios:
+                if ratio['Type'] == 'Quarter':
+                    # Convert percentages back to numbers for charting
+                    ashfields_pct = float(ratio['Ashfields Share'].rstrip('%')) / 100
+                    kiltearn_pct = float(ratio['Kiltearn Share'].rstrip('%')) / 100
+                    
+                    chart_data.append({
+                        'Quarter': ratio['Period'],
+                        'Ashfields': ashfields_pct,
+                        'Kiltearn': kiltearn_pct
+                    })
+            
+            if chart_data:
+                chart_df = pd.DataFrame(chart_data).set_index('Quarter')
+                st.bar_chart(chart_df)
+            
+            st.info("""
+            **Analysis Notes:**
+            - **Blue highlighted rows** = Financial Year totals (April to March)
+            - Use **Financial Year ratios** for annual profit sharing decisions
+            - **Total Income** = Combined clinical trial income from all studies
+            - **Ashfields/Kiltearn Income** = Calculated profit share based on weighted formula (not raw income generation)
+            - Quarterly ratios show seasonal variations within each financial year
+            - List sizes remain constant; work done and recruitment vary by period
+            - **Income Distribution:** Shows what each practice should receive according to the profit sharing formula
+            """)
+        else:
+            st.warning("No quarterly data available for profit sharing analysis.")
+    else:
+        st.warning("No financial data available for quarterly analysis.")
 
 def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
     """Display comprehensive download options with Excel formatting"""
@@ -595,4 +708,11 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
             "💰 Excel with Finances & Site Headers",
             data=output.getvalue(),
             file_name="VisitCalendar_WithFinances_SiteGrouped.xlsx",
-            mime="application/vnd.openxml
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except ImportError:
+        st.warning("Excel formatting unavailable - install openpyxl for enhanced features")
+        buf = io.BytesIO()
+        calendar_df.to_excel(buf, index=False)
+        st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
