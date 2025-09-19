@@ -303,6 +303,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     total_tolerance_periods = len([v for v in visit_records if v['Visit'] in ['-', '+']])
     processing_messages.append(f"Generated {total_visit_records} total calendar entries ({total_scheduled_visits} scheduled visits, {total_tolerance_periods} tolerance periods)")
 
+    # Build calendar dataframe
     min_date = visits_df["Date"].min() - timedelta(days=1)
     max_date = visits_df["Date"].max() + timedelta(days=1)
     calendar_dates = pd.date_range(start=min_date, end=max_date)
