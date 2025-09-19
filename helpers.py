@@ -1,12 +1,15 @@
 import pandas as pd
 from dateutil.parser import parse
+from datetime import datetime
 
 def load_file(uploaded_file):
     if uploaded_file is None:
         return None
     if uploaded_file.name.endswith(".csv"):
-        return pd.read_csv(uploaded_file, dayfirst=True)
+        # For CSV files, read without automatic date parsing
+        return pd.read_csv(uploaded_file)
     else:
+        # For Excel files, also avoid automatic date parsing to maintain control
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
 def normalize_columns(df):
@@ -17,12 +20,56 @@ def normalize_columns(df):
 def parse_dates_column(df, col, errors="raise"):
     if col not in df.columns:
         return df, []
+    
     failed_rows = []
-    def try_parse(val):
-        try:
-            return parse(str(val), dayfirst=True)
-        except Exception:
-            failed_rows.append(val)
+    
+    def try_parse_uk_date(val):
+        if pd.isna(val) or val == '' or val is None:
             return pd.NaT
-    df[col] = df[col].apply(try_parse)
+            
+        try:
+            # Convert to string first
+            val_str = str(val).strip()
+            
+            # If it's already a datetime, return it
+            if isinstance(val, (pd.Timestamp, datetime)):
+                return pd.Timestamp(val)
+            
+            # Handle Excel serial dates (numbers like 45564.0)
+            if isinstance(val, (int, float)):
+                try:
+                    # This might be an Excel serial date
+                    return pd.to_datetime(val, origin='1899-12-30', unit='D')
+                except:
+                    pass
+            
+            # For string dates, be very explicit about UK format
+            # Try common UK date formats first
+            uk_formats = [
+                '%d/%m/%y',    # 1/8/25
+                '%d/%m/%Y',    # 1/8/2025  
+                '%d-%m-%y',    # 1-8-25
+                '%d-%m-%Y',    # 1-8-2025
+                '%d.%m.%y',    # 1.8.25
+                '%d.%m.%Y',    # 1.8.2025
+            ]
+            
+            for fmt in uk_formats:
+                try:
+                    parsed_date = datetime.strptime(val_str, fmt)
+                    return pd.Timestamp(parsed_date)
+                except ValueError:
+                    continue
+            
+            # If standard formats fail, try dateutil with UK preference
+            parsed_date = parse(val_str, dayfirst=True, yearfirst=False)
+            return pd.Timestamp(parsed_date)
+            
+        except Exception as e:
+            failed_rows.append(f"{val} (error: {str(e)})")
+            return pd.NaT
+    
+    # Apply the parsing function
+    df[col] = df[col].apply(try_parse_uk_date)
+    
     return df, failed_rows
