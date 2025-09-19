@@ -610,23 +610,26 @@ def main():
                 lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
             )
             
-            # Get unique months and financial years, sorted
-            months = sorted(visits_df['MonthYear'].unique())
-            financial_years = sorted(visits_df['FinancialYear'].unique())
+            # Get the full date range for comprehensive monthly analysis
+            min_date = visits_df['Date'].min()
+            max_date = visits_df['Date'].max()
+            
+            # Create complete month range
+            all_months = pd.period_range(start=min_date, end=max_date, freq='M')
             
             monthly_site_stats = []
             
-            # Process monthly data
-            for month in months:
+            # Process each month in the full range
+            for month in all_months:
                 month_visits = visits_df[visits_df['MonthYear'] == month]
-                month_patients = patients_df[patients_df['PatientID'].isin(month_visits['PatientID'].unique())]
                 
                 # Get financial year for this month
-                fy = month_visits['FinancialYear'].iloc[0] if len(month_visits) > 0 else ""
+                sample_date = month.start_time
+                fy = f"{sample_date.year}-{sample_date.year+1}" if sample_date.month >= 4 else f"{sample_date.year-1}-{sample_date.year}"
                 
                 for site in unique_sites:
-                    # Get patients from this site active in this month
-                    site_patients = month_patients[month_patients["Site"] == site]
+                    # Get all patients from this site (not just those active this month)
+                    site_patients = patients_df[patients_df["Site"] == site]
                     
                     # Get visits for patients from this site in this month
                     site_patient_ids = site_patients['PatientID'].unique()
@@ -646,15 +649,21 @@ def main():
                     total_visits = len(relevant_visits)
                     pending_visits = total_visits - completed_visits - screen_fail_visits
                     
-                    # Count new patients recruited this month
-                    new_patients = len(site_patients)
+                    # Count new patients recruited this month (patients whose start date is in this month)
+                    month_start = month.start_time
+                    month_end = month.end_time
+                    
+                    new_patients_this_month = len(site_patients[
+                        (site_patients['StartDate'] >= month_start) & 
+                        (site_patients['StartDate'] <= month_end)
+                    ])
                     
                     monthly_site_stats.append({
                         'Period': str(month),
                         'Financial Year': fy,
                         'Type': 'Month',
                         'Site': site,
-                        'New Patients': new_patients,
+                        'New Patients': new_patients_this_month,
                         'Completed Visits': completed_visits,
                         'Screen Fail Visits': screen_fail_visits,
                         'Pending Visits': pending_visits,
@@ -663,13 +672,13 @@ def main():
                     })
             
             # Add financial year summaries
+            financial_years = sorted(visits_df['FinancialYear'].unique())
             for fy in financial_years:
                 fy_visits = visits_df[visits_df['FinancialYear'] == fy]
-                fy_patients = patients_df[patients_df['PatientID'].isin(fy_visits['PatientID'].unique())]
                 
                 for site in unique_sites:
                     # Get patients from this site for this financial year
-                    site_patients = fy_patients[fy_patients["Site"] == site]
+                    site_patients = patients_df[patients_df["Site"] == site]
                     
                     # Get visits for patients from this site in this financial year
                     site_patient_ids = site_patients['PatientID'].unique()
@@ -689,6 +698,16 @@ def main():
                     total_visits = len(relevant_visits)
                     pending_visits = total_visits - completed_visits - screen_fail_visits
                     
+                    # Count patients recruited in this financial year
+                    fy_start_year = int(fy.split('-')[0])
+                    fy_start = pd.Timestamp(f"{fy_start_year}-04-01")
+                    fy_end = pd.Timestamp(f"{fy_start_year + 1}-03-31")
+                    
+                    fy_new_patients = len(site_patients[
+                        (site_patients['StartDate'] >= fy_start) & 
+                        (site_patients['StartDate'] <= fy_end)
+                    ])
+                    
                     # Count screen failures for this financial year
                     site_screen_fails = 0
                     for _, patient in site_patients.iterrows():
@@ -696,19 +715,17 @@ def main():
                         if patient_study_key in screen_failures:
                             screen_fail_date = screen_failures[patient_study_key]
                             # Check if screen failure occurred in this financial year
-                            screen_fail_fy = f"{screen_fail_date.year}-{screen_fail_date.year+1}" if screen_fail_date.month >= 4 else f"{screen_fail_date.year-1}-{screen_fail_date.year}"
-                            if screen_fail_fy == fy:
+                            if fy_start <= screen_fail_date <= fy_end:
                                 site_screen_fails += 1
                     
-                    total_patients_fy = len(site_patients)
-                    active_patients = total_patients_fy - site_screen_fails
+                    active_patients = fy_new_patients - site_screen_fails
                     
                     monthly_site_stats.append({
                         'Period': f"FY {fy}",
                         'Financial Year': fy,
                         'Type': 'Financial Year',
                         'Site': site,
-                        'New Patients': f"{total_patients_fy} ({active_patients} active)",
+                        'New Patients': f"{fy_new_patients} ({max(0, active_patients)} active)",
                         'Completed Visits': completed_visits,
                         'Screen Fail Visits': screen_fail_visits,
                         'Pending Visits': pending_visits,
@@ -740,6 +757,17 @@ def main():
                     styled_site_df = display_df.style.apply(highlight_fy_rows, axis=1)
                     st.dataframe(styled_site_df, use_container_width=True)
                     st.write("")  # Add space between sites
+                
+                st.info("""
+                **Site Statistics Notes:**
+                - **Blue highlighted rows** = Financial Year totals (April to March)
+                - **New Patients** = Patients recruited in that period (based on StartDate)
+                - **Income** = Clinical trial income generated from visits
+                - Monthly data shows activity patterns throughout each financial year
+                - Financial year rows show annual totals and active patient counts
+                """)
+            else:
+                st.warning("No site statistics data available.")
 
             # Monthly analysis by site
             st.subheader("Monthly Analysis by Site")
