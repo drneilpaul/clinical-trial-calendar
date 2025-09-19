@@ -63,8 +63,10 @@ def prepare_financial_data(visits_df):
     
     return financial_df
 
-def generate_monthly_site_stats(visits_df, patients_df, unique_sites, screen_failures):
-    """Generate monthly site statistics"""
+def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
+    """Display site-wise statistics by month"""
+    st.subheader("Site-wise Statistics by Month")
+    
     # Create a copy to avoid modifying the original
     visits_df_copy = visits_df.copy()
     
@@ -192,14 +194,6 @@ def generate_monthly_site_stats(visits_df, patients_df, unique_sites, screen_fai
                 'Income': f"£{site_income:,.2f}"
             })
     
-    return monthly_site_stats
-
-def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
-    """Display site-wise statistics by month"""
-    st.subheader("Site-wise Statistics by Month")
-    
-    monthly_site_stats = generate_monthly_site_stats(visits_df, patients_df, unique_sites, screen_failures)
-    
     if monthly_site_stats:
         # Sort and display by site
         monthly_site_stats.sort(key=lambda x: (x['Financial Year'], x['Type'] == 'Financial Year', x['Period'], x['Site']))
@@ -238,7 +232,7 @@ def display_monthly_analysis_by_site(visits_df):
     """Display monthly analysis by site"""
     st.subheader("Monthly Analysis by Site")
     
-    # Create a copy to avoid modifying the original
+    # Filter only actual visits and main scheduled visits
     analysis_visits = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
         (visits_df['Visit'].str.startswith("⚠ Screen Fail")) |
