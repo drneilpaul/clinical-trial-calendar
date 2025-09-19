@@ -120,12 +120,12 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
                     cell_str = str(cell_value)
                     
                     # Visit-specific color coding - check for multiple possible patterns
-                    if ("✅ Visit" in cell_str) or ("✓ Visit" in cell_str) or (cell_str.startswith("✅")) or (cell_str.startswith("✓")):  # Completed visits
-                        style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
-                    elif ("⚠️ Visit" in cell_str) or ("⚠ Visit" in cell_str) or (cell_str.startswith("⚠")):  # Out of window visits
-                        style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
-                    elif ("❌ Screen Fail" in cell_str) or ("⚠ Screen Fail" in cell_str) or ("Screen Fail" in cell_str):  # Screen failures
-                        style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                    if '✅ Visit' in cell_str:
+                style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                    elif '⚠️ Visit' in cell_str:
+                style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+                    elif '❌ Screen Fail' in cell_str:
+                style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                     elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "✓", "⚠", "❌"]):  # Scheduled
                         style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
                     elif cell_str in ["+", "-"]:  # Tolerance periods - different from weekends
