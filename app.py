@@ -602,7 +602,22 @@ def main():
                 display_quarterly_profit_sharing(financial_df, patients_df)
 
             # Site-wise breakdown by month with financial year summaries
-            st.subheader("Site-wise Statistics by Month")
+            st.subheader("🏢 Site-wise Statistics by Month")
+            
+            # Add debugging information
+            with st.expander("🔍 Debug Information", expanded=False):
+                st.write("**Date Range Analysis:**")
+                st.write(f"- Minimum visit date: {visits_df['Date'].min()}")
+                st.write(f"- Maximum visit date: {visits_df['Date'].max()}")
+                st.write(f"- Minimum patient start date: {patients_df['StartDate'].min()}")
+                st.write(f"- Maximum patient start date: {patients_df['StartDate'].max()}")
+                
+                st.write("**Sample Data:**")
+                st.write("First few patient records:")
+                st.dataframe(patients_df[['PatientID', 'Study', 'StartDate', 'Site']].head())
+                
+                st.write("First few visit records:")
+                st.dataframe(visits_df[['Date', 'PatientID', 'Visit', 'Study', 'Payment']].head())
             
             # Add month-year and financial year columns to visits_df if not present
             visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
@@ -616,6 +631,8 @@ def main():
             
             # Create complete month range
             all_months = pd.period_range(start=min_date, end=max_date, freq='M')
+            
+            st.write(f"**Analyzing months from {all_months[0]} to {all_months[-1]}**")
             
             monthly_site_stats = []
             
@@ -658,18 +675,20 @@ def main():
                         (site_patients['StartDate'] <= month_end)
                     ])
                     
-                    monthly_site_stats.append({
-                        'Period': str(month),
-                        'Financial Year': fy,
-                        'Type': 'Month',
-                        'Site': site,
-                        'New Patients': new_patients_this_month,
-                        'Completed Visits': completed_visits,
-                        'Screen Fail Visits': screen_fail_visits,
-                        'Pending Visits': pending_visits,
-                        'Total Visits': total_visits,
-                        'Income': f"£{site_income:,.2f}"
-                    })
+                    # Only add rows where there's actual activity (visits or new patients)
+                    if total_visits > 0 or new_patients_this_month > 0 or site_income > 0:
+                        monthly_site_stats.append({
+                            'Period': str(month),
+                            'Financial Year': fy,
+                            'Type': 'Month',
+                            'Site': site,
+                            'New Patients': new_patients_this_month,
+                            'Completed Visits': completed_visits,
+                            'Screen Fail Visits': screen_fail_visits,
+                            'Pending Visits': pending_visits,
+                            'Total Visits': total_visits,
+                            'Income': f"£{site_income:,.2f}"
+                        })
             
             # Add financial year summaries
             financial_years = sorted(visits_df['FinancialYear'].unique())
@@ -742,28 +761,32 @@ def main():
                     st.write(f"**{site} Practice**")
                     
                     site_data = [stat for stat in monthly_site_stats if stat['Site'] == site]
-                    site_df = pd.DataFrame(site_data)
-                    
-                    # Drop the Site column since it's redundant in site-specific tables
-                    display_df = site_df.drop('Site', axis=1)
-                    
-                    # Style the dataframe to highlight financial year rows
-                    def highlight_fy_rows(row):
-                        if row['Type'] == 'Financial Year':
-                            return ['background-color: #e6f3ff; font-weight: bold'] * len(row)
-                        else:
-                            return [''] * len(row)
-                    
-                    styled_site_df = display_df.style.apply(highlight_fy_rows, axis=1)
-                    st.dataframe(styled_site_df, use_container_width=True)
-                    st.write("")  # Add space between sites
+                    if site_data:  # Only show if there's data
+                        site_df = pd.DataFrame(site_data)
+                        
+                        # Drop the Site column since it's redundant in site-specific tables
+                        display_df = site_df.drop('Site', axis=1)
+                        
+                        # Style the dataframe to highlight financial year rows
+                        def highlight_fy_rows(row):
+                            if row['Type'] == 'Financial Year':
+                                return ['background-color: #e6f3ff; font-weight: bold'] * len(row)
+                            else:
+                                return [''] * len(row)
+                        
+                        styled_site_df = display_df.style.apply(highlight_fy_rows, axis=1)
+                        st.dataframe(styled_site_df, use_container_width=True)
+                        st.write("")  # Add space between sites
+                    else:
+                        st.write("No activity recorded for this site")
+                        st.write("")
                 
                 st.info("""
                 **Site Statistics Notes:**
                 - **Blue highlighted rows** = Financial Year totals (April to March)
                 - **New Patients** = Patients recruited in that period (based on StartDate)
                 - **Income** = Clinical trial income generated from visits
-                - Monthly data shows activity patterns throughout each financial year
+                - Only months/periods with activity are shown
                 - Financial year rows show annual totals and active patient counts
                 """)
             else:
