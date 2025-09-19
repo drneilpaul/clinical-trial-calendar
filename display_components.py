@@ -717,3 +717,4 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
         buf = io.BytesIO()
         calendar_df.to_excel(buf, index=False)
         st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
+
