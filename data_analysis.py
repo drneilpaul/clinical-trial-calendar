@@ -46,9 +46,10 @@ def extract_screen_failures(actual_visits_df):
 
 def prepare_financial_data(visits_df):
     """Prepare financial data for analysis"""
+    # FIX: Use consistent emoji symbols
     financial_df = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
-        (visits_df['Visit'].str.startswith("⚠ Screen Fail")) |
+        (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
         (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
     ].copy()
     
@@ -99,17 +100,17 @@ def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_fa
             site_patient_ids = site_patients['PatientID'].unique()
             site_visits = month_visits[month_visits["PatientID"].isin(site_patient_ids)]
             
-            # Filter relevant visits (exclude tolerance periods)
+            # FIX: Filter relevant visits with consistent emoji symbols
             relevant_visits = site_visits[
                 (site_visits["Visit"].str.startswith("✅")) | 
-                (site_visits["Visit"].str.startswith("⚠ Screen Fail")) | 
+                (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
                 (site_visits["Visit"].str.contains("Visit", na=False))
             ]
             
-            # Calculate metrics
-            site_income = relevant_visits["Payment"].sum()
+            # Calculate metrics with safe operations
+            site_income = relevant_visits["Payment"].sum() if not relevant_visits.empty else 0
             completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")])
-            screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("⚠ Screen Fail")])
+            screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")])
             total_visits = len(relevant_visits)
             pending_visits = total_visits - completed_visits - screen_fail_visits
             
@@ -147,46 +148,54 @@ def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_fa
             site_patient_ids = site_patients['PatientID'].unique()
             site_visits = fy_visits[fy_visits["PatientID"].isin(site_patient_ids)]
             
+            # FIX: Use consistent emoji symbols
             relevant_visits = site_visits[
                 (site_visits["Visit"].str.startswith("✅")) | 
-                (site_visits["Visit"].str.startswith("⚠ Screen Fail")) | 
+                (site_visits["Visit"].str.startswith("❌ Screen Fail")) | 
                 (site_visits["Visit"].str.contains("Visit", na=False))
             ]
             
-            # Calculate annual metrics
-            site_income = relevant_visits["Payment"].sum()
+            # Calculate annual metrics with safe operations
+            site_income = relevant_visits["Payment"].sum() if not relevant_visits.empty else 0
             completed_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("✅")])
-            screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("⚠ Screen Fail")])
+            screen_fail_visits = len(relevant_visits[relevant_visits["Visit"].str.startswith("❌ Screen Fail")])
             total_visits = len(relevant_visits)
             pending_visits = total_visits - completed_visits - screen_fail_visits
             
             # Count patients recruited in this financial year
-            fy_start_year = int(fy.split('-')[0])
-            fy_start = pd.Timestamp(f"{fy_start_year}-04-01")
-            fy_end = pd.Timestamp(f"{fy_start_year + 1}-03-31")
-            
-            fy_new_patients = len(site_patients[
-                (site_patients['StartDate'] >= fy_start) & 
-                (site_patients['StartDate'] <= fy_end)
-            ])
+            try:
+                fy_start_year = int(fy.split('-')[0])
+                fy_start = pd.Timestamp(f"{fy_start_year}-04-01")
+                fy_end = pd.Timestamp(f"{fy_start_year + 1}-03-31")
+                
+                fy_new_patients = len(site_patients[
+                    (site_patients['StartDate'] >= fy_start) & 
+                    (site_patients['StartDate'] <= fy_end)
+                ])
+            except (ValueError, IndexError):
+                fy_new_patients = 0
             
             # Count screen failures for this financial year
             site_screen_fails = 0
-            for _, patient in site_patients.iterrows():
-                patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
-                if patient_study_key in screen_failures:
-                    screen_fail_date = screen_failures[patient_study_key]
-                    if fy_start <= screen_fail_date <= fy_end:
-                        site_screen_fails += 1
+            if screen_failures:
+                for _, patient in site_patients.iterrows():
+                    patient_study_key = f"{patient['PatientID']}_{patient['Study']}"
+                    if patient_study_key in screen_failures:
+                        screen_fail_date = screen_failures[patient_study_key]
+                        try:
+                            if fy_start <= screen_fail_date <= fy_end:
+                                site_screen_fails += 1
+                        except (TypeError, NameError):
+                            pass
             
-            active_patients = fy_new_patients - site_screen_fails
+            active_patients = max(0, fy_new_patients - site_screen_fails)
             
             monthly_site_stats.append({
                 'Period': f"FY {fy}",
                 'Financial Year': fy,
                 'Type': 'Financial Year',
                 'Site': site,
-                'New Patients': f"{fy_new_patients} ({max(0, active_patients)} active)",
+                'New Patients': f"{fy_new_patients} ({active_patients} active)",
                 'Completed Visits': completed_visits,
                 'Screen Fail Visits': screen_fail_visits,
                 'Pending Visits': pending_visits,
@@ -232,10 +241,10 @@ def display_monthly_analysis_by_site(visits_df):
     """Display monthly analysis by site"""
     st.subheader("Monthly Analysis by Site")
     
-    # Filter only actual visits and main scheduled visits
+    # FIX: Filter only actual visits and main scheduled visits with consistent emoji symbols
     analysis_visits = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
-        (visits_df['Visit'].str.startswith("⚠ Screen Fail")) |
+        (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
         (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
     ].copy()
     
@@ -252,16 +261,28 @@ def display_monthly_analysis_by_site(visits_df):
             visits_pivot = visits_by_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Visits').fillna(0)
             visits_pivot['Total_Visits'] = visits_pivot.sum(axis=1)
             visit_sites = [col for col in visits_pivot.columns if col != 'Total_Visits']
+            
+            # FIX: Safe ratio calculations
             for site in visit_sites:
-                visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
+                try:
+                    visits_pivot[f'{site}_Ratio'] = (visits_pivot[site] / visits_pivot['Total_Visits'] * 100).round(1)
+                    visits_pivot[f'{site}_Ratio'] = visits_pivot[f'{site}_Ratio'].fillna(0)  # Handle division by zero
+                except (ZeroDivisionError, KeyError):
+                    visits_pivot[f'{site}_Ratio'] = 0
             
             # Count unique patients by visit site per month
             patients_by_visit_site_month = analysis_visits.groupby(['SiteofVisit', 'MonthYear'])['PatientID'].nunique().reset_index(name='Patients')
             patients_visit_pivot = patients_by_visit_site_month.pivot(index='MonthYear', columns='SiteofVisit', values='Patients').fillna(0)
             patients_visit_pivot['Total_Patients'] = patients_visit_pivot.sum(axis=1)
+            
+            # FIX: Safe ratio calculations for patients
             for site in visit_sites:
                 if site in patients_visit_pivot.columns:
-                    patients_visit_pivot[f'{site}_Ratio'] = (patients_visit_pivot[site] / patients_visit_pivot['Total_Patients'] * 100).round(1)
+                    try:
+                        patients_visit_pivot[f'{site}_Ratio'] = (patients_visit_pivot[site] / patients_visit_pivot['Total_Patients'] * 100).round(1)
+                        patients_visit_pivot[f'{site}_Ratio'] = patients_visit_pivot[f'{site}_Ratio'].fillna(0)
+                    except (ZeroDivisionError, KeyError):
+                        patients_visit_pivot[f'{site}_Ratio'] = 0
             
             # Analysis by Patient Origin
             st.write("**Analysis by Patient Origin (Where patients come from)**")
@@ -269,8 +290,14 @@ def display_monthly_analysis_by_site(visits_df):
             patients_origin_pivot = patients_by_origin_month.pivot(index='MonthYear', columns='PatientOrigin', values='Patients').fillna(0)
             patients_origin_pivot['Total_Patients'] = patients_origin_pivot.sum(axis=1)
             origin_sites = [col for col in patients_origin_pivot.columns if col != 'Total_Patients']
+            
+            # FIX: Safe ratio calculations for origin
             for site in origin_sites:
-                patients_origin_pivot[f'{site}_Ratio'] = (patients_origin_pivot[site] / patients_origin_pivot['Total_Patients'] * 100).round(1)
+                try:
+                    patients_origin_pivot[f'{site}_Ratio'] = (patients_origin_pivot[site] / patients_origin_pivot['Total_Patients'] * 100).round(1)
+                    patients_origin_pivot[f'{site}_Ratio'] = patients_origin_pivot[f'{site}_Ratio'].fillna(0)
+                except (ZeroDivisionError, KeyError):
+                    patients_origin_pivot[f'{site}_Ratio'] = 0
             
             # Display tables
             col1, col2 = st.columns(2)
@@ -336,10 +363,14 @@ def display_monthly_analysis_by_site(visits_df):
             cross_pivot = cross_tab.pivot(index='PatientOrigin', columns='SiteofVisit', values='Patients').fillna(0)
             cross_pivot['Total'] = cross_pivot.sum(axis=1)
             
-            # Add row percentages
+            # FIX: Safe percentage calculations for cross-tabulation
             for col in cross_pivot.columns:
                 if col != 'Total':
-                    cross_pivot[f'{col}_%'] = (cross_pivot[col] / cross_pivot['Total'] * 100).round(1)
+                    try:
+                        cross_pivot[f'{col}_%'] = (cross_pivot[col] / cross_pivot['Total'] * 100).round(1)
+                        cross_pivot[f'{col}_%'] = cross_pivot[f'{col}_%'].fillna(0)
+                    except (ZeroDivisionError, KeyError):
+                        cross_pivot[f'{col}_%'] = 0
             
             st.dataframe(cross_pivot, use_container_width=True)
             
@@ -353,21 +384,28 @@ def display_monthly_analysis_by_site(visits_df):
                 if not visits_pivot.empty:
                     chart_data = visits_pivot[[col for col in visits_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Visits']]
                     chart_data.index = chart_data.index.astype(str)
-                    st.bar_chart(chart_data)
+                    if not chart_data.empty:
+                        st.bar_chart(chart_data)
             
             with col2:
                 st.write("**Patients by Visit Site**") 
                 if not patients_visit_pivot.empty:
                     chart_data = patients_visit_pivot[[col for col in patients_visit_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
                     chart_data.index = chart_data.index.astype(str)
-                    st.bar_chart(chart_data)
+                    if not chart_data.empty:
+                        st.bar_chart(chart_data)
             
             with col3:
                 st.write("**Patients by Origin Site**")
                 if not patients_origin_pivot.empty:
                     chart_data = patients_origin_pivot[[col for col in patients_origin_pivot.columns if not col.endswith('_Ratio') and col != 'Total_Patients']]
                     chart_data.index = chart_data.index.astype(str)
-                    st.bar_chart(chart_data)
+                    if not chart_data.empty:
+                        st.bar_chart(chart_data)
+        else:
+            st.info("No visit data available for monthly analysis")
+    else:
+        st.info("No visit data available for analysis")
 
 def display_processing_messages(messages):
     """Display processing log messages"""
