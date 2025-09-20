@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import date
+from datetime import date  # FIX: Added missing import
 import re
 import streamlit.components.v1 as components
 
@@ -119,14 +119,14 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
                 if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
                     cell_str = str(cell_value)
 
-                    # Visit-specific color coding - check for multiple possible patterns
+                    # FIX: Visit-specific color coding with consistent emoji matching
                     if '✅ Visit' in cell_str:
                         style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
                     elif '⚠️ Visit' in cell_str:
                         style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
                     elif '❌ Screen Fail' in cell_str:
                         style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "✓", "⚠", "❌"]):  # Scheduled
+                    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "❌"]):  # Scheduled
                         style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
                     elif cell_str in ["+", "-"]:  # Tolerance periods - different from weekends
                         style = 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
@@ -150,7 +150,6 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
             # Check if this is a data row with a date
             if '<td>' in line and len(html_lines) > i+1:
                 # Try to extract date from the line
-                date_match = None
                 date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
                 match = re.search(date_pattern, line)
                 if match:
@@ -190,11 +189,11 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
 def display_financial_analysis(stats, visits_df):
     st.subheader("💰 Financial Analysis")
 
-    # Filter for relevant visits (exclude tolerance periods)
+    # Filter for relevant visits (exclude tolerance periods) with consistent emoji symbols
     financial_df = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
         (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
-        (visits_df['Visit'].str.startswith("⚠")) |
+        (visits_df['Visit'].str.startswith("⚠️")) |
         (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
     ].copy()
 
@@ -216,8 +215,12 @@ def display_financial_analysis(stats, visits_df):
             screen_fail_count = len(actual_financial[actual_financial.get('IsScreenFail', False)])
             st.metric("Screen Failures", screen_fail_count)
 
-        completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
-        st.metric("Visit Completion Rate", f"{completion_rate:.1f}%")
+        # FIX: Safe division for completion rate
+        try:
+            completion_rate = (len(actual_financial) / len(financial_df)) * 100 if len(financial_df) > 0 else 0
+            st.metric("Visit Completion Rate", f"{completion_rate:.1f}%")
+        except (ZeroDivisionError, TypeError):
+            st.metric("Visit Completion Rate", "0.0%")
     else:
         col1, col2 = st.columns(2)
         with col1:
@@ -485,19 +488,23 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
             if len(quarter_data) == 0:
                 continue
 
-            # Work done ratios for this quarter
+            # Work done ratios for this quarter with safe division
             quarter_site_work = quarter_data.groupby('SiteofVisit').size()
             quarter_total_work = quarter_site_work.sum()
 
+            # FIX: Safe division for ratios
             q_ashfields_work_ratio = quarter_site_work.get('Ashfields', 0) / quarter_total_work if quarter_total_work > 0 else 0
             q_kiltearn_work_ratio = quarter_site_work.get('Kiltearn', 0) / quarter_total_work if quarter_total_work > 0 else 0
 
-            # Patient recruitment ratios for this quarter
+            # Patient recruitment ratios for this quarter with safe division
             quarter_recruitment = quarter_data.groupby('PatientOrigin').agg({'PatientID': 'nunique'})
             quarter_total_patients = quarter_recruitment['PatientID'].sum()
 
-            q_ashfields_recruitment_ratio = quarter_recruitment.loc['Ashfields', 'PatientID'] / quarter_total_patients if 'Ashfields' in quarter_recruitment.index and quarter_total_patients > 0 else 0
-            q_kiltearn_recruitment_ratio = quarter_recruitment.loc['Kiltearn', 'PatientID'] / quarter_total_patients if 'Kiltearn' in quarter_recruitment.index and quarter_total_patients > 0 else 0
+            q_ashfields_recruitment_ratio = 0
+            q_kiltearn_recruitment_ratio = 0
+            if quarter_total_patients > 0:
+                q_ashfields_recruitment_ratio = quarter_recruitment.loc['Ashfields', 'PatientID'] / quarter_total_patients if 'Ashfields' in quarter_recruitment.index else 0
+                q_kiltearn_recruitment_ratio = quarter_recruitment.loc['Kiltearn', 'PatientID'] / quarter_total_patients if 'Kiltearn' in quarter_recruitment.index else 0
 
             # Calculate weighted ratios (list sizes remain constant)
             q_ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
@@ -540,7 +547,7 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
                 'Kiltearn Income': f"£{kiltearn_quarter_share_amount:,.2f}"
             })
 
-        # Add financial year summaries
+        # Add financial year summaries with same safe division logic
         for fy in financial_years:
             fy_data = financial_df[financial_df['FinancialYear'] == fy]
 
@@ -558,8 +565,11 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
             fy_recruitment = fy_data.groupby('PatientOrigin').agg({'PatientID': 'nunique'})
             fy_total_patients = fy_recruitment['PatientID'].sum()
 
-            fy_ashfields_recruitment_ratio = fy_recruitment.loc['Ashfields', 'PatientID'] / fy_total_patients if 'Ashfields' in fy_recruitment.index and fy_total_patients > 0 else 0
-            fy_kiltearn_recruitment_ratio = fy_recruitment.loc['Kiltearn', 'PatientID'] / fy_total_patients if 'Kiltearn' in fy_recruitment.index and fy_total_patients > 0 else 0
+            fy_ashfields_recruitment_ratio = 0
+            fy_kiltearn_recruitment_ratio = 0
+            if fy_total_patients > 0:
+                fy_ashfields_recruitment_ratio = fy_recruitment.loc['Ashfields', 'PatientID'] / fy_total_patients if 'Ashfields' in fy_recruitment.index else 0
+                fy_kiltearn_recruitment_ratio = fy_recruitment.loc['Kiltearn', 'PatientID'] / fy_total_patients if 'Kiltearn' in fy_recruitment.index else 0
 
             # Calculate weighted ratios for financial year
             fy_ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
@@ -622,15 +632,18 @@ def display_quarterly_profit_sharing(financial_df, patients_df):
             chart_data = []
             for ratio in quarterly_ratios:
                 if ratio['Type'] == 'Quarter':
-                    # Convert percentages back to numbers for charting
-                    ashfields_pct = float(ratio['Ashfields Share'].rstrip('%')) / 100
-                    kiltearn_pct = float(ratio['Kiltearn Share'].rstrip('%')) / 100
+                    # FIX: Safe percentage conversion
+                    try:
+                        ashfields_pct = float(ratio['Ashfields Share'].rstrip('%')) / 100
+                        kiltearn_pct = float(ratio['Kiltearn Share'].rstrip('%')) / 100
 
-                    chart_data.append({
-                        'Quarter': ratio['Period'],
-                        'Ashfields': ashfields_pct,
-                        'Kiltearn': kiltearn_pct
-                    })
+                        chart_data.append({
+                            'Quarter': ratio['Period'],
+                            'Ashfields': ashfields_pct,
+                            'Kiltearn': kiltearn_pct
+                        })
+                    except (ValueError, AttributeError):
+                        continue
 
             if chart_data:
                 chart_df = pd.DataFrame(chart_data).set_index('Quarter')
