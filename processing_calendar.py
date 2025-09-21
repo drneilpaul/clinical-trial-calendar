@@ -155,10 +155,21 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 patient_actual_visits[visit_no] = actual_visit
                 actual_visits_used += 1
         
-        # Process each visit with IMPROVED validation
-        current_baseline_date = start_date
-        current_baseline_visit = "0"
+        # Process each visit with IMPROVED validation and Visit 1 only rebasing
+        visit_1_baseline_date = start_date  # Original baseline
+        visit_1_actual_date = None  # Will store actual Visit 1 date if it exists
         patient_needs_recalc = False
+        
+        # First pass: find actual Visit 1 to establish baseline
+        for visit_no_key, actual_visit_data in patient_actual_visits.items():
+            if visit_no_key == "1":  # Only Visit 1 can rebase
+                visit_1_actual_date = actual_visit_data["ActualDate"]
+                if visit_1_actual_date != start_date:
+                    patient_needs_recalc = True
+                break
+        
+        # Set the baseline for all calculations
+        current_baseline_date = visit_1_actual_date if visit_1_actual_date is not None else start_date
         
         for _, visit in study_visits.iterrows():
             try:
@@ -197,20 +208,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     
                     # Continue processing but mark as data error
                     visit_status = f"❌ DATA ERROR Visit {visit_no}"
+                    is_out_of_window = False
                     
                 else:
-                    # Normal processing
-                    # Calculate expected date for validation
-                    if current_baseline_visit == "0":
-                        expected_date = start_date + timedelta(days=visit_day)
-                    else:
-                        baseline_visit_data = study_visits[study_visits["VisitNo"] == current_baseline_visit]
-                        if len(baseline_visit_data) > 0:
-                            baseline_day = int(baseline_visit_data.iloc[0]["Day"])
-                            day_diff = visit_day - baseline_day
-                            expected_date = current_baseline_date + timedelta(days=day_diff)
-                        else:
-                            expected_date = start_date + timedelta(days=visit_day)
+                    # Normal processing - calculate expected date using ONLY Visit 1 baseline
+                    expected_date = current_baseline_date + timedelta(days=visit_day)
                     
                     # Safe tolerance handling
                     tolerance_before = 0
@@ -238,25 +240,17 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                             'tolerance': f"+{tolerance_after}/-{tolerance_before} days"
                         })
                     
-                    # Update baseline for future calculations
-                    original_scheduled_date = start_date + timedelta(days=visit_day)
-                    if visit_date != original_scheduled_date:
-                        patient_needs_recalc = True
-                    
-                    current_baseline_date = visit_date
-                    current_baseline_visit = visit_no
-                    
                     # Safe visit number formatting
                     try:
                         visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
                     except:
                         visit_no_clean = visit_no
                     
-                    # Use consistent emoji symbols
+                    # Use consistent emoji symbols with OUT OF PROTOCOL indicator
                     if is_screen_fail:
                         visit_status = f"❌ Screen Fail {visit_no_clean}"
                     elif is_out_of_window:
-                        visit_status = f"⚠️ Visit {visit_no_clean}"
+                        visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"  # New indicator
                     else:
                         visit_status = f"✅ Visit {visit_no_clean}"
                 
@@ -273,21 +267,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "PatientOrigin": patient_origin,
                     "IsActual": True,
                     "IsScreenFail": is_screen_fail,
-                    "IsOutOfWindow": is_out_of_window
+                    "IsOutOfWindow": is_out_of_window,
+                    "IsOutOfProtocol": is_out_of_window  # New flag for out of protocol
                 })
                 
             else:
-                # This is a scheduled visit - check if we should skip due to screen failure
-                if current_baseline_visit == "0":
-                    scheduled_date = start_date + timedelta(days=visit_day)
-                else:
-                    baseline_visit_data = study_visits[study_visits["VisitNo"] == current_baseline_visit]
-                    if len(baseline_visit_data) > 0:
-                        baseline_day = int(baseline_visit_data.iloc[0]["Day"])
-                        day_diff = visit_day - baseline_day
-                        scheduled_date = current_baseline_date + timedelta(days=day_diff)
-                    else:
-                        scheduled_date = start_date + timedelta(days=visit_day)
+                # This is a scheduled visit - calculate using ONLY Visit 1 baseline
+                scheduled_date = current_baseline_date + timedelta(days=visit_day)
                 
                 # Check if this SCHEDULED visit is after THIS PATIENT's screen failure
                 this_patient_screen_fail_key = f"{patient_id}_{study}"
@@ -330,7 +316,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "PatientOrigin": patient_origin,
                     "IsActual": False,
                     "IsScreenFail": False,
-                    "IsOutOfWindow": False
+                    "IsOutOfWindow": False,
+                    "IsOutOfProtocol": False
                 })
 
                 # Add tolerance periods (with same screen failure check)
@@ -348,7 +335,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                         "PatientOrigin": patient_origin,
                         "IsActual": False,
                         "IsScreenFail": False,
-                        "IsOutOfWindow": False
+                        "IsOutOfWindow": False,
+                        "IsOutOfProtocol": False
                     })
 
                 for i in range(1, tol_after + 1):
@@ -365,10 +353,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                         "PatientOrigin": patient_origin,
                         "IsActual": False,
                         "IsScreenFail": False,
-                        "IsOutOfWindow": False
+                        "IsOutOfWindow": False,
+                        "IsOutOfProtocol": False
                     })
         
-        # Track patients that had recalculations
+        # Track patients that had recalculations (only Visit 1 rebasing now)
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
 
@@ -383,10 +372,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         processing_messages.append(f"⚠️ {len(patients_with_no_visits)} patient(s) skipped due to missing study definitions: {', '.join(patients_with_no_visits)}")
         
     if len(recalculated_patients) > 0:
-        processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s): {', '.join(recalculated_patients)}")
+        processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s) based on Visit 1 only: {', '.join(recalculated_patients)}")
 
     if len(out_of_window_visits) > 0:
-        processing_messages.append(f"⚠️ {len(out_of_window_visits)} visit(s) occurred outside tolerance windows")
+        processing_messages.append(f"🔴 {len(out_of_window_visits)} visit(s) occurred outside tolerance windows (marked as OUT OF PROTOCOL)")
 
     if actual_visits_df is not None:
         processing_messages.append(f"✅ {actual_visits_used} actual visits matched and used in calendar")
@@ -482,7 +471,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     # Handle tolerance periods more carefully
                     if visit_info in ["-", "+"]:
                         # Only add tolerance if there's no main visit already
-                        if not any(x in current_value for x in ["Visit", "✅", "⚠️", "❌"]):
+                        if not any(x in current_value for x in ["Visit", "✅", "🔴", "❌"]):
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                             else:
