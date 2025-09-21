@@ -26,11 +26,25 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if not required_actual.issubset(actual_visits_df.columns):
             raise ValueError(f"❌ Actual visits file missing required columns: {required_actual}")
 
+        # DEBUG: Print actual visits BEFORE processing
+        print("=== DEBUG: Raw Actual Visits Data ===")
+        print(f"Shape: {actual_visits_df.shape}")
+        print(f"Columns: {list(actual_visits_df.columns)}")
+        for idx, row in actual_visits_df.iterrows():
+            print(f"Raw row {idx}: PatientID={row['PatientID']} (type: {type(row['PatientID'])}), "
+                  f"Study='{row['Study']}', VisitNo={row['VisitNo']} (type: {type(row['VisitNo'])})")
+
         # Ensure proper data type handling
         actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
         actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
         actual_visits_df["VisitNo"] = actual_visits_df["VisitNo"].astype(str)
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
+        
+        # DEBUG: Print actual visits AFTER processing
+        print("\n=== DEBUG: Processed Actual Visits Data ===")
+        for idx, row in actual_visits_df.iterrows():
+            print(f"Processed row {idx}: PatientID='{row['PatientID']}' (type: {type(row['PatientID'])}), "
+                  f"Study='{row['Study']}', VisitNo='{row['VisitNo']}' (type: {type(row['VisitNo'])})")
         
         # Handle optional columns
         if "ActualPayment" not in actual_visits_df.columns:
@@ -58,6 +72,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             actual_visits_df["VisitNo"].astype(str)
         )
 
+        # DEBUG: Print visit keys
+        print("\n=== DEBUG: Actual Visit Keys ===")
+        for idx, row in actual_visits_df.iterrows():
+            print(f"Visit key {idx}: '{row['VisitKey']}'")
+
     # Normalize column names
     column_mapping = {
         'Income': 'Payment',
@@ -72,6 +91,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     patients_df["PatientID"] = patients_df["PatientID"].astype(str)
     patients_df["Study"] = patients_df["Study"].astype(str)
     patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
+    
+    # DEBUG: Print patients AFTER processing
+    print("\n=== DEBUG: Processed Patients Data ===")
+    for idx, row in patients_df.iterrows():
+        print(f"Patient {idx}: PatientID='{row['PatientID']}' (type: {type(row['PatientID'])}), "
+              f"Study='{row['Study']}'")
     
     # Ensure VisitNo in trials is also string for consistent matching
     trials_df["Study"] = trials_df["Study"].astype(str)
@@ -126,6 +151,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         start_date = patient["StartDate"]
         patient_origin = patient["OriginSite"]
         
+        print(f"\n=== DEBUG: Processing Patient {patient_id} ({study}) ===")
+        
         # Check if this patient has a screen failure
         patient_study_key = f"{patient_id}_{study}"
         screen_fail_date = screen_failures.get(patient_study_key)
@@ -141,17 +168,24 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
             continue  # Skip this patient as no visit schedule is defined
         
-        # Get all actual visits for this patient
+        # Get all actual visits for this patient - CRITICAL SECTION
         patient_actual_visits = {}
         if actual_visits_df is not None:
+            print(f"Looking for actual visits: PatientID='{patient_id}' AND Study='{study}'")
+            
+            # FIXED: Use consistent string comparison
             patient_actuals = actual_visits_df[
-                (actual_visits_df["PatientID"] == str(patient_id)) & 
+                (actual_visits_df["PatientID"] == patient_id) & 
                 (actual_visits_df["Study"] == study)
             ].sort_values('VisitNo')
+            
+            print(f"Found {len(patient_actuals)} actual visits for this patient")
             
             for _, actual_visit in patient_actuals.iterrows():
                 visit_no = str(actual_visit["VisitNo"])
                 patient_actual_visits[visit_no] = actual_visit
+                print(f"  Added actual visit: VisitNo={visit_no}")
+                actual_visits_used += 1  # Count here when we find matches
         
         # Process each visit with recalculation logic
         current_baseline_date = start_date
@@ -167,6 +201,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             
             # Check if we have an actual visit for this visit number
             actual_visit_data = patient_actual_visits.get(visit_no)
+            print(f"  Checking visit {visit_no}: actual_visit_data = {actual_visit_data is not None}")
             
             if actual_visit_data is not None:
                 # This is an actual visit
@@ -239,7 +274,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     screen_fail_exclusions += 1
                     continue
                 
-                actual_visits_used += 1
+                print(f"    Recording ACTUAL visit: {visit_status}")
                 
                 # Record the actual visit
                 site = visit.get("SiteforVisit", "Unknown Site")
@@ -297,6 +332,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 
                 site = visit.get("SiteforVisit", "Unknown Site")
                 
+                print(f"    Recording SCHEDULED visit: {visit_status}")
+                
                 # Add main visit + tolerance periods
                 visit_records.append({
                     "Date": visit_date,
@@ -349,6 +386,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Track patients that had recalculations
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
+
+    # DEBUG: Final counts
+    print(f"\n=== DEBUG: Final Results ===")
+    print(f"Total actual visits in file: {len(actual_visits_df) if actual_visits_df is not None else 0}")
+    print(f"Actual visits used: {actual_visits_used}")
+    print(f"Visit records created: {len(visit_records)}")
 
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
