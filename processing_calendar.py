@@ -249,7 +249,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     # Use consistent emoji symbols with OUT OF PROTOCOL indicator
                     if is_screen_fail:
                         visit_status = f"❌ Screen Fail {visit_no_clean}"
-                    elif is_out_of_window:
+                    elif is_out_of_window and visit_no != "1":  # Visit 1 is never a protocol deviation
                         visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"  # New indicator
                     else:
                         visit_status = f"✅ Visit {visit_no_clean}"
