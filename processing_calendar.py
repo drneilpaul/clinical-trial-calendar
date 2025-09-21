@@ -444,9 +444,16 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     processing_messages.append(f"Generated {total_visit_records} total calendar entries ({total_scheduled_visits} scheduled visits, {total_tolerance_periods} tolerance periods)")
     
-    # Safe financial calculations
+    # Safe financial calculations  
     if actual_visits_df is not None and len(actual_visits_df) > 0:
         actual_visit_entries = len([v for v in visit_records if v.get('IsActual', False)])
+    
+        # DEBUG: Show what actual visits are in visit_records
+        actual_records = [v for v in visit_records if v.get('IsActual', False)]
+        debug_messages.append(f"Actual visit records in visit_records: {len(actual_records)}")
+        for i, record in enumerate(actual_records):
+            debug_messages.append(f"  Actual record {i+1}: {record['Visit']} - IsActual={record.get('IsActual', 'MISSING')}")
+    
         processing_messages.append(f"Calendar includes {actual_visit_entries} actual visits and {total_scheduled_visits} scheduled visits")
         
         if actual_visits_used < len(actual_visits_df):
