@@ -27,7 +27,7 @@ def show_legend(actual_visits_df):
         - Gray background = Weekend
         - Blue separator lines = Month boundaries (screen only)
         
-        **Note:** Only Visit 1 affects future visit scheduling. Later visits outside tolerance are marked as protocol deviations but don't change scheduled dates.
+        **Note:** Visit 1 establishes the baseline for all future visits regardless of timing - it's never a protocol deviation. Only visits 2+ can be marked as OUT OF PROTOCOL when outside tolerance windows.
         """)
     else:
         st.info("""
