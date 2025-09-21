@@ -142,7 +142,7 @@ def main():
 
             # Site statistics and analysis
             display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures)
-            display_monthly_analysis_by_site(visits_df)
+            # REMOVED: display_monthly_analysis_by_site(visits_df) - contains line charts
 
             # Download options
             display_download_buttons(calendar_df, site_column_mapping, unique_sites)
