@@ -209,7 +209,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         for _, visit in study_visits.iterrows():
             try:
                 visit_day = int(visit["Day"])
-                visit_no = str(visit.get("VisitNo", ""))
+                visit_no_raw = str(visit.get("VisitNo", ""))
+                # Convert "1.0" to "1" for matching
+                try:
+                    visit_no = str(int(float(visit_no_raw)))
+                except:
+                    visit_no = visit_no_raw
             except Exception:
                 continue
             
