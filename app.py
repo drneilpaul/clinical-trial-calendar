@@ -2,8 +2,8 @@ import streamlit as st
 from helpers import load_file, normalize_columns, parse_dates_column
 from processing_calendar import build_calendar
 from display_components import (
-    show_legend, display_calendar, display_financial_analysis,
-    display_site_statistics, display_quarterly_profit_sharing,
+    show_legend, display_calendar,
+    display_site_statistics,
     display_download_buttons
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
@@ -132,12 +132,13 @@ def main():
 
             show_legend(actual_visits_df)
             display_calendar(calendar_df, site_column_mapping, unique_sites)
-            display_financial_analysis(stats, visits_df)
             
-            # Prepare and display financial data for profit sharing
-            financial_df = prepare_financial_data(visits_df)
-            if not financial_df.empty:
-                display_quarterly_profit_sharing(financial_df, patients_df)
+            # REMOVED: display_financial_analysis(stats, visits_df)
+            
+            # REMOVED: Quarterly profit sharing section
+            # financial_df = prepare_financial_data(visits_df)
+            # if not financial_df.empty:
+            #     display_quarterly_profit_sharing(financial_df, patients_df)
 
             # Site statistics and analysis
             display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures)
