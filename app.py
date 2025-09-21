@@ -8,11 +8,25 @@ from display_components import (
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import (
-    extract_site_summary, extract_screen_failures, prepare_financial_data,
+    extract_screen_failures, prepare_financial_data,
     display_site_wise_statistics, display_monthly_analysis_by_site,
     display_processing_messages
 )
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
+
+def extract_site_summary(patients_df, screen_failures=None):
+    """Extract site summary statistics from patients dataframe"""
+    if patients_df.empty:
+        return pd.DataFrame()
+    
+    # Group by site and count patients
+    site_summary = patients_df.groupby('Site').agg({
+        'PatientID': 'count',
+        'Study': lambda x: ', '.join(x.unique())
+    }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
+    
+    site_summary = site_summary.reset_index()
+    return site_summary
 
 def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
     """Handle date parsing and basic validation"""
