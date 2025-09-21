@@ -300,7 +300,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 
                 # Record the actual visit
                 site = visit.get("SiteforVisit", "Unknown Site")
-                
+
+                debug_messages.append(f"About to record visit: {visit_status} for patient {patient_id}")
+
                 visit_records.append({
                     "Date": visit_date,
                     "PatientID": patient_id,
