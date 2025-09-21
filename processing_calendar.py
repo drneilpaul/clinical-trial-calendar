@@ -20,16 +20,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if "SiteforVisit" not in trials_df.columns:
         trials_df["SiteforVisit"] = "Default Site"
 
+    # Initialize debug messages list
+    debug_messages = []
+    
     screen_failures = {}
     if actual_visits_df is not None:
         required_actual = {"PatientID", "Study", "VisitNo", "ActualDate"}
         if not required_actual.issubset(actual_visits_df.columns):
             raise ValueError(f"❌ Actual visits file missing required columns: {required_actual}")
 
-        # DEBUG: Print raw actual visits data
-        print("=== DEBUG: Raw Actual Visits ===")
-        for idx, row in actual_visits_df.iterrows():
-            print(f"Raw ActualVisit {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}, VisitNo={repr(row['VisitNo'])}")
+        debug_messages.append(f"Raw actual visits data: {len(actual_visits_df)} records")
+        for idx, row in actual_visits_df.head(3).iterrows():
+            debug_messages.append(f"Raw ActualVisit {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}")
 
         # Ensure proper data type handling
         actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
@@ -37,10 +39,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         actual_visits_df["VisitNo"] = actual_visits_df["VisitNo"].astype(str)
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
         
-        # DEBUG: Print processed actual visits data
-        print("\n=== DEBUG: Processed Actual Visits ===")
-        for idx, row in actual_visits_df.iterrows():
-            print(f"Processed ActualVisit {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}, VisitNo={repr(row['VisitNo'])}")
+        debug_messages.append("After type conversion:")
+        for idx, row in actual_visits_df.head(3).iterrows():
+            debug_messages.append(f"Processed ActualVisit {idx}: PatientID={repr(row['PatientID'])}, Study={repr(row['Study'])}")
         
         # Handle optional columns
         if "ActualPayment" not in actual_visits_df.columns:
@@ -78,20 +79,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     }
     trials_df = trials_df.rename(columns=column_mapping)
 
-    # DEBUG: Print raw patients data
-    print("\n=== DEBUG: Raw Patients ===")
-    for idx, row in patients_df.iterrows():
-        print(f"Raw Patient {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}")
+    debug_messages.append(f"Raw patients data: {len(patients_df)} records")
+    for idx, row in patients_df.head(3).iterrows():
+        debug_messages.append(f"Raw Patient {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}")
 
     # Process patient data types
     patients_df["PatientID"] = patients_df["PatientID"].astype(str)
     patients_df["Study"] = patients_df["Study"].astype(str)
     patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
     
-    # DEBUG: Print processed patients data
-    print("\n=== DEBUG: Processed Patients ===")
-    for idx, row in patients_df.iterrows():
-        print(f"Processed Patient {idx}: PatientID={repr(row['PatientID'])} (type: {type(row['PatientID'])}), Study={repr(row['Study'])}")
+    debug_messages.append("After patients type conversion:")
+    for idx, row in patients_df.head(3).iterrows():
+        debug_messages.append(f"Processed Patient {idx}: PatientID={repr(row['PatientID'])}, Study={repr(row['Study'])}")
     
     # Ensure VisitNo in trials is also string for consistent matching
     trials_df["Study"] = trials_df["Study"].astype(str)
@@ -146,7 +145,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         start_date = patient["StartDate"]
         patient_origin = patient["OriginSite"]
         
-        print(f"\n=== DEBUG: Processing Patient {repr(patient_id)} in Study {repr(study)} ===")
+        debug_messages.append(f"Processing Patient {repr(patient_id)} in Study {repr(study)}")
         
         # Check if this patient has a screen failure
         patient_study_key = f"{patient_id}_{study}"
@@ -166,24 +165,22 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Get all actual visits for this patient - DETAILED DEBUG
         patient_actual_visits = {}
         if actual_visits_df is not None:
-            print(f"Looking for actual visits where:")
-            print(f"  PatientID == {repr(patient_id)} (type: {type(patient_id)})")
-            print(f"  Study == {repr(study)} (type: {type(study)})")
+            debug_messages.append(f"Looking for actual visits: PatientID={repr(patient_id)}, Study={repr(study)}")
             
             # Test each condition separately
             pid_matches = actual_visits_df["PatientID"] == patient_id
             study_matches = actual_visits_df["Study"] == study
             
-            print(f"PatientID matches: {pid_matches.sum()} out of {len(actual_visits_df)}")
-            print(f"Study matches: {study_matches.sum()} out of {len(actual_visits_df)}")
+            debug_messages.append(f"PatientID matches: {pid_matches.sum()}/{len(actual_visits_df)}")
+            debug_messages.append(f"Study matches: {study_matches.sum()}/{len(actual_visits_df)}")
             
-            # Show detailed comparison
+            # Show detailed comparison for all rows
             for idx, row in actual_visits_df.iterrows():
                 pid_match = row["PatientID"] == patient_id
                 study_match = row["Study"] == study
-                print(f"  ActualVisit {idx}: PatientID {repr(row['PatientID'])} == {repr(patient_id)} -> {pid_match}")
-                print(f"  ActualVisit {idx}: Study {repr(row['Study'])} == {repr(study)} -> {study_match}")
-                print(f"  ActualVisit {idx}: BOTH match -> {pid_match and study_match}")
+                debug_messages.append(f"ActualVisit {idx}: PID {repr(row['PatientID'])}=={repr(patient_id)} -> {pid_match}")
+                debug_messages.append(f"ActualVisit {idx}: Study {repr(row['Study'])}=={repr(study)} -> {study_match}")
+                debug_messages.append(f"ActualVisit {idx}: BOTH -> {pid_match and study_match}")
             
             # Use consistent string comparison
             patient_actuals = actual_visits_df[
@@ -191,20 +188,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 (actual_visits_df["Study"] == study)
             ].sort_values('VisitNo')
             
-            print(f"RESULT: Found {len(patient_actuals)} actual visits for patient {patient_id}")
-            
-            if len(patient_actuals) > 0:
-                print("Found actual visits:")
-                for idx, actual_visit in patient_actuals.iterrows():
-                    print(f"  Visit {actual_visit['VisitNo']}: {actual_visit['ActualDate']}")
+            debug_messages.append(f"RESULT: Found {len(patient_actuals)} actual visits for patient {patient_id}")
             
             for _, actual_visit in patient_actuals.iterrows():
                 visit_no = str(actual_visit["VisitNo"])
                 patient_actual_visits[visit_no] = actual_visit
                 actual_visits_used += 1
-        
-        # Continue with rest of processing...
-        # [Rest of the function remains the same as previous version]
+                debug_messages.append(f"Added actual visit: VisitNo={visit_no}")
         
         # Process each visit with IMPROVED validation
         current_baseline_date = start_date
@@ -306,7 +296,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     else:
                         visit_status = f"✅ Visit {visit_no_clean}"
                 
-                print(f"Recording ACTUAL visit: {visit_status}")
+                debug_messages.append(f"Recording ACTUAL visit: {visit_status}")
                 
                 # Record the actual visit
                 site = visit.get("SiteforVisit", "Unknown Site")
@@ -420,9 +410,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
 
-    print(f"\n=== DEBUG: Final Counts ===")
-    print(f"actual_visits_used: {actual_visits_used}")
-    print(f"visit_records created: {len(visit_records)}")
+    debug_messages.append(f"Final counts: actual_visits_used={actual_visits_used}, visit_records={len(visit_records)}")
 
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
@@ -430,8 +418,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if visits_df.empty:
         raise ValueError("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
 
-    # [Rest of the function continues as normal...]
-    
     # Collect processing messages safely
     if len(patients_with_no_visits) > 0:
         processing_messages.append(f"⚠️ {len(patients_with_no_visits)} patient(s) skipped due to missing study definitions: {', '.join(patients_with_no_visits)}")
@@ -479,6 +465,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         processing_messages.append(f"Total financial value: £{total_income:,.2f}")
     except Exception:
         processing_messages.append("Total financial value: £0.00")
+
+    # Add debug messages to processing messages so they appear in the web interface
+    if debug_messages:
+        processing_messages.extend(["=== DEBUG INFO ==="] + debug_messages + ["=== END DEBUG ==="])
     
     # Build calendar dataframe
     min_date = visits_df["Date"].min() - timedelta(days=1)
@@ -582,3 +572,4 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     }
 
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_sites
+    
