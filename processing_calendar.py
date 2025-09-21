@@ -26,7 +26,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if not required_actual.issubset(actual_visits_df.columns):
             raise ValueError(f"❌ Actual visits file missing required columns: {required_actual}")
 
-        # FIX: Ensure proper data type handling
+        # Ensure proper data type handling
         actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
         actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
         actual_visits_df["VisitNo"] = actual_visits_df["VisitNo"].astype(str)
@@ -73,7 +73,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     patients_df["Study"] = patients_df["Study"].astype(str)
     patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
     
-    # FIX: Ensure VisitNo in trials is also string for consistent matching
+    # Ensure VisitNo in trials is also string for consistent matching
     trials_df["Study"] = trials_df["Study"].astype(str)
     trials_df["VisitNo"] = trials_df["VisitNo"].astype(str)
     trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str)
@@ -155,13 +155,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         
         # Process each visit with recalculation logic
         current_baseline_date = start_date
-        current_baseline_visit = "0"  # FIX: Keep as string for consistency
+        current_baseline_visit = "0"  # Keep as string for consistency
         patient_needs_recalc = False
         
         for _, visit in study_visits.iterrows():
             try:
                 visit_day = int(visit["Day"])
-                visit_no = str(visit.get("VisitNo", ""))  # FIX: Ensure string
+                visit_no = str(visit.get("VisitNo", ""))  # Ensure string
             except Exception:
                 continue
             
@@ -186,7 +186,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     else:
                         expected_date = start_date + timedelta(days=visit_day)
                 
-                # FIX: Safe tolerance handling with default values
+                # Safe tolerance handling with default values
                 tolerance_before = 0
                 tolerance_after = 0
                 try:
@@ -220,13 +220,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 current_baseline_date = visit_date
                 current_baseline_visit = visit_no
                 
-                # FIX: Safe visit number formatting
+                # Safe visit number formatting
                 try:
                     visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
                 except:
                     visit_no_clean = visit_no
                 
-                # FIX: Use consistent emoji symbols
+                # Use consistent emoji symbols - FIXED encoding
                 if "ScreenFail" in str(notes):
                     visit_status = f"❌ Screen Fail {visit_no_clean}"
                 elif is_out_of_window:
@@ -278,7 +278,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 visit_date = scheduled_date
                 payment = float(visit.get("Payment", 0) or 0.0)
                 
-                # FIX: Safe visit number formatting
+                # Safe visit number formatting
                 try:
                     visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
                 except:
@@ -286,7 +286,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 
                 visit_status = f"Visit {visit_no_clean}"
                 
-                # FIX: Safe tolerance handling
+                # Safe tolerance handling
                 tol_before = 0
                 tol_after = 0
                 try:
@@ -356,7 +356,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if visits_df.empty:
         raise ValueError("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
 
-    # FIX: Collect processing messages safely
+    # Collect processing messages safely
     if len(patients_with_no_visits) > 0:
         processing_messages.append(f"⚠️ {len(patients_with_no_visits)} patient(s) skipped due to missing study definitions: {', '.join(patients_with_no_visits)}")
         
@@ -382,7 +382,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     processing_messages.append(f"Generated {total_visit_records} total calendar entries ({total_scheduled_visits} scheduled visits, {total_tolerance_periods} tolerance periods)")
     
-    # FIX: Safe financial calculations
+    # Safe financial calculations
     if actual_visits_df is not None and len(actual_visits_df) > 0:
         actual_visit_entries = len([v for v in visit_records if v.get('IsActual', False)])
         processing_messages.append(f"Calendar includes {actual_visit_entries} actual visits and {total_scheduled_visits} scheduled visits")
@@ -397,7 +397,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         date_range_days = (latest_date - earliest_date).days
         processing_messages.append(f"Calendar spans {date_range_days} days ({earliest_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')})")
     
-    # FIX: Safe total income calculation
+    # Safe total income calculation
     try:
         total_income = visits_df["Payment"].sum()
         processing_messages.append(f"Total financial value: £{total_income:,.2f}")
@@ -436,7 +436,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     calendar_df["Daily Total"] = 0.0
 
-    # FIX: Improved calendar filling logic
+    # Improved calendar filling logic
     for i, row in calendar_df.iterrows():
         date = row["Date"]
         visits_today = visits_df[visits_df["Date"] == date]
