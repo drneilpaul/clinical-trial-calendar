@@ -156,6 +156,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
         # Get all visits for this study and sort by visit number/day
         study_visits = trials_df[trials_df["Study"] == study].sort_values(['VisitNo', 'Day']).copy()
+
+        debug_messages.append(f"Study visits found for {study}: {len(study_visits)}")
+        if len(study_visits) > 0:
+            for idx, visit in study_visits.iterrows():
+                debug_messages.append(f"  Study visit: VisitNo={visit['VisitNo']} (type: {type(visit['VisitNo'])}), Day={visit['Day']}")
         
         # Check if this study has any visit definitions
         if len(study_visits) == 0:
