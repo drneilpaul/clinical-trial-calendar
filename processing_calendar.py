@@ -429,9 +429,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if actual_visits_df is not None and len(actual_visits_df) > 0:
         actual_visit_entries = len([v for v in visit_records if v.get('IsActual', False)])
         processing_messages.append(f"Calendar includes {actual_visit_entries} actual visits and {total_scheduled_visits} scheduled visits")
-        
-        if actual_visits_used < len(actual_visits_df):
-            processing_messages.append(f"Visit matching: {actual_visits_used} matched, {len(actual_visits_df) - actual_visits_used} unmatched")
+    
+        # Debug the actual visit records
+        print(f"DEBUG: Found {actual_visit_entries} actual visit records in visit_records")
+        actual_records = [v for v in visit_records if v.get('IsActual', False)]
+        for i, record in enumerate(actual_records):
+            print(f"  Actual record {i+1}: {record['Visit']} on {record['Date']}")
     
     # Date range statistics
     if not visits_df.empty:
