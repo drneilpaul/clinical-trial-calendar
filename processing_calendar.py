@@ -412,6 +412,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
     debug_messages.append(f"Final counts: actual_visits_used={actual_visits_used}, visit_records={len(visit_records)}")
 
+    # DEBUG: Check what actual visits made it to visit_records
+    actual_records_in_final = [v for v in visit_records if v.get('IsActual', False)]
+    debug_messages.append(f"Actual visit records in visit_records: {len(actual_records_in_final)}")
+    for i, record in enumerate(actual_records_in_final):
+        debug_messages.append(f"  Actual record {i+1}: {record['Visit']} - IsActual={record.get('IsActual', 'MISSING')}")
+
+    # DEBUG: Also check for screen failure records
+    screen_fail_records = [v for v in visit_records if v.get('IsScreenFail', False)]
+    debug_messages.append(f"Screen failure records: {len(screen_fail_records)}")
+    for i, record in enumerate(screen_fail_records):
+        debug_messages.append(f"  Screen fail record {i+1}: {record['Visit']} - IsActual={record.get('IsActual', False)}")
+    
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
 
