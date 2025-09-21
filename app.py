@@ -2,14 +2,14 @@ import streamlit as st
 from helpers import load_file, normalize_columns, parse_dates_column
 from processing_calendar import build_calendar
 from display_components import (
-    show_legend, display_calendar,
-    display_site_statistics,
-    display_download_buttons
+    show_legend, display_calendar, display_site_statistics,
+    display_download_buttons, display_monthly_income_tables,
+    display_quarterly_profit_sharing_tables
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, prepare_financial_data,
-    display_site_wise_statistics, display_monthly_analysis_by_site,
+    display_site_wise_statistics,
     display_processing_messages
 )
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
@@ -133,16 +133,16 @@ def main():
             show_legend(actual_visits_df)
             display_calendar(calendar_df, site_column_mapping, unique_sites)
             
-            # REMOVED: display_financial_analysis(stats, visits_df)
+            # Monthly Income Tables and Ratio Calculations (NO CHARTS)
+            display_monthly_income_tables(visits_df)
             
-            # REMOVED: Quarterly profit sharing section
-            # financial_df = prepare_financial_data(visits_df)
-            # if not financial_df.empty:
-            #     display_quarterly_profit_sharing(financial_df, patients_df)
+            # Quarterly Profit Sharing Tables and Calculations (NO CHARTS)
+            financial_df = prepare_financial_data(visits_df)
+            if not financial_df.empty:
+                display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
             # Site statistics and analysis
             display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures)
-            # REMOVED: display_monthly_analysis_by_site(visits_df) - contains line charts
 
             # Download options
             display_download_buttons(calendar_df, site_column_mapping, unique_sites)
