@@ -226,7 +226,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
                     latest_acceptable = expected_date + timedelta(days=tolerance_after)
                     
-                    is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
+                    # Visit 1 is never out of protocol - it establishes the baseline
+                    if visit_no == "1":
+                        is_out_of_window = False  # Visit 1 is never out of protocol
+                    else:
+                        is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
+                    
                     if is_out_of_window:
                         days_early = max(0, (earliest_acceptable - visit_date).days)
                         days_late = max(0, (visit_date - latest_acceptable).days)
@@ -249,8 +254,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     # Use consistent emoji symbols with OUT OF PROTOCOL indicator
                     if is_screen_fail:
                         visit_status = f"❌ Screen Fail {visit_no_clean}"
-                    elif is_out_of_window and visit_no != "1":  # Visit 1 is never a protocol deviation
-                        visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"  # New indicator
+                    elif is_out_of_window:  # This will never be true for Visit 1 now
+                        visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"
                     else:
                         visit_status = f"✅ Visit {visit_no_clean}"
                 
