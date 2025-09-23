@@ -107,13 +107,14 @@ def get_date_based_style(date_obj, today_date):
 
 def get_visit_based_style(cell_str):
     """Get styling based on visit type"""
-    if 'âœ… Visit' in cell_str:
+    # Use correct Unicode for emoji and status
+    if '✅ Visit' in cell_str:
         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
-    elif 'ðŸ"´ OUT OF PROTOCOL' in cell_str:
+    elif '🔴 OUT OF PROTOCOL' in cell_str:
         return 'background-color: #f5c6cb; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
-    elif 'âŒ Screen Fail' in cell_str:
+    elif '❌ Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["âœ…", "ðŸ"´", "âŒ"]):
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "❌"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
     elif cell_str in ["+", "-"]:
         return 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
@@ -145,14 +146,14 @@ def format_visit_display_string(visit_no, is_actual=False, is_screen_fail=False,
         visit_no_clean = visit_no
     
     if is_screen_fail:
-        return f"âŒ Screen Fail {visit_no_clean}"
+        return f"❌ Screen Fail {visit_no_clean}"
     elif visit_no == "1" or str(visit_no) == "1":
         # Visit 1 is always just completed, never out of protocol
-        return f"âœ… Visit {visit_no_clean}"
+        return f"✅ Visit {visit_no_clean}"
     elif is_out_of_protocol:
-        return f"ðŸ"´ OUT OF PROTOCOL Visit {visit_no_clean}"
+        return f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"
     elif is_actual:
-        return f"âœ… Visit {visit_no_clean}"
+        return f"✅ Visit {visit_no_clean}"
     else:
         return f"Visit {visit_no_clean}"
 
