@@ -245,3 +245,253 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
         })
     
     return ratio_data
+
+def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
+    """Calculate income realization and pipeline metrics"""
+    from datetime import date
+    
+    # Get current financial year
+    today = pd.to_datetime(date.today())
+    if today.month >= 4:
+        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
+    else:
+        fy_end = pd.to_datetime(f"{today.year}-03-31")
+    
+    # Filter visits for current financial year only
+    fy_visits = visits_df[visits_df['Date'] <= fy_end].copy()
+    
+    # Separate completed vs scheduled work
+    completed_visits = fy_visits[fy_visits.get('IsActual', False)].copy()
+    all_visits = fy_visits.copy()  # Both completed and scheduled
+    
+    # Get payment amounts from trials file for each visit
+    # Create lookup for trial payments
+    trials_lookup = {}
+    for _, trial in trials_df.iterrows():
+        key = f"{trial['Study']}_{trial['VisitNo']}"
+        trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
+    
+    # Add trial payment amounts to visits
+    def get_trial_payment(row):
+        # Extract visit number from visit string
+        visit_str = str(row['Visit'])
+        study = str(row['Study'])
+        
+        # Handle different visit formats
+        if 'Visit' in visit_str:
+            # Extract number from "Visit 1", "✅ Visit 2", etc.
+            import re
+            match = re.search(r'Visit\s+(\d+)', visit_str)
+            if match:
+                visit_no = match.group(1)
+                key = f"{study}_{visit_no}"
+                return trials_lookup.get(key, 0)
+        return 0
+    
+    # Calculate metrics
+    completed_visits['TrialPayment'] = completed_visits.apply(get_trial_payment, axis=1)
+    all_visits['TrialPayment'] = all_visits.apply(get_trial_payment, axis=1)
+    
+    # Remove tolerance periods (-, +) from calculations
+    completed_visits = completed_visits[~completed_visits['Visit'].isin(['-', '+'])]
+    all_visits = all_visits[~all_visits['Visit'].isin(['-', '+'])]
+    
+    # Calculate totals
+    completed_income = completed_visits['TrialPayment'].sum()
+    total_scheduled_income = all_visits['TrialPayment'].sum()
+    
+    # Pipeline = remaining scheduled income
+    remaining_visits = all_visits[~all_visits.get('IsActual', False)]
+    pipeline_income = remaining_visits['TrialPayment'].sum()
+    
+    # Realization rate
+    realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
+    
+    return {
+        'completed_income': completed_income,
+        'total_scheduled_income': total_scheduled_income,
+        'pipeline_income': pipeline_income,
+        'realization_rate': realization_rate,
+        'completed_visits_count': len(completed_visits),
+        'total_scheduled_visits_count': len(all_visits),
+        'pipeline_visits_count': len(remaining_visits)
+    }
+
+def calculate_monthly_realization_breakdown(visits_df, trials_df):
+    """Calculate month-by-month realization metrics"""
+    from datetime import date
+    
+    # Get current financial year
+    today = pd.to_datetime(date.today())
+    if today.month >= 4:
+        fy_start = pd.to_datetime(f"{today.year}-04-01")
+        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
+    else:
+        fy_start = pd.to_datetime(f"{today.year - 1}-04-01")
+        fy_end = pd.to_datetime(f"{today.year}-03-31")
+    
+    # Filter for current financial year
+    fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
+    
+    # Add month-year column
+    fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
+    
+    # Get trial payments lookup
+    trials_lookup = {}
+    for _, trial in trials_df.iterrows():
+        key = f"{trial['Study']}_{trial['VisitNo']}"
+        trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
+    
+    def get_trial_payment(row):
+        visit_str = str(row['Visit'])
+        study = str(row['Study'])
+        
+        if 'Visit' in visit_str:
+            import re
+            match = re.search(r'Visit\s+(\d+)', visit_str)
+            if match:
+                visit_no = match.group(1)
+                key = f"{study}_{visit_no}"
+                return trials_lookup.get(key, 0)
+        return 0
+    
+    fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
+    
+    # Remove tolerance periods
+    fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]
+    
+    # Calculate monthly breakdown
+    monthly_data = []
+    for month in fy_visits['MonthYear'].unique():
+        month_visits = fy_visits[fy_visits['MonthYear'] == month]
+        
+        completed = month_visits[month_visits.get('IsActual', False)]
+        completed_income = completed['TrialPayment'].sum()
+        
+        total_scheduled_income = month_visits['TrialPayment'].sum()
+        
+        realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
+        
+        monthly_data.append({
+            'Month': str(month),
+            'Completed_Income': completed_income,
+            'Scheduled_Income': total_scheduled_income,
+            'Realization_Rate': realization_rate,
+            'Completed_Visits': len(completed),
+            'Scheduled_Visits': len(month_visits)
+        })
+    
+    return monthly_data
+
+def calculate_study_pipeline_breakdown(visits_df, trials_df):
+    """Calculate pipeline value by study"""
+    from datetime import date
+    
+    today = pd.to_datetime(date.today())
+    
+    # Get remaining visits (future scheduled visits)
+    remaining_visits = visits_df[
+        (visits_df['Date'] >= today) & 
+        (~visits_df.get('IsActual', False))
+    ].copy()
+    
+    # Remove tolerance periods
+    remaining_visits = remaining_visits[~remaining_visits['Visit'].isin(['-', '+'])]
+    
+    # Get trial payments
+    trials_lookup = {}
+    for _, trial in trials_df.iterrows():
+        key = f"{trial['Study']}_{trial['VisitNo']}"
+        trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
+    
+    def get_trial_payment(row):
+        visit_str = str(row['Visit'])
+        study = str(row['Study'])
+        
+        if 'Visit' in visit_str:
+            import re
+            match = re.search(r'Visit\s+(\d+)', visit_str)
+            if match:
+                visit_no = match.group(1)
+                key = f"{study}_{visit_no}"
+                return trials_lookup.get(key, 0)
+        return 0
+    
+    remaining_visits['TrialPayment'] = remaining_visits.apply(get_trial_payment, axis=1)
+    
+    # Group by study
+    study_pipeline = remaining_visits.groupby('Study').agg({
+        'TrialPayment': 'sum',
+        'Visit': 'count'
+    }).rename(columns={'TrialPayment': 'Pipeline_Value', 'Visit': 'Remaining_Visits'})
+    
+    # Sort by pipeline value descending
+    study_pipeline = study_pipeline.sort_values('Pipeline_Value', ascending=False)
+    
+    return study_pipeline.reset_index()
+
+def calculate_site_realization_breakdown(visits_df, trials_df):
+    """Calculate realization rates by site"""
+    from datetime import date
+    
+    # Get trial payments lookup
+    trials_lookup = {}
+    for _, trial in trials_df.iterrows():
+        key = f"{trial['Study']}_{trial['VisitNo']}"
+        trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
+    
+    def get_trial_payment(row):
+        visit_str = str(row['Visit'])
+        study = str(row['Study'])
+        
+        if 'Visit' in visit_str:
+            import re
+            match = re.search(r'Visit\s+(\d+)', visit_str)
+            if match:
+                visit_no = match.group(1)
+                key = f"{study}_{visit_no}"
+                return trials_lookup.get(key, 0)
+        return 0
+    
+    # Filter current financial year visits
+    today = pd.to_datetime(date.today())
+    if today.month >= 4:
+        fy_start = pd.to_datetime(f"{today.year}-04-01")
+        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
+    else:
+        fy_start = pd.to_datetime(f"{today.year - 1}-04-01")
+        fy_end = pd.to_datetime(f"{today.year}-03-31")
+    
+    fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
+    fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]  # Remove tolerance periods
+    
+    fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
+    
+    # Calculate by site
+    site_data = []
+    for site in fy_visits['SiteofVisit'].unique():
+        site_visits = fy_visits[fy_visits['SiteofVisit'] == site]
+        
+        completed = site_visits[site_visits.get('IsActual', False)]
+        completed_income = completed['TrialPayment'].sum()
+        
+        total_scheduled_income = site_visits['TrialPayment'].sum()
+        
+        # Remaining pipeline for this site
+        remaining = site_visits[(site_visits['Date'] >= today) & (~site_visits.get('IsActual', False))]
+        pipeline_income = remaining['TrialPayment'].sum()
+        
+        realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
+        
+        site_data.append({
+            'Site': site,
+            'Completed_Income': completed_income,
+            'Total_Scheduled_Income': total_scheduled_income,
+            'Pipeline_Income': pipeline_income,
+            'Realization_Rate': realization_rate,
+            'Completed_Visits': len(completed),
+            'Total_Visits': len(site_visits),
+            'Remaining_Visits': len(remaining)
+        })
+    
+    return site_data
