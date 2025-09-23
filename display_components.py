@@ -574,3 +574,236 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
         buf = io.BytesIO()
         calendar_df.to_excel(buf, index=False)
         st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
+
+
+def display_profit_sharing_ratio_breakdowns(financial_df, patients_df):
+    """Display detailed ratio breakdowns for profit sharing calculations"""
+    st.subheader("📊 Profit Sharing Ratio Breakdowns")
+    
+    # Use current weights from session state
+    list_weight = st.session_state.list_weight / 100
+    work_weight = st.session_state.work_weight / 100
+    recruitment_weight = st.session_state.recruitment_weight / 100
+    
+    # Fixed list sizes
+    ashfields_list_size = 28500
+    kiltearn_list_size = 12500
+    total_list_size = ashfields_list_size + kiltearn_list_size
+    ashfields_list_ratio = ashfields_list_size / total_list_size
+    kiltearn_list_ratio = kiltearn_list_size / total_list_size
+    
+    st.info(f"**Formula:** List Sizes {st.session_state.list_weight}% + Work Done {st.session_state.work_weight}% + Patient Recruitment {st.session_state.recruitment_weight}%")
+    st.info(f"**Fixed List Ratios:** Ashfields {ashfields_list_ratio:.1%} ({ashfields_list_size:,}) | Kiltearn {kiltearn_list_ratio:.1%} ({kiltearn_list_size:,})")
+    
+    # Get all periods
+    quarters = sorted(financial_df['QuarterYear'].unique()) if 'QuarterYear' in financial_df.columns else []
+    financial_years = sorted(financial_df['FinancialYear'].unique()) if 'FinancialYear' in financial_df.columns else []
+    
+    # Monthly breakdown
+    if not financial_df.empty:
+        financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
+        months = sorted(financial_df['MonthYear'].unique())
+        
+        st.write("**Monthly Ratio Breakdowns**")
+        
+        monthly_ratio_data = []
+        
+        for month in months:
+            month_data = financial_df[financial_df['MonthYear'] == month]
+            
+            if len(month_data) == 0:
+                continue
+            
+            # Work done ratios for this month
+            month_site_work = month_data.groupby('SiteofVisit').size()
+            month_total_work = month_site_work.sum()
+            
+            ashfields_work_ratio = month_site_work.get('Ashfields', 0) / month_total_work if month_total_work > 0 else 0
+            kiltearn_work_ratio = month_site_work.get('Kiltearn', 0) / month_total_work if month_total_work > 0 else 0
+            
+            # Recruitment ratios for this month
+            month_patients = patients_df[patients_df['StartDate'].dt.to_period('M') == month]
+            month_recruitment = month_patients.groupby('Site')['PatientID'].count()
+            month_total_recruitment = month_recruitment.sum()
+            
+            ashfields_recruitment_ratio = month_recruitment.get('Ashfields', 0) / month_total_recruitment if month_total_recruitment > 0 else 0
+            kiltearn_recruitment_ratio = month_recruitment.get('Kiltearn', 0) / month_total_recruitment if month_total_recruitment > 0 else 0
+            
+            # Combined ratios using current weights
+            ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                                   ashfields_work_ratio * work_weight + 
+                                   ashfields_recruitment_ratio * recruitment_weight)
+            kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                                  kiltearn_work_ratio * work_weight + 
+                                  kiltearn_recruitment_ratio * recruitment_weight)
+            
+            # Normalize
+            total_ratio = ashfields_final_ratio + kiltearn_final_ratio
+            if total_ratio > 0:
+                ashfields_final_ratio = ashfields_final_ratio / total_ratio
+                kiltearn_final_ratio = kiltearn_final_ratio / total_ratio
+            
+            monthly_ratio_data.append({
+                'Month': str(month),
+                'Ashfields List %': f"{ashfields_list_ratio:.1%}",
+                'Kiltearn List %': f"{kiltearn_list_ratio:.1%}",
+                'Ashfields Work %': f"{ashfields_work_ratio:.1%}",
+                'Kiltearn Work %': f"{kiltearn_work_ratio:.1%}",
+                'Ashfields Recruit %': f"{ashfields_recruitment_ratio:.1%}",
+                'Kiltearn Recruit %': f"{kiltearn_recruitment_ratio:.1%}",
+                'Ashfields Final %': f"{ashfields_final_ratio:.1%}",
+                'Kiltearn Final %': f"{kiltearn_final_ratio:.1%}",
+                'Total Visits': month_total_work,
+                'Total Recruits': month_total_recruitment
+            })
+        
+        if monthly_ratio_data:
+            monthly_df = pd.DataFrame(monthly_ratio_data)
+            st.dataframe(monthly_df, use_container_width=True)
+    
+    # Quarterly breakdown
+    st.write("**Quarterly Ratio Breakdowns**")
+    
+    quarterly_ratio_data = []
+    
+    for quarter in quarters:
+        quarter_data = financial_df[financial_df['QuarterYear'] == quarter]
+        
+        if len(quarter_data) == 0:
+            continue
+        
+        # Work done ratios for this quarter
+        quarter_site_work = quarter_data.groupby('SiteofVisit').size()
+        quarter_total_work = quarter_site_work.sum()
+        
+        ashfields_work_ratio = quarter_site_work.get('Ashfields', 0) / quarter_total_work if quarter_total_work > 0 else 0
+        kiltearn_work_ratio = quarter_site_work.get('Kiltearn', 0) / quarter_total_work if quarter_total_work > 0 else 0
+        
+        # Recruitment ratios for this quarter
+        quarter_patients = patients_df[patients_df['StartDate'].dt.to_period('Q').astype(str) == quarter.replace('-Q', 'Q')]
+        quarter_recruitment = quarter_patients.groupby('Site')['PatientID'].count()
+        quarter_total_recruitment = quarter_recruitment.sum()
+        
+        ashfields_recruitment_ratio = quarter_recruitment.get('Ashfields', 0) / quarter_total_recruitment if quarter_total_recruitment > 0 else 0
+        kiltearn_recruitment_ratio = quarter_recruitment.get('Kiltearn', 0) / quarter_total_recruitment if quarter_total_recruitment > 0 else 0
+        
+        # Combined ratios using current weights
+        ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                               ashfields_work_ratio * work_weight + 
+                               ashfields_recruitment_ratio * recruitment_weight)
+        kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                              kiltearn_work_ratio * work_weight + 
+                              kiltearn_recruitment_ratio * recruitment_weight)
+        
+        # Normalize
+        total_ratio = ashfields_final_ratio + kiltearn_final_ratio
+        if total_ratio > 0:
+            ashfields_final_ratio = ashfields_final_ratio / total_ratio
+            kiltearn_final_ratio = kiltearn_final_ratio / total_ratio
+        
+        quarterly_ratio_data.append({
+            'Quarter': quarter,
+            'Ashfields List %': f"{ashfields_list_ratio:.1%}",
+            'Kiltearn List %': f"{kiltearn_list_ratio:.1%}",
+            'Ashfields Work %': f"{ashfields_work_ratio:.1%}",
+            'Kiltearn Work %': f"{kiltearn_work_ratio:.1%}",
+            'Ashfields Recruit %': f"{ashfields_recruitment_ratio:.1%}",
+            'Kiltearn Recruit %': f"{kiltearn_recruitment_ratio:.1%}",
+            'Ashfields Final %': f"{ashfields_final_ratio:.1%}",
+            'Kiltearn Final %': f"{kiltearn_final_ratio:.1%}",
+            'Total Visits': quarter_total_work,
+            'Total Recruits': quarter_total_recruitment
+        })
+    
+    if quarterly_ratio_data:
+        quarterly_df = pd.DataFrame(quarterly_ratio_data)
+        st.dataframe(quarterly_df, use_container_width=True)
+    
+    # Financial Year breakdown
+    st.write("**Financial Year Ratio Breakdowns**")
+    
+    fy_ratio_data = []
+    
+    for fy in financial_years:
+        fy_data = financial_df[financial_df['FinancialYear'] == fy]
+        
+        if len(fy_data) == 0:
+            continue
+        
+        # Work done ratios for this financial year
+        fy_site_work = fy_data.groupby('SiteofVisit').size()
+        fy_total_work = fy_site_work.sum()
+        
+        ashfields_work_ratio = fy_site_work.get('Ashfields', 0) / fy_total_work if fy_total_work > 0 else 0
+        kiltearn_work_ratio = fy_site_work.get('Kiltearn', 0) / fy_total_work if fy_total_work > 0 else 0
+        
+        # Recruitment ratios for this financial year
+        fy_start_date = pd.to_datetime(f"{fy.split('-')[0]}-04-01")
+        fy_end_date = pd.to_datetime(f"{fy.split('-')[1]}-03-31")
+        fy_patients = patients_df[(patients_df['StartDate'] >= fy_start_date) & (patients_df['StartDate'] <= fy_end_date)]
+        fy_recruitment = fy_patients.groupby('Site')['PatientID'].count()
+        fy_total_recruitment = fy_recruitment.sum()
+        
+        ashfields_recruitment_ratio = fy_recruitment.get('Ashfields', 0) / fy_total_recruitment if fy_total_recruitment > 0 else 0
+        kiltearn_recruitment_ratio = fy_recruitment.get('Kiltearn', 0) / fy_total_recruitment if fy_total_recruitment > 0 else 0
+        
+        # Combined ratios using current weights
+        ashfields_final_ratio = (ashfields_list_ratio * list_weight + 
+                               ashfields_work_ratio * work_weight + 
+                               ashfields_recruitment_ratio * recruitment_weight)
+        kiltearn_final_ratio = (kiltearn_list_ratio * list_weight + 
+                              kiltearn_work_ratio * work_weight + 
+                              kiltearn_recruitment_ratio * recruitment_weight)
+        
+        # Normalize
+        total_ratio = ashfields_final_ratio + kiltearn_final_ratio
+        if total_ratio > 0:
+            ashfields_final_ratio = ashfields_final_ratio / total_ratio
+            kiltearn_final_ratio = kiltearn_final_ratio / total_ratio
+        
+        fy_ratio_data.append({
+            'Financial Year': f"FY {fy}",
+            'Ashfields List %': f"{ashfields_list_ratio:.1%}",
+            'Kiltearn List %': f"{kiltearn_list_ratio:.1%}",
+            'Ashfields Work %': f"{ashfields_work_ratio:.1%}",
+            'Kiltearn Work %': f"{kiltearn_work_ratio:.1%}",
+            'Ashfields Recruit %': f"{ashfields_recruitment_ratio:.1%}",
+            'Kiltearn Recruit %': f"{kiltearn_recruitment_ratio:.1%}",
+            'Ashfields Final %': f"{ashfields_final_ratio:.1%}",
+            'Kiltearn Final %': f"{kiltearn_final_ratio:.1%}",
+            'Total Visits': fy_total_work,
+            'Total Recruits': fy_total_recruitment
+        })
+    
+    if fy_ratio_data:
+        fy_df = pd.DataFrame(fy_ratio_data)
+        st.dataframe(fy_df, use_container_width=True)
+    
+    # Explanation for bookkeepers
+    st.info("""
+    **For Bookkeepers:**
+    - **List %**: Fixed ratios based on practice list sizes (never changes)
+    - **Work %**: Variable ratios based on actual visits completed in the period
+    - **Recruit %**: Variable ratios based on patients recruited in the period
+    - **Final %**: Combined weighted percentage for profit sharing calculations
+    - Apply the Final % to the total income for each period to determine profit share amounts
+    """)
+
+
+# Update the display_components.py file to include this new function
+# Add this call in the display_quarterly_profit_sharing_tables function:
+
+def display_quarterly_profit_sharing_tables(financial_df, patients_df):
+    """Display quarterly profit sharing analysis with tables and calculations - NO CHARTS"""
+    st.subheader("📊 Quarterly Profit Sharing Analysis")
+
+    # ... (keep existing weight adjustment code) ...
+    
+    # ... (keep existing quarterly analysis code) ...
+    
+    # ADD THIS NEW SECTION AFTER THE EXISTING QUARTERLY ANALYSIS:
+    
+    # Add detailed ratio breakdowns
+    if len(quarters) > 0 and len(financial_years) > 0:
+        st.divider()
+        display_profit_sharing_ratio_breakdowns(financial_df, patients_df)
