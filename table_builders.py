@@ -5,6 +5,10 @@ from formatters import (
     create_fy_highlighting_function, format_dataframe_index_as_string,
     format_currency, clean_numeric_for_display, apply_conditional_formatting
 )
+from calculations import (
+    calculate_income_realization_metrics, calculate_monthly_realization_breakdown,
+    calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
+)
 
 def create_pivot_income_table(financial_df, group_cols, period_col, value_col='Payment'):
     """Create a pivot table for income analysis"""
@@ -359,3 +363,91 @@ def apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites):
     except ImportError:
         # If openpyxl styles not available, skip formatting
         pass
+
+def display_complete_realization_analysis(visits_df, trials_df, patients_df):
+    """Display complete income realization analysis"""
+    st.subheader("💰 Income Realization Analysis")
+    
+    # Calculate overall metrics
+    overall_metrics = calculate_income_realization_metrics(visits_df, trials_df, patients_df)
+    
+    # Display key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Completed Income", format_currency(overall_metrics['completed_income']))
+    with col2:
+        st.metric("Total Scheduled", format_currency(overall_metrics['total_scheduled_income']))
+    with col3:
+        st.metric("Pipeline Remaining", format_currency(overall_metrics['pipeline_income']))
+    with col4:
+        st.metric("Realization Rate", f"{overall_metrics['realization_rate']:.1f}%")
+    
+    # Monthly breakdown
+    st.write("**Monthly Realization Breakdown**")
+    monthly_data = calculate_monthly_realization_breakdown(visits_df, trials_df)
+    
+    if monthly_data:
+        monthly_df = pd.DataFrame(monthly_data)
+        monthly_df['Completed_Income'] = monthly_df['Completed_Income'].apply(format_currency)
+        monthly_df['Scheduled_Income'] = monthly_df['Scheduled_Income'].apply(format_currency)
+        monthly_df['Realization_Rate'] = monthly_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        
+        # Rename columns for display
+        monthly_df = monthly_df.rename(columns={
+            'Month': 'Month',
+            'Completed_Income': 'Completed Income',
+            'Scheduled_Income': 'Scheduled Income', 
+            'Realization_Rate': 'Realization %',
+            'Completed_Visits': 'Completed Visits',
+            'Scheduled_Visits': 'Total Visits'
+        })
+        
+        st.dataframe(monthly_df, use_container_width=True)
+    
+    # Study pipeline breakdown
+    st.write("**Study Pipeline Breakdown**")
+    study_pipeline = calculate_study_pipeline_breakdown(visits_df, trials_df)
+    
+    if not study_pipeline.empty:
+        study_pipeline_display = study_pipeline.copy()
+        study_pipeline_display['Pipeline_Value'] = study_pipeline_display['Pipeline_Value'].apply(format_currency)
+        study_pipeline_display = study_pipeline_display.rename(columns={
+            'Study': 'Study',
+            'Pipeline_Value': 'Pipeline Value',
+            'Remaining_Visits': 'Remaining Visits'
+        })
+        st.dataframe(study_pipeline_display, use_container_width=True)
+    
+    # Site realization breakdown
+    st.write("**Site Realization Breakdown**")
+    site_data = calculate_site_realization_breakdown(visits_df, trials_df)
+    
+    if site_data:
+        site_df = pd.DataFrame(site_data)
+        site_df['Completed_Income'] = site_df['Completed_Income'].apply(format_currency)
+        site_df['Total_Scheduled_Income'] = site_df['Total_Scheduled_Income'].apply(format_currency)
+        site_df['Pipeline_Income'] = site_df['Pipeline_Income'].apply(format_currency)
+        site_df['Realization_Rate'] = site_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        
+        site_df = site_df.rename(columns={
+            'Site': 'Site',
+            'Completed_Income': 'Completed Income',
+            'Total_Scheduled_Income': 'Total Scheduled',
+            'Pipeline_Income': 'Pipeline Value',
+            'Realization_Rate': 'Realization %',
+            'Completed_Visits': 'Completed Visits',
+            'Total_Visits': 'Total Visits',
+            'Remaining_Visits': 'Remaining Visits'
+        })
+        
+        st.dataframe(site_df, use_container_width=True)
+    
+    # Analysis notes
+    st.info("""
+    **Income Realization Analysis Notes:**
+    - **Completed Income**: Actual payments received from completed visits
+    - **Total Scheduled**: Full potential income if all scheduled visits are completed
+    - **Pipeline Value**: Expected income from remaining scheduled visits
+    - **Realization Rate**: Percentage of scheduled income actually realized
+    - Analysis covers current financial year only (April to March)
+    """)
