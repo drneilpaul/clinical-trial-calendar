@@ -508,80 +508,10 @@ def display_quarterly_profit_sharing_tables(financial_df, patients_df):
     else:
         st.warning("No quarterly data available for analysis. Upload visit data with dates to generate quarterly profit sharing calculations.")
 
-
     # Add detailed ratio breakdowns for bookkeepers
     if len(quarters) > 0 and len(financial_years) > 0:
         st.divider()
         display_profit_sharing_ratio_breakdowns(financial_df, patients_df)
-
-
-def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
-    """Display comprehensive download options with Excel formatting"""
-    st.subheader("💾 Download Options")
-
-    # Excel exports with formatting
-    try:
-        import openpyxl
-        from openpyxl.styles import PatternFill, Font, Alignment
-        from openpyxl.utils import get_column_letter
-
-        # Prepare display columns
-        final_ordered_columns = ["Date", "Day"]
-        for site in unique_sites:
-            site_columns = site_column_mapping.get(site, [])
-            for col in site_columns:
-                if col in calendar_df.columns:
-                    final_ordered_columns.append(col)
-
-        excel_financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in calendar_df.columns if "Income" in c]
-        excel_full_df = calendar_df[final_ordered_columns + [col for col in excel_financial_cols if col in calendar_df.columns]].copy()
-
-        excel_full_df["Date"] = excel_full_df["Date"].dt.strftime("%d/%m/%Y")
-
-        for col in excel_financial_cols:
-            if col in excel_full_df.columns:
-                if col in ["Monthly Total", "FY Total"]:
-                    excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
-                else:
-                    excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
-
-        # Excel with finances and site headers
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            excel_full_df.to_excel(writer, index=False, sheet_name="VisitCalendar", startrow=1)
-            ws = writer.sheets["VisitCalendar"]
-
-            # Add site headers
-            for col_idx, col_name in enumerate(excel_full_df.columns, 1):
-                col_letter = get_column_letter(col_idx)
-                if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
-                    for site in unique_sites:
-                        if col_name in site_column_mapping.get(site, []):
-                            ws[f"{col_letter}1"] = site
-                            ws[f"{col_letter}1"].font = Font(bold=True, size=12)
-                            ws[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
-                            ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
-                            break
-
-            # Auto-adjust column widths
-            for idx, col in enumerate(excel_full_df.columns, 1):
-                col_letter = get_column_letter(idx)
-                max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_full_df[col].tolist()] + [len(col)])
-                ws.column_dimensions[col_letter].width = max(10, max_length + 2)
-
-        st.download_button(
-            "💰 Excel with Finances & Site Headers",
-            data=output.getvalue(),
-            file_name="VisitCalendar_WithFinances_SiteGrouped.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    except ImportError:
-        st.warning("Excel formatting unavailable - install openpyxl for enhanced features")
-        buf = io.BytesIO()
-        calendar_df.to_excel(buf, index=False)
-        st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
-
 
 def display_profit_sharing_ratio_breakdowns(financial_df, patients_df):
     """Display detailed ratio breakdowns for profit sharing calculations"""
@@ -796,21 +726,69 @@ def display_profit_sharing_ratio_breakdowns(financial_df, patients_df):
     - Apply the Final % to the total income for each period to determine profit share amounts
     """)
 
+def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
+    """Display comprehensive download options with Excel formatting"""
+    st.subheader("💾 Download Options")
 
-# Update the display_components.py file to include this new function
-# Add this call in the display_quarterly_profit_sharing_tables function:
+    # Excel exports with formatting
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
 
-def display_quarterly_profit_sharing_tables(financial_df, patients_df):
-    """Display quarterly profit sharing analysis with tables and calculations - NO CHARTS"""
-    st.subheader("📊 Quarterly Profit Sharing Analysis")
+        # Prepare display columns
+        final_ordered_columns = ["Date", "Day"]
+        for site in unique_sites:
+            site_columns = site_column_mapping.get(site, [])
+            for col in site_columns:
+                if col in calendar_df.columns:
+                    final_ordered_columns.append(col)
 
-    # ... (keep existing weight adjustment code) ...
-    
-    # ... (keep existing quarterly analysis code) ...
-    
-    # ADD THIS NEW SECTION AFTER THE EXISTING QUARTERLY ANALYSIS:
-    
-    # Add detailed ratio breakdowns
-    if len(quarters) > 0 and len(financial_years) > 0:
-        st.divider()
-        display_profit_sharing_ratio_breakdowns(financial_df, patients_df)
+        excel_financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in calendar_df.columns if "Income" in c]
+        excel_full_df = calendar_df[final_ordered_columns + [col for col in excel_financial_cols if col in calendar_df.columns]].copy()
+
+        excel_full_df["Date"] = excel_full_df["Date"].dt.strftime("%d/%m/%Y")
+
+        for col in excel_financial_cols:
+            if col in excel_full_df.columns:
+                if col in ["Monthly Total", "FY Total"]:
+                    excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) and v != 0 else "")
+                else:
+                    excel_full_df[col] = excel_full_df[col].apply(lambda v: f"£{v:,.2f}" if pd.notna(v) else "£0.00")
+
+        # Excel with finances and site headers
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            excel_full_df.to_excel(writer, index=False, sheet_name="VisitCalendar", startrow=1)
+            ws = writer.sheets["VisitCalendar"]
+
+            # Add site headers
+            for col_idx, col_name in enumerate(excel_full_df.columns, 1):
+                col_letter = get_column_letter(col_idx)
+                if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
+                    for site in unique_sites:
+                        if col_name in site_column_mapping.get(site, []):
+                            ws[f"{col_letter}1"] = site
+                            ws[f"{col_letter}1"].font = Font(bold=True, size=12)
+                            ws[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
+                            ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
+                            break
+
+            # Auto-adjust column widths
+            for idx, col in enumerate(excel_full_df.columns, 1):
+                col_letter = get_column_letter(idx)
+                max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_full_df[col].tolist()] + [len(col)])
+                ws.column_dimensions[col_letter].width = max(10, max_length + 2)
+
+        st.download_button(
+            "💰 Excel with Finances & Site Headers",
+            data=output.getvalue(),
+            file_name="VisitCalendar_WithFinances_SiteGrouped.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except ImportError:
+        st.warning("Excel formatting unavailable - install openpyxl for enhanced features")
+        buf = io.BytesIO()
+        calendar_df.to_excel(buf, index=False)
+        st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
