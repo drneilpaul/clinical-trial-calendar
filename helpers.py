@@ -1,579 +1,76 @@
 import pandas as pd
-from datetime import timedelta
+from dateutil.parser import parse
+from datetime import datetime
 
-def build_calendar(patients_df, trials_df, actual_visits_df=None):
-    # Clean columns
-    patients_df.columns = patients_df.columns.str.strip()
-    trials_df.columns = trials_df.columns.str.strip()
-    if actual_visits_df is not None:
-        actual_visits_df.columns = actual_visits_df.columns.str.strip()
-
-    required_patients = {"PatientID", "Study", "StartDate"}
-    required_trials = {"Study", "Day", "VisitNo"}
-
-    if not required_patients.issubset(patients_df.columns):
-        raise ValueError(f"❌ Patients file missing required columns: {required_patients - set(patients_df.columns)}")
-    if not required_trials.issubset(trials_df.columns):
-        raise ValueError(f"❌ Trials file missing required columns: {required_trials - set(trials_df.columns)}")
-
-    # Check for SiteforVisit column
-    if "SiteforVisit" not in trials_df.columns:
-        trials_df["SiteforVisit"] = "Default Site"
-
-    screen_failures = {}
-    if actual_visits_df is not None:
-        required_actual = {"PatientID", "Study", "VisitNo", "ActualDate"}
-        if not required_actual.issubset(actual_visits_df.columns):
-            raise ValueError(f"❌ Actual visits file missing required columns: {required_actual}")
-
-        # Ensure proper data type handling
-        actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
-        actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
-        actual_visits_df["VisitNo"] = actual_visits_df["VisitNo"].astype(str)
-        actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
-        
-        # Handle optional columns
-        if "ActualPayment" not in actual_visits_df.columns:
-            actual_visits_df["ActualPayment"] = None
-        if "Notes" not in actual_visits_df.columns:
-            actual_visits_df["Notes"] = ""
-        else:
-            actual_visits_df["Notes"] = actual_visits_df["Notes"].fillna("").astype(str)
-
-        # Detect screen failures
-        screen_fail_visits = actual_visits_df[
-            actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
-        ]
-        
-        for _, visit in screen_fail_visits.iterrows():
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-            screen_fail_date = visit['ActualDate']
-            if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
-                screen_failures[patient_study_key] = screen_fail_date
-
-        # Create lookup key for actual visits
-        actual_visits_df["VisitKey"] = (
-            actual_visits_df["PatientID"] + "_" +
-            actual_visits_df["Study"] + "_" +
-            actual_visits_df["VisitNo"].astype(str)
-        )
-
-    # Normalize column names
-    column_mapping = {
-        'Income': 'Payment',
-        'Tolerance Before': 'ToleranceBefore',
-        'Tolerance After': 'ToleranceAfter',
-        'Visit No': 'VisitNo',
-        'VisitNumber': 'VisitNo'
-    }
-    trials_df = trials_df.rename(columns=column_mapping)
-
-    # Process patient data types
-    patients_df["PatientID"] = patients_df["PatientID"].astype(str)
-    patients_df["Study"] = patients_df["Study"].astype(str)
-    patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
-    
-    # Ensure VisitNo in trials is also string for consistent matching
-    trials_df["Study"] = trials_df["Study"].astype(str)
-    trials_df["VisitNo"] = trials_df["VisitNo"].astype(str)
-    trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str)
-
-    # Check for patient origin site column
-    patient_origin_col = None
-    possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
-    for col in possible_origin_cols:
-        if col in patients_df.columns:
-            patient_origin_col = col
-            break
-    
-    if patient_origin_col:
-        patients_df['OriginSite'] = patients_df[patient_origin_col].astype(str)
+def load_file(uploaded_file):
+    if uploaded_file is None:
+        return None
+    if uploaded_file.name.endswith(".csv"):
+        # For CSV files, read without automatic date parsing
+        return pd.read_csv(uploaded_file)
     else:
-        patients_df['OriginSite'] = "Unknown Origin"
+        # For Excel files, also avoid automatic date parsing to maintain control
+        return pd.read_excel(uploaded_file, engine="openpyxl")
 
-    # Create patient-site mapping - use patient origin site directly
-    if patient_origin_col:
-        patients_df['Site'] = patients_df['OriginSite']
-    else:
-        # Fallback: try to map from trials
-        patient_site_mapping = {}
-        for _, patient in patients_df.iterrows():
-            patient_id = patient["PatientID"]
-            study = patient["Study"]
-            
-            # First try to get site from trials file for this study
-            study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
-            if len(study_sites) > 0:
-                patient_site_mapping[patient_id] = study_sites[0]
-            else:
-                # If study not found in trials, use a default based on study name
-                patient_site_mapping[patient_id] = f"{study}_Site"
-        
-        patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping)
+def normalize_columns(df):
+    if df is not None:
+        df.columns = df.columns.str.strip()
+    return df
 
-    # Build visit records with recalculation logic
-    visit_records = []
-    screen_fail_exclusions = 0
-    actual_visits_used = 0
-    recalculated_patients = []
-    out_of_window_visits = []
-    patients_with_no_visits = []
-    processing_messages = []
+def parse_dates_column(df, col, errors="raise"):
+    if col not in df.columns:
+        return df, []
     
-    for _, patient in patients_df.iterrows():
-        patient_id = patient["PatientID"]
-        study = patient["Study"]
-        start_date = patient["StartDate"]
-        patient_origin = patient["OriginSite"]
-        
-        # Check if this patient has a screen failure
-        patient_study_key = f"{patient_id}_{study}"
-        screen_fail_date = screen_failures.get(patient_study_key)
-
-        if pd.isna(start_date):
-            continue
-
-        # Get all visits for this study and sort by visit number/day
-        study_visits = trials_df[trials_df["Study"] == study].sort_values(['VisitNo', 'Day']).copy()
-        
-        # Check if this study has any visit definitions
-        if len(study_visits) == 0:
-            patients_with_no_visits.append(f"{patient_id} (Study: {study})")
-            continue  # Skip this patient as no visit schedule is defined
-        
-        # Get all actual visits for this patient with ROBUST visit number handling
-        patient_actual_visits = {}
-        if actual_visits_df is not None:
-            # Use consistent string comparison
-            patient_actuals = actual_visits_df[
-                (actual_visits_df["PatientID"] == patient_id) & 
-                (actual_visits_df["Study"] == study)
-            ].sort_values('VisitNo')
+    failed_rows = []
+    
+    def try_parse_uk_date(val):
+        if pd.isna(val) or val == '' or val is None:
+            return pd.NaT
             
-            for _, actual_visit in patient_actuals.iterrows():
-                # ROBUST visit number conversion - handle all possible formats
-                visit_no_raw = actual_visit["VisitNo"]
-                
-                # Convert visit number to consistent string format
-                if pd.isna(visit_no_raw):
-                    continue
-                    
-                try:
-                    # Try to convert to int first (handles float like 1.0 -> 1)
-                    if isinstance(visit_no_raw, (int, float)):
-                        visit_no = str(int(visit_no_raw))
-                    else:
-                        # Handle string inputs, strip whitespace
-                        visit_no_str = str(visit_no_raw).strip()
-                        if '.' in visit_no_str:
-                            # Handle "1.0" -> "1"
-                            visit_no = str(int(float(visit_no_str)))
-                        else:
-                            visit_no = visit_no_str
-                except (ValueError, TypeError):
-                    # Fallback - just use string representation
-                    visit_no = str(visit_no_raw).strip()
-                
-                patient_actual_visits[visit_no] = actual_visit
-                actual_visits_used += 1
-        
-        # ENHANCED Visit 1 baseline detection
-        visit_1_baseline_date = start_date  # Original baseline
-        visit_1_actual_date = None  # Will store actual Visit 1 date if it exists
-        patient_needs_recalc = False
-        
-        # First pass: find actual Visit 1 to establish baseline
-        # Check multiple possible representations of Visit 1
-        possible_visit_1_keys = ["1", "1.0", " 1", "1 "]
-        for possible_key in possible_visit_1_keys:
-            if possible_key in patient_actual_visits:
-                actual_visit_data = patient_actual_visits[possible_key]
-                visit_1_actual_date = actual_visit_data["ActualDate"]
-                if visit_1_actual_date != start_date:
-                    patient_needs_recalc = True
-                break
-        
-        # Also check by direct lookup in case the key is exactly "1"
-        if "1" in patient_actual_visits:
-            actual_visit_data = patient_actual_visits["1"]
-            visit_1_actual_date = actual_visit_data["ActualDate"]
-            if visit_1_actual_date != start_date:
-                patient_needs_recalc = True
-        
-        # Set the baseline for all calculations
-        current_baseline_date = visit_1_actual_date if visit_1_actual_date is not None else start_date
-        
-        for _, visit in study_visits.iterrows():
-            try:
-                visit_day = int(visit["Day"])
-                visit_no_raw = visit.get("VisitNo", "")
-                
-                # ROBUST visit number conversion for trials data too
-                try:
-                    if isinstance(visit_no_raw, (int, float)):
-                        visit_no = str(int(visit_no_raw))
-                    else:
-                        visit_no_str = str(visit_no_raw).strip()
-                        if '.' in visit_no_str:
-                            visit_no = str(int(float(visit_no_str)))
-                        else:
-                            visit_no = visit_no_str
-                except (ValueError, TypeError):
-                    visit_no = str(visit_no_raw).strip()
-                    
-            except Exception:
-                continue
+        try:
+            # If it's already a datetime, handle timezone properly
+            if isinstance(val, (pd.Timestamp, datetime)):
+                # Convert to just the date part to avoid timezone issues
+                return pd.Timestamp(val.date())
             
-            # Check if we have an actual visit for this visit number
-            actual_visit_data = patient_actual_visits.get(visit_no)
+            # Convert to string first
+            val_str = str(val).strip()
             
-            if actual_visit_data is not None:
-                # This is an actual visit
-                visit_date = actual_visit_data["ActualDate"]
-                payment = float(actual_visit_data.get("ActualPayment") or visit.get("Payment", 0) or 0.0)
-                notes = actual_visit_data.get("Notes", "")
-                
-                # VALIDATION: Check for impossible scenarios
-                is_screen_fail = "ScreenFail" in str(notes)
-                this_patient_screen_fail_key = f"{patient_id}_{study}"
-                
-                # Check if this visit is after a screen failure for THIS SPECIFIC PATIENT
-                this_patient_screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
-                
-                if this_patient_screen_fail_date is not None and visit_date > this_patient_screen_fail_date:
-                    # DATA VALIDATION ERROR
-                    error_msg = (f"DATA ERROR: Patient {patient_id} has a visit on {visit_date.strftime('%Y-%m-%d')} "
-                               f"AFTER their screen failure date ({this_patient_screen_fail_date.strftime('%Y-%m-%d')}). "
-                               f"This should not happen - please check your data.")
-                    processing_messages.append(f"⚠️ {error_msg}")
-                    
-                    visit_status = f"❌ DATA ERROR Visit {visit_no}"
-                    is_out_of_window = False
-                    is_out_of_protocol = False
-                    
-                else:
-                    # Normal processing - calculate expected date using ONLY Visit 1 baseline
-                    expected_date = current_baseline_date + timedelta(days=visit_day)
-                    
-                    # Safe tolerance handling
-                    tolerance_before = 0
-                    tolerance_after = 0
-                    try:
-                        tolerance_before = int(visit.get("ToleranceBefore", 0) or 0)
-                        tolerance_after = int(visit.get("ToleranceAfter", 0) or 0)
-                    except (ValueError, TypeError):
-                        pass
-                    
-                    earliest_acceptable = expected_date - timedelta(days=tolerance_before)
-                    latest_acceptable = expected_date + timedelta(days=tolerance_after)
-                    
-                    # CRITICAL FIX: Visit 1 is NEVER out of protocol
-                    # Use multiple ways to check for Visit 1
-                    is_visit_1 = (visit_no == "1" or 
-                                 visit_no == "1.0" or 
-                                 visit_no.strip() == "1" or 
-                                 str(visit_no).strip() == "1")
-                    
-                    if is_visit_1:
-                        is_out_of_window = False  # Visit 1 is never out of protocol
-                        is_out_of_protocol = False  # Explicitly set this
-                    else:
-                        is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
-                        is_out_of_protocol = is_out_of_window
-                    
-                    if is_out_of_window and not is_visit_1:  # Only report deviations for non-Visit 1
-                        days_early = max(0, (earliest_acceptable - visit_date).days)
-                        days_late = max(0, (visit_date - latest_acceptable).days)
-                        deviation = days_early + days_late
-                        out_of_window_visits.append({
-                            'patient': f"{patient_id} ({study})",
-                            'visit': f"V{visit_no}",
-                            'expected': expected_date.strftime('%Y-%m-%d'),
-                            'actual': visit_date.strftime('%Y-%m-%d'),
-                            'deviation': f"{deviation} days {'early' if days_early > 0 else 'late'}",
-                            'tolerance': f"+{tolerance_after}/-{tolerance_before} days"
-                        })
-                    
-                    # Safe visit number formatting
-                    try:
-                        visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
-                    except:
-                        visit_no_clean = visit_no
-                    
-                    # FIXED: Visit 1 status logic - never mark as out of protocol
-                    if is_screen_fail:
-                        visit_status = f"❌ Screen Fail {visit_no_clean}"
-                    elif is_visit_1:
-                        # Visit 1 is always just a completed visit, regardless of timing
-                        visit_status = f"✅ Visit {visit_no_clean}"
-                    elif is_out_of_protocol:
-                        visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"
-                    else:
-                        visit_status = f"✅ Visit {visit_no_clean}"
-                
-                # Record the actual visit
-                site = visit.get("SiteforVisit", "Unknown Site")
-                
-                visit_records.append({
-                    "Date": visit_date,
-                    "PatientID": patient_id,
-                    "Visit": visit_status,
-                    "Study": study,
-                    "Payment": payment,
-                    "SiteofVisit": site,
-                    "PatientOrigin": patient_origin,
-                    "IsActual": True,
-                    "IsScreenFail": is_screen_fail,
-                    "IsOutOfWindow": is_out_of_window,
-                    "IsOutOfProtocol": is_out_of_protocol
-                })
-                
-            else:
-                # This is a scheduled visit - calculate using ONLY Visit 1 baseline
-                scheduled_date = current_baseline_date + timedelta(days=visit_day)
-                
-                # Check if this SCHEDULED visit is after THIS PATIENT's screen failure
-                this_patient_screen_fail_key = f"{patient_id}_{study}"
-                this_patient_screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
-                
-                if this_patient_screen_fail_date is not None and scheduled_date > this_patient_screen_fail_date:
-                    screen_fail_exclusions += 1
-                    continue
-                
-                # ENHANCED LOGIC: Show future scheduled visits even after actual visits occur
-                # This ensures that predicted visits appear after the latest actual visit
-                
-                # Normal scheduled visit processing
-                visit_date = scheduled_date
-                payment = float(visit.get("Payment", 0) or 0.0)
-                
+            # Handle Excel serial dates (numbers like 45564.0)
+            if isinstance(val, (int, float)):
                 try:
-                    visit_no_clean = int(float(visit_no)) if pd.notna(visit_no) else visit_no
+                    # This might be an Excel serial date - convert and use date part only
+                    excel_date = pd.to_datetime(val, origin='1899-12-30', unit='D')
+                    return pd.Timestamp(excel_date.date())  # Just the date part
                 except:
-                    visit_no_clean = visit_no
-                
-                visit_status = f"Visit {visit_no_clean}"
-                
-                # Safe tolerance handling
-                tol_before = 0
-                tol_after = 0
-                try:
-                    tol_before = int(visit.get("ToleranceBefore", 0) or 0)
-                    tol_after = int(visit.get("ToleranceAfter", 0) or 0)
-                except (ValueError, TypeError):
                     pass
-                
-                site = visit.get("SiteforVisit", "Unknown Site")
-                
-                # Add main visit + tolerance periods
-                visit_records.append({
-                    "Date": visit_date,
-                    "PatientID": patient_id,
-                    "Visit": visit_status,
-                    "Study": study,
-                    "Payment": payment,
-                    "SiteofVisit": site,
-                    "PatientOrigin": patient_origin,
-                    "IsActual": False,
-                    "IsScreenFail": False,
-                    "IsOutOfWindow": False,
-                    "IsOutOfProtocol": False
-                })
-
-                # Add tolerance periods (with same screen failure check)
-                for i in range(1, tol_before + 1):
-                    tolerance_date = visit_date - timedelta(days=i)
-                    if this_patient_screen_fail_date is not None and tolerance_date > this_patient_screen_fail_date:
-                        continue
-                    visit_records.append({
-                        "Date": tolerance_date,
-                        "PatientID": patient_id,
-                        "Visit": "-",
-                        "Study": study,
-                        "Payment": 0,
-                        "SiteofVisit": site,
-                        "PatientOrigin": patient_origin,
-                        "IsActual": False,
-                        "IsScreenFail": False,
-                        "IsOutOfWindow": False,
-                        "IsOutOfProtocol": False
-                    })
-
-                for i in range(1, tol_after + 1):
-                    tolerance_date = visit_date + timedelta(days=i)
-                    if this_patient_screen_fail_date is not None and tolerance_date > this_patient_screen_fail_date:
-                        continue
-                    visit_records.append({
-                        "Date": tolerance_date,
-                        "PatientID": patient_id,
-                        "Visit": "+",
-                        "Study": study,
-                        "Payment": 0,
-                        "SiteofVisit": site,
-                        "PatientOrigin": patient_origin,
-                        "IsActual": False,
-                        "IsScreenFail": False,
-                        "IsOutOfWindow": False,
-                        "IsOutOfProtocol": False
-                    })
-        
-        # Track patients that had recalculations (only Visit 1 rebasing now)
-        if patient_needs_recalc:
-            recalculated_patients.append(f"{patient_id} ({study})")
-
-    # Create visits DataFrame
-    visits_df = pd.DataFrame(visit_records)
-
-    if visits_df.empty:
-        raise ValueError("❌ No visits generated. Check that Patient `Study` matches Trial `Study` values and StartDate is populated.")
-
-    # Collect processing messages safely
-    if len(patients_with_no_visits) > 0:
-        processing_messages.append(f"⚠️ {len(patients_with_no_visits)} patient(s) skipped due to missing study definitions: {', '.join(patients_with_no_visits)}")
-        
-    if len(recalculated_patients) > 0:
-        processing_messages.append(f"📅 Recalculated visit schedules for {len(recalculated_patients)} patient(s) based on Visit 1 only: {', '.join(recalculated_patients)}")
-
-    if len(out_of_window_visits) > 0:
-        processing_messages.append(f"🔴 {len(out_of_window_visits)} visit(s) occurred outside tolerance windows (marked as OUT OF PROTOCOL)")
-
-    if actual_visits_df is not None:
-        processing_messages.append(f"✅ {actual_visits_used} actual visits matched and used in calendar")
-        unmatched_actual = len(actual_visits_df) - actual_visits_used
-        if unmatched_actual > 0:
-            processing_messages.append(f"⚠️ {unmatched_actual} actual visit records could not be matched to scheduled visits")
-
-    if screen_fail_exclusions > 0:
-        processing_messages.append(f"⚠️ {screen_fail_exclusions} visits were excluded because they occur after screen failure dates.")
-
-    # Collect final processing statistics
-    total_visit_records = len(visit_records)
-    total_scheduled_visits = len([v for v in visit_records if not v.get('IsActual', False) and v['Visit'] not in ['-', '+']])
-    total_tolerance_periods = len([v for v in visit_records if v['Visit'] in ['-', '+']])
+            
+            # For string dates, be very explicit about UK format
+            uk_formats = [
+                '%d/%m/%y',    # 1/8/25
+                '%d/%m/%Y',    # 1/8/2025  
+                '%d-%m-%y',    # 1-8-25
+                '%d-%m-%Y',    # 1-8-2025
+                '%d.%m.%y',    # 1.8.25
+                '%d.%m.%Y',    # 1.8.2025
+            ]
+            
+            for fmt in uk_formats:
+                try:
+                    parsed_date = datetime.strptime(val_str, fmt)
+                    return pd.Timestamp(parsed_date.date())  # Just the date part
+                except ValueError:
+                    continue
+            
+            # If standard formats fail, try dateutil with UK preference
+            parsed_date = parse(val_str, dayfirst=True, yearfirst=False)
+            return pd.Timestamp(parsed_date.date())  # Just the date part
+            
+        except Exception as e:
+            failed_rows.append(f"{val} (error: {str(e)})")
+            return pd.NaT
     
-    processing_messages.append(f"Generated {total_visit_records} total calendar entries ({total_scheduled_visits} scheduled visits, {total_tolerance_periods} tolerance periods)")
+    # Apply the parsing function
+    df[col] = df[col].apply(try_parse_uk_date)
     
-    # Safe financial calculations
-    if actual_visits_df is not None and len(actual_visits_df) > 0:
-        actual_visit_entries = len([v for v in visit_records if v.get('IsActual', False)])
-        processing_messages.append(f"Calendar includes {actual_visit_entries} actual visits and {total_scheduled_visits} scheduled visits")
-        
-        if actual_visits_used < len(actual_visits_df):
-            processing_messages.append(f"Visit matching: {actual_visits_used} matched, {len(actual_visits_df) - actual_visits_used} unmatched")
-    
-    # Date range statistics
-    if not visits_df.empty:
-        earliest_date = visits_df["Date"].min()
-        latest_date = visits_df["Date"].max()
-        date_range_days = (latest_date - earliest_date).days
-        processing_messages.append(f"Calendar spans {date_range_days} days ({earliest_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')})")
-    
-    # Safe total income calculation
-    try:
-        total_income = visits_df["Payment"].sum()
-        processing_messages.append(f"Total financial value: £{total_income:,.2f}")
-    except Exception:
-        processing_messages.append("Total financial value: £0.00")
-    
-    # Build calendar dataframe
-    min_date = visits_df["Date"].min() - timedelta(days=1)
-    max_date = visits_df["Date"].max() + timedelta(days=1)
-    calendar_dates = pd.date_range(start=min_date, end=max_date)
-    calendar_df = pd.DataFrame({"Date": calendar_dates})
-    calendar_df["Day"] = calendar_df["Date"].dt.day_name()
-
-    # Group patients by site
-    patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
-    unique_sites = sorted(patients_df["Site"].unique())
-    
-    # Create ordered columns
-    ordered_columns = ["Date", "Day"]
-    site_column_mapping = {}
-    
-    for site in unique_sites:
-        site_patients = patients_df[patients_df["Site"] == site].sort_values(["Study", "PatientID"])
-        site_columns = []
-        for _, patient in site_patients.iterrows():
-            col_id = patient["ColumnID"]
-            ordered_columns.append(col_id)
-            site_columns.append(col_id)
-            calendar_df[col_id] = ""
-        site_column_mapping[site] = site_columns
-
-    # Create income tracking columns
-    for study in trials_df["Study"].unique():
-        income_col = f"{study} Income"
-        calendar_df[income_col] = 0.0
-    
-    calendar_df["Daily Total"] = 0.0
-
-    # Improved calendar filling logic
-    for i, row in calendar_df.iterrows():
-        date = row["Date"]
-        visits_today = visits_df[visits_df["Date"] == date]
-        daily_total = 0.0
-
-        for _, visit in visits_today.iterrows():
-            study = str(visit["Study"])
-            pid = str(visit["PatientID"])
-            col_id = f"{study}_{pid}"
-            visit_info = visit["Visit"]
-            payment = float(visit["Payment"]) or 0.0
-            is_actual = visit.get("IsActual", False)
-
-            if col_id in calendar_df.columns:
-                current_value = calendar_df.at[i, col_id]
-                
-                # Better concatenation logic to avoid issues
-                if current_value == "":
-                    calendar_df.at[i, col_id] = visit_info
-                else:
-                    # Handle tolerance periods more carefully
-                    if visit_info in ["-", "+"]:
-                        # Only add tolerance if there's no main visit already
-                        if not any(x in current_value for x in ["Visit", "✅", "🔴", "❌"]):
-                            if current_value in ["-", "+", ""]:
-                                calendar_df.at[i, col_id] = visit_info
-                            else:
-                                calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
-                    else:
-                        # This is a main visit - it should replace tolerance periods
-                        if current_value in ["-", "+", ""]:
-                            calendar_df.at[i, col_id] = visit_info
-                        else:
-                            # Multiple main visits on same day
-                            calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
-
-            # Count payments for actual visits and scheduled main visits (not tolerance periods)
-            if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
-                income_col = f"{study} Income"
-                if income_col in calendar_df.columns:
-                    calendar_df.at[i, income_col] += payment
-                    daily_total += payment
-
-        calendar_df.at[i, "Daily Total"] = daily_total
-
-    # Calculate totals - Monthly and Financial Year
-    calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
-    monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
-    calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
-    calendar_df["Monthly Total"] = calendar_df.apply(
-        lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA, axis=1
-    )
-
-    # Financial year calculation (April to March)
-    calendar_df["FYStart"] = calendar_df["Date"].apply(lambda d: d.year if d.month >= 4 else d.year - 1)
-    fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
-    calendar_df["IsFYE"] = (calendar_df["Date"].dt.month == 3) & (calendar_df["Date"].dt.day == 31)
-    calendar_df["FY Total"] = calendar_df.apply(
-        lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
-    )
-
-    stats = {
-        "total_visits": total_scheduled_visits,
-        "total_income": visits_df["Payment"].sum(),
-        "messages": processing_messages,
-        "out_of_window_visits": out_of_window_visits
-    }
-
-    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_sites
+    return df, failed_rows
