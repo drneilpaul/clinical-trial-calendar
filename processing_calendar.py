@@ -209,6 +209,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     # Continue processing but mark as data error
                     visit_status = f"❌ DATA ERROR Visit {visit_no}"
                     is_out_of_window = False
+                    is_out_of_protocol = False  # Set this explicitly
                     
                 else:
                     # Normal processing - calculate expected date using ONLY Visit 1 baseline
@@ -226,13 +227,15 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
                     latest_acceptable = expected_date + timedelta(days=tolerance_after)
                     
-                    # Visit 1 is never out of protocol - it establishes the baseline
+                    # CRITICAL FIX: Visit 1 is NEVER out of protocol - it establishes the baseline
                     if visit_no == "1":
                         is_out_of_window = False  # Visit 1 is never out of protocol
+                        is_out_of_protocol = False  # Explicitly set this
                     else:
                         is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
+                        is_out_of_protocol = is_out_of_window  # Only non-Visit 1 visits can be out of protocol
                     
-                    if is_out_of_window:
+                    if is_out_of_window and visit_no != "1":  # Only report deviations for non-Visit 1
                         days_early = max(0, (earliest_acceptable - visit_date).days)
                         days_late = max(0, (visit_date - latest_acceptable).days)
                         deviation = days_early + days_late
@@ -251,10 +254,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     except:
                         visit_no_clean = visit_no
                     
-                    # Use consistent emoji symbols with OUT OF PROTOCOL indicator
+                    # FIXED: Visit 1 status logic - never mark as out of protocol
                     if is_screen_fail:
                         visit_status = f"❌ Screen Fail {visit_no_clean}"
-                    elif is_out_of_window:  # This will never be true for Visit 1 now
+                    elif visit_no == "1":
+                        # Visit 1 is always just a completed visit, regardless of timing
+                        visit_status = f"✅ Visit {visit_no_clean}"
+                    elif is_out_of_protocol:
                         visit_status = f"🔴 OUT OF PROTOCOL Visit {visit_no_clean}"
                     else:
                         visit_status = f"✅ Visit {visit_no_clean}"
@@ -273,7 +279,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "IsActual": True,
                     "IsScreenFail": is_screen_fail,
                     "IsOutOfWindow": is_out_of_window,
-                    "IsOutOfProtocol": is_out_of_window  # New flag for out of protocol
+                    "IsOutOfProtocol": is_out_of_protocol  # This will be False for Visit 1
                 })
                 
             else:
