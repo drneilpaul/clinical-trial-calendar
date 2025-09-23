@@ -28,23 +28,24 @@ def parse_dates_column(df, col, errors="raise"):
             return pd.NaT
             
         try:
+            # If it's already a datetime, handle timezone properly
+            if isinstance(val, (pd.Timestamp, datetime)):
+                # Convert to just the date part to avoid timezone issues
+                return pd.Timestamp(val.date())
+            
             # Convert to string first
             val_str = str(val).strip()
-            
-            # If it's already a datetime, return it
-            if isinstance(val, (pd.Timestamp, datetime)):
-                return pd.Timestamp(val)
             
             # Handle Excel serial dates (numbers like 45564.0)
             if isinstance(val, (int, float)):
                 try:
-                    # This might be an Excel serial date
-                    return pd.to_datetime(val, origin='1899-12-30', unit='D')
+                    # This might be an Excel serial date - convert and use date part only
+                    excel_date = pd.to_datetime(val, origin='1899-12-30', unit='D')
+                    return pd.Timestamp(excel_date.date())  # Just the date part
                 except:
                     pass
             
             # For string dates, be very explicit about UK format
-            # Try common UK date formats first
             uk_formats = [
                 '%d/%m/%y',    # 1/8/25
                 '%d/%m/%Y',    # 1/8/2025  
@@ -57,13 +58,13 @@ def parse_dates_column(df, col, errors="raise"):
             for fmt in uk_formats:
                 try:
                     parsed_date = datetime.strptime(val_str, fmt)
-                    return pd.Timestamp(parsed_date)
+                    return pd.Timestamp(parsed_date.date())  # Just the date part
                 except ValueError:
                     continue
             
             # If standard formats fail, try dateutil with UK preference
             parsed_date = parse(val_str, dayfirst=True, yearfirst=False)
-            return pd.Timestamp(parsed_date)
+            return pd.Timestamp(parsed_date.date())  # Just the date part
             
         except Exception as e:
             failed_rows.append(f"{val} (error: {str(e)})")
