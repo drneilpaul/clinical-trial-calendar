@@ -359,3 +359,210 @@ def apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites):
     except ImportError:
         # If openpyxl styles not available, skip formatting
         pass
+
+
+def display_income_realization_dashboard(visits_df, trials_df, patients_df):
+    """Display main income realization dashboard"""
+    from calculations import calculate_income_realization_metrics
+    from formatters import format_currency, format_percentage
+    
+    st.subheader("📊 Income Realization & Pipeline Analysis")
+    
+    # Calculate main metrics
+    metrics = calculate_income_realization_metrics(visits_df, trials_df, patients_df)
+    
+    # Top-level metrics display
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Income Realization Rate", 
+            f"{metrics['realization_rate']:.1f}%",
+            help="Percentage of scheduled work completed this FY"
+        )
+    
+    with col2:
+        st.metric(
+            "Income Secured", 
+            format_currency(metrics['completed_income']),
+            help="Income from completed visits this FY"
+        )
+    
+    with col3:
+        st.metric(
+            "Pipeline Value", 
+            format_currency(metrics['pipeline_income']),
+            help="Income from remaining scheduled visits this FY"
+        )
+    
+    with col4:
+        st.metric(
+            "Total FY Potential", 
+            format_currency(metrics['total_scheduled_income']),
+            help="Total income possible this financial year"
+        )
+    
+    # Performance indicator
+    if metrics['realization_rate'] >= 80:
+        st.success(f"✅ Strong performance: {metrics['realization_rate']:.1f}% realization rate")
+    elif metrics['realization_rate'] >= 60:
+        st.warning(f"⚠️ Moderate performance: {metrics['realization_rate']:.1f}% realization rate")
+    else:
+        st.error(f"🔴 Low performance: {metrics['realization_rate']:.1f}% realization rate")
+
+def display_monthly_realization_breakdown(visits_df, trials_df):
+    """Display month-by-month realization breakdown"""
+    from calculations import calculate_monthly_realization_breakdown
+    from formatters import format_currency
+    
+    st.write("**Monthly Realization Breakdown**")
+    
+    monthly_data = calculate_monthly_realization_breakdown(visits_df, trials_df)
+    
+    if monthly_data:
+        # Format for display
+        monthly_df = pd.DataFrame(monthly_data)
+        monthly_df['Completed_Income_Display'] = monthly_df['Completed_Income'].apply(format_currency)
+        monthly_df['Scheduled_Income_Display'] = monthly_df['Scheduled_Income'].apply(format_currency)
+        monthly_df['Realization_Rate_Display'] = monthly_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        
+        # Create display dataframe
+        display_df = monthly_df[['Month', 'Completed_Income_Display', 'Scheduled_Income_Display', 
+                                'Realization_Rate_Display', 'Completed_Visits', 'Scheduled_Visits']].copy()
+        display_df.columns = ['Month', 'Income Secured', 'Income Scheduled', 'Realization %', 'Visits Done', 'Visits Scheduled']
+        
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Show trend
+        avg_realization = monthly_df['Realization_Rate'].mean()
+        st.info(f"**Average Monthly Realization Rate:** {avg_realization:.1f}%")
+
+def display_study_pipeline_ranking(visits_df, trials_df):
+    """Display studies ranked by remaining pipeline value"""
+    from calculations import calculate_study_pipeline_breakdown
+    from formatters import format_currency
+    
+    st.write("**Study Pipeline Rankings**")
+    st.caption("Studies ranked by remaining income potential")
+    
+    study_data = calculate_study_pipeline_breakdown(visits_df, trials_df)
+    
+    if not study_data.empty:
+        # Format for display
+        study_display = study_data.copy()
+        study_display['Pipeline_Value_Display'] = study_display['Pipeline_Value'].apply(format_currency)
+        study_display['Avg_Per_Visit'] = (study_display['Pipeline_Value'] / study_display['Remaining_Visits']).apply(format_currency)
+        
+        display_df = study_display[['Study', 'Pipeline_Value_Display', 'Remaining_Visits', 'Avg_Per_Visit']].copy()
+        display_df.columns = ['Study', 'Pipeline Value', 'Remaining Visits', 'Avg per Visit']
+        
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Summary stats
+        total_pipeline = study_data['Pipeline_Value'].sum()
+        st.info(f"**Total Pipeline Value:** {format_currency(total_pipeline)}")
+    else:
+        st.warning("No remaining pipeline visits found")
+
+def display_site_realization_comparison(visits_df, trials_df):
+    """Display site-by-site realization performance"""
+    from calculations import calculate_site_realization_breakdown
+    from formatters import format_currency
+    
+    st.write("**Site Performance Comparison**")
+    
+    site_data = calculate_site_realization_breakdown(visits_df, trials_df)
+    
+    if site_data:
+        # Format for display
+        site_df = pd.DataFrame(site_data)
+        site_df['Completed_Income_Display'] = site_df['Completed_Income'].apply(format_currency)
+        site_df['Pipeline_Income_Display'] = site_df['Pipeline_Income'].apply(format_currency)
+        site_df['Realization_Rate_Display'] = site_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        
+        # Create display table
+        display_df = site_df[['Site', 'Completed_Income_Display', 'Pipeline_Income_Display', 
+                             'Realization_Rate_Display', 'Completed_Visits', 'Remaining_Visits']].copy()
+        display_df.columns = ['Site', 'Income Secured', 'Pipeline Value', 'Realization %', 'Visits Done', 'Visits Remaining']
+        
+        # Apply styling based on realization rate
+        def highlight_realization(row):
+            rate = float(row['Realization %'].rstrip('%'))
+            if rate >= 80:
+                return ['background-color: #d4edda'] * len(row)
+            elif rate >= 60:
+                return ['background-color: #fff3cd'] * len(row)
+            else:
+                return ['background-color: #f8d7da'] * len(row)
+        
+        styled_df = display_df.style.apply(highlight_realization, axis=1)
+        st.dataframe(styled_df, use_container_width=True)
+        
+        # Site rankings
+        best_site = site_df.loc[site_df['Realization_Rate'].idxmax()]
+        highest_pipeline = site_df.loc[site_df['Pipeline_Income'].idxmax()]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success(f"**Best Realization:** {best_site['Site']} ({best_site['Realization_Rate']:.1f}%)")
+        with col2:
+            st.info(f"**Highest Pipeline:** {highest_pipeline['Site']} ({format_currency(highest_pipeline['Pipeline_Income'])})")
+
+def display_financial_year_summary(visits_df, trials_df, patients_df):
+    """Display comprehensive financial year summary"""
+    from calculations import calculate_income_realization_metrics
+    from formatters import format_currency
+    from datetime import date
+    
+    st.write("**Financial Year Summary**")
+    
+    metrics = calculate_income_realization_metrics(visits_df, trials_df, patients_df)
+    
+    # Calculate months remaining in FY
+    today = pd.to_datetime(date.today())
+    if today.month >= 4:
+        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
+    else:
+        fy_end = pd.to_datetime(f"{today.year}-03-31")
+    
+    days_remaining = (fy_end - today).days
+    months_remaining = max(0, round(days_remaining / 30.44, 1))  # Average days per month
+    
+    # Create summary table
+    summary_data = [
+        {"Metric": "Work Completion Rate", "Value": f"{(metrics['completed_visits_count'] / metrics['total_scheduled_visits_count'] * 100):.1f}%"},
+        {"Metric": "Income Realization Rate", "Value": f"{metrics['realization_rate']:.1f}%"},
+        {"Metric": "Income Secured", "Value": format_currency(metrics['completed_income'])},
+        {"Metric": "Pipeline Remaining", "Value": format_currency(metrics['pipeline_income'])},
+        {"Metric": "Months Remaining in FY", "Value": f"{months_remaining} months"},
+        {"Metric": "Visits Completed", "Value": f"{metrics['completed_visits_count']:,}"},
+        {"Metric": "Visits Remaining", "Value": f"{metrics['pipeline_visits_count']:,}"}
+    ]
+    
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    
+    # Monthly run rate needed
+    if months_remaining > 0:
+        monthly_target = metrics['pipeline_income'] / months_remaining
+        st.info(f"**Monthly Income Target:** {format_currency(monthly_target)} needed per month to achieve full pipeline")
+
+def display_complete_realization_analysis(visits_df, trials_df, patients_df):
+    """Display complete income realization analysis"""
+    # Main dashboard
+    display_income_realization_dashboard(visits_df, trials_df, patients_df)
+    
+    st.divider()
+    
+    # Detailed breakdowns in columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        display_monthly_realization_breakdown(visits_df, trials_df)
+        st.write("")
+        display_study_pipeline_ranking(visits_df, trials_df)
+    
+    with col2:
+        display_site_realization_comparison(visits_df, trials_df)
+        st.write("")
+        display_financial_year_summary(visits_df, trials_df, patients_df)
