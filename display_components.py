@@ -18,7 +18,7 @@ from table_builders import (
     display_income_table_pair, display_profit_sharing_table,
     display_ratio_breakdown_table, create_summary_metrics_row,
     display_breakdown_by_study, create_time_period_config,
-    display_site_time_analysis
+    display_site_time_analysis, display_complete_realization_analysis
 )
 
 def show_legend(actual_visits_df):
@@ -265,6 +265,10 @@ def display_profit_sharing_ratio_breakdowns(financial_df, patients_df):
     - Apply the Final % to the total income for each period to determine profit share amounts
     """)
 
+def display_income_realization_analysis(visits_df, trials_df, patients_df):
+    """Display income realization analysis section"""
+    display_complete_realization_analysis(visits_df, trials_df, patients_df)
+
 def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
     """Display detailed statistics for each site with quarterly and financial year analysis"""
     if visits_df.empty or patients_df.empty:
@@ -320,99 +324,13 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
 
 def _display_site_recruitment_analysis(site_patients, enhanced_visits_df, site):
     """Display patient recruitment analysis for a site"""
-    st.write("**Patient Recruitment Analysis**")
-    
-    # Add time period columns to patients
-    site_patients_enhanced = site_patients.copy()
-    site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
-    site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
-    site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
-    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(
-        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-    )
-    
-    # Recruitment summaries
-    quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()
-    fy_recruitment = site_patients_enhanced.groupby('FinancialYear')['PatientID'].count()
-    
-    if not quarterly_recruitment.empty or not fy_recruitment.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if not quarterly_recruitment.empty:
-                st.write("*Patients Recruited by Quarter*")
-                quarterly_df = quarterly_recruitment.to_frame()
-                quarterly_df.columns = ['Patients Recruited']
-                st.dataframe(quarterly_df, use_container_width=True)
-        
-        with col2:
-            if not fy_recruitment.empty:
-                st.write("*Patients Recruited by Financial Year*")
-                fy_df = fy_recruitment.to_frame()
-                fy_df.columns = ['Patients Recruited']
-                st.dataframe(fy_df, use_container_width=True)
-    
-    # Combined summary tables
-    _display_site_summary_tables(site_patients_enhanced, enhanced_visits_df, site, quarterly_recruitment, fy_recruitment)
-
-def _display_site_summary_tables(site_patients, enhanced_visits_df, site, quarterly_recruitment, fy_recruitment):
-    """Display combined summary tables for a site"""
-    site_enhanced_visits = enhanced_visits_df[enhanced_visits_df['SiteofVisit'] == site]
-    
-    # Quarterly summary
-    st.write("**Quarterly Summary Table**")
-    quarterly_summary = _build_period_summary(
-        site_enhanced_visits, quarterly_recruitment, 'QuarterYear', 'Quarter'
-    )
-    if quarterly_summary:
-        st.dataframe(pd.DataFrame(quarterly_summary), use_container_width=True)
-    
-    # Financial year summary  
-    st.write("**Financial Year Summary Table**")
-    fy_summary = _build_period_summary(
-        site_enhanced_visits, fy_recruitment, 'FinancialYear', 'Financial Year'
-    )
-    if fy_summary:
-        st.dataframe(pd.DataFrame(fy_summary), use_container_width=True)
-
-def _build_period_summary(visits_df, recruitment_series, period_col, period_name):
-    """Build summary data for a time period"""
-    if visits_df.empty:
-        return []
-    
-    visit_stats = visits_df.groupby(period_col).agg({'Visit': 'count', 'Payment': 'sum'})
-    all_periods = set(visit_stats.index) | set(recruitment_series.index)
-    
-    summary_data = []
-    for period in sorted(all_periods):
-        visits = visit_stats.loc[period, 'Visit'] if period in visit_stats.index else 0
-        income = visit_stats.loc[period, 'Payment'] if period in visit_stats.index else 0
-        patients = recruitment_series.loc[period] if period in recruitment_series.index else 0
-        
-        summary_data.append({
-            period_name: period if period_name == 'Quarter' else period,
-            'Patients Recruited': patients,
-            'Visits Completed': visits,
-            'Income': format_currency(income)
-        })
-    
-    return summary_data
+    from table_builders import display_site_recruitment_analysis
+    display_site_recruitment_analysis(site_patients, enhanced_visits_df, site)
 
 def _display_site_screen_failures(site_patients, screen_failures):
     """Display screen failures for a site"""
-    site_screen_failures = []
-    for patient in site_patients.itertuples():
-        patient_study_key = f"{patient.PatientID}_{patient.Study}"
-        if patient_study_key in screen_failures:
-            site_screen_failures.append({
-                'Patient': patient.PatientID,
-                'Study': patient.Study,
-                'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
-            })
-    
-    if site_screen_failures:
-        st.write("**Screen Failures**")
-        st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
+    from table_builders import display_site_screen_failures
+    display_site_screen_failures(site_patients, screen_failures)
 
 def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
     """Display comprehensive download options with Excel formatting"""
@@ -424,7 +342,8 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
         from openpyxl.utils import get_column_letter
 
         # Prepare data for Excel export
-        excel_df = _prepare_excel_export_data(calendar_df, site_column_mapping, unique_sites)
+        from table_builders import create_excel_export_data, apply_excel_formatting
+        excel_df = create_excel_export_data(calendar_df, site_column_mapping, unique_sites)
         
         # Create Excel file
         output = io.BytesIO()
@@ -433,7 +352,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
             ws = writer.sheets["VisitCalendar"]
 
             # Add site headers and formatting
-            _apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites)
+            apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites)
 
         st.download_button(
             "💰 Excel with Finances & Site Headers",
@@ -447,49 +366,3 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
         buf = io.BytesIO()
         calendar_df.to_excel(buf, index=False)
         st.download_button("💾 Download Basic Excel", data=buf.getvalue(), file_name="VisitCalendar.xlsx")
-
-def _prepare_excel_export_data(calendar_df, site_column_mapping, unique_sites):
-    """Prepare data for Excel export"""
-    # Get ordered columns
-    final_ordered_columns = ["Date", "Day"]
-    for site in unique_sites:
-        site_columns = site_column_mapping.get(site, [])
-        for col in site_columns:
-            if col in calendar_df.columns:
-                final_ordered_columns.append(col)
-
-    # Add financial columns
-    excel_financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in calendar_df.columns if "Income" in c]
-    all_columns = final_ordered_columns + [col for col in excel_financial_cols if col in calendar_df.columns]
-    
-    excel_df = calendar_df[all_columns].copy()
-    
-    # Format dates and currency
-    excel_df["Date"] = excel_df["Date"].dt.strftime("%d/%m/%Y")
-    excel_df = apply_currency_or_empty_formatting(excel_df, ["Monthly Total", "FY Total"])
-    excel_df = apply_currency_formatting(excel_df, [col for col in excel_financial_cols if col not in ["Monthly Total", "FY Total"] and col in excel_df.columns])
-    
-    return excel_df
-
-def _apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites):
-    """Apply formatting to Excel worksheet"""
-    from openpyxl.styles import PatternFill, Font, Alignment
-    from openpyxl.utils import get_column_letter
-    
-    # Add site headers
-    for col_idx, col_name in enumerate(excel_df.columns, 1):
-        col_letter = get_column_letter(col_idx)
-        if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
-            for site in unique_sites:
-                if col_name in site_column_mapping.get(site, []):
-                    ws[f"{col_letter}1"] = site
-                    ws[f"{col_letter}1"].font = Font(bold=True, size=12)
-                    ws[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
-                    ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
-                    break
-
-    # Auto-adjust column widths
-    for idx, col in enumerate(excel_df.columns, 1):
-        col_letter = get_column_letter(idx)
-        max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_df[col].tolist()] + [len(col)])
-        ws.column_dimensions[col_letter].width = max(10, max_length + 2)
