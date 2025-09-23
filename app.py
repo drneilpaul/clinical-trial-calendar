@@ -4,7 +4,7 @@ from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import (
@@ -140,6 +140,9 @@ def main():
             financial_df = prepare_financial_data(visits_df)
             if not financial_df.empty:
                 display_quarterly_profit_sharing_tables(financial_df, patients_df)
+
+            # Income Realization Analysis - NEW SECTION
+            display_income_realization_analysis(visits_df, trials_df, patients_df)
 
             # Site statistics and analysis
             display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures)
