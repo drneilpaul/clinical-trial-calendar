@@ -508,6 +508,13 @@ def display_quarterly_profit_sharing_tables(financial_df, patients_df):
     else:
         st.warning("No quarterly data available for analysis. Upload visit data with dates to generate quarterly profit sharing calculations.")
 
+
+    # Add detailed ratio breakdowns for bookkeepers
+    if len(quarters) > 0 and len(financial_years) > 0:
+        st.divider()
+        display_profit_sharing_ratio_breakdowns(financial_df, patients_df)
+
+
 def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
