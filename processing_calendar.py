@@ -141,7 +141,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
             continue  # Skip this patient as no visit schedule is defined
         
-        # Get all actual visits for this patient
+        # Get all actual visits for this patient with ROBUST visit number handling
         patient_actual_visits = {}
         if actual_visits_df is not None:
             # Use consistent string comparison
@@ -151,22 +151,54 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             ].sort_values('VisitNo')
             
             for _, actual_visit in patient_actuals.iterrows():
-                visit_no = str(actual_visit["VisitNo"])
+                # ROBUST visit number conversion - handle all possible formats
+                visit_no_raw = actual_visit["VisitNo"]
+                
+                # Convert visit number to consistent string format
+                if pd.isna(visit_no_raw):
+                    continue
+                    
+                try:
+                    # Try to convert to int first (handles float like 1.0 -> 1)
+                    if isinstance(visit_no_raw, (int, float)):
+                        visit_no = str(int(visit_no_raw))
+                    else:
+                        # Handle string inputs, strip whitespace
+                        visit_no_str = str(visit_no_raw).strip()
+                        if '.' in visit_no_str:
+                            # Handle "1.0" -> "1"
+                            visit_no = str(int(float(visit_no_str)))
+                        else:
+                            visit_no = visit_no_str
+                except (ValueError, TypeError):
+                    # Fallback - just use string representation
+                    visit_no = str(visit_no_raw).strip()
+                
                 patient_actual_visits[visit_no] = actual_visit
                 actual_visits_used += 1
         
-        # Process each visit with IMPROVED validation and Visit 1 only rebasing
+        # ENHANCED Visit 1 baseline detection
         visit_1_baseline_date = start_date  # Original baseline
         visit_1_actual_date = None  # Will store actual Visit 1 date if it exists
         patient_needs_recalc = False
         
         # First pass: find actual Visit 1 to establish baseline
-        for visit_no_key, actual_visit_data in patient_actual_visits.items():
-            if visit_no_key == "1":  # Only Visit 1 can rebase
+        # Check multiple possible representations of Visit 1
+        possible_visit_1_keys = ["1", "1.0", " 1", "1 "]
+        for possible_key in possible_visit_1_keys:
+            if possible_key in patient_actual_visits:
+                actual_visit_data = patient_actual_visits[possible_key]
                 visit_1_actual_date = actual_visit_data["ActualDate"]
                 if visit_1_actual_date != start_date:
                     patient_needs_recalc = True
                 break
+        
+        # Also check by direct lookup in case the key is exactly "1"
+        if "1" in patient_actual_visits:
+            actual_visit_data = patient_actual_visits["1"]
+            visit_1_actual_date = actual_visit_data["ActualDate"]
+            if visit_1_actual_date != start_date:
+                patient_needs_recalc = True
         
         # Set the baseline for all calculations
         current_baseline_date = visit_1_actual_date if visit_1_actual_date is not None else start_date
@@ -174,12 +206,21 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         for _, visit in study_visits.iterrows():
             try:
                 visit_day = int(visit["Day"])
-                visit_no_raw = str(visit.get("VisitNo", ""))
-                # FIXED: Convert "1.0" to "1" for matching with actual visits
+                visit_no_raw = visit.get("VisitNo", "")
+                
+                # ROBUST visit number conversion for trials data too
                 try:
-                    visit_no = str(int(float(visit_no_raw)))
-                except:
-                    visit_no = visit_no_raw
+                    if isinstance(visit_no_raw, (int, float)):
+                        visit_no = str(int(visit_no_raw))
+                    else:
+                        visit_no_str = str(visit_no_raw).strip()
+                        if '.' in visit_no_str:
+                            visit_no = str(int(float(visit_no_str)))
+                        else:
+                            visit_no = visit_no_str
+                except (ValueError, TypeError):
+                    visit_no = str(visit_no_raw).strip()
+                    
             except Exception:
                 continue
             
@@ -200,16 +241,15 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 this_patient_screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
                 
                 if this_patient_screen_fail_date is not None and visit_date > this_patient_screen_fail_date:
-                    # DATA VALIDATION ERROR - warn instead of silently excluding
+                    # DATA VALIDATION ERROR
                     error_msg = (f"DATA ERROR: Patient {patient_id} has a visit on {visit_date.strftime('%Y-%m-%d')} "
                                f"AFTER their screen failure date ({this_patient_screen_fail_date.strftime('%Y-%m-%d')}). "
                                f"This should not happen - please check your data.")
                     processing_messages.append(f"⚠️ {error_msg}")
                     
-                    # Continue processing but mark as data error
                     visit_status = f"❌ DATA ERROR Visit {visit_no}"
                     is_out_of_window = False
-                    is_out_of_protocol = False  # Set this explicitly
+                    is_out_of_protocol = False
                     
                 else:
                     # Normal processing - calculate expected date using ONLY Visit 1 baseline
@@ -227,15 +267,21 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
                     latest_acceptable = expected_date + timedelta(days=tolerance_after)
                     
-                    # CRITICAL FIX: Visit 1 is NEVER out of protocol - it establishes the baseline
-                    if visit_no == "1":
+                    # CRITICAL FIX: Visit 1 is NEVER out of protocol
+                    # Use multiple ways to check for Visit 1
+                    is_visit_1 = (visit_no == "1" or 
+                                 visit_no == "1.0" or 
+                                 visit_no.strip() == "1" or 
+                                 str(visit_no).strip() == "1")
+                    
+                    if is_visit_1:
                         is_out_of_window = False  # Visit 1 is never out of protocol
                         is_out_of_protocol = False  # Explicitly set this
                     else:
                         is_out_of_window = visit_date < earliest_acceptable or visit_date > latest_acceptable
-                        is_out_of_protocol = is_out_of_window  # Only non-Visit 1 visits can be out of protocol
+                        is_out_of_protocol = is_out_of_window
                     
-                    if is_out_of_window and visit_no != "1":  # Only report deviations for non-Visit 1
+                    if is_out_of_window and not is_visit_1:  # Only report deviations for non-Visit 1
                         days_early = max(0, (earliest_acceptable - visit_date).days)
                         days_late = max(0, (visit_date - latest_acceptable).days)
                         deviation = days_early + days_late
@@ -257,7 +303,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     # FIXED: Visit 1 status logic - never mark as out of protocol
                     if is_screen_fail:
                         visit_status = f"❌ Screen Fail {visit_no_clean}"
-                    elif visit_no == "1":
+                    elif is_visit_1:
                         # Visit 1 is always just a completed visit, regardless of timing
                         visit_status = f"✅ Visit {visit_no_clean}"
                     elif is_out_of_protocol:
@@ -279,7 +325,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "IsActual": True,
                     "IsScreenFail": is_screen_fail,
                     "IsOutOfWindow": is_out_of_window,
-                    "IsOutOfProtocol": is_out_of_protocol  # This will be False for Visit 1
+                    "IsOutOfProtocol": is_out_of_protocol
                 })
                 
             else:
