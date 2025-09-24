@@ -211,12 +211,22 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
     period_column = period_config['column']
     period_name = period_config['name']
     
+    # FIXED: Check if financial_df has the required columns first
+    if financial_df.empty:
+        return []
+    
     if period_column == 'MonthYear':
-        periods = sorted(financial_df['MonthYear'].unique()) if not financial_df.empty else []
+        if 'MonthYear' not in financial_df.columns:
+            return []
+        periods = sorted(financial_df['MonthYear'].unique())
     elif period_column == 'QuarterYear':
-        periods = sorted(financial_df['QuarterYear'].unique()) if 'QuarterYear' in financial_df.columns else []
+        if 'QuarterYear' not in financial_df.columns:
+            return []
+        periods = sorted(financial_df['QuarterYear'].unique())
     elif period_column == 'FinancialYear':
-        periods = sorted(financial_df['FinancialYear'].unique()) if 'FinancialYear' in financial_df.columns else []
+        if 'FinancialYear' not in financial_df.columns:
+            return []
+        periods = sorted(financial_df['FinancialYear'].unique())
     else:
         return []
     
