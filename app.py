@@ -5,14 +5,11 @@ from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables, display_income_realization_analysis
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
+    display_site_wise_statistics
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
-from data_analysis import (
-    extract_screen_failures, prepare_financial_data,
-    display_site_wise_statistics,
-    display_processing_messages
-)
+from data_analysis import extract_screen_failures, display_processing_messages
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
