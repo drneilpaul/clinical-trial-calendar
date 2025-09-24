@@ -10,6 +10,7 @@ from display_components import (
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import extract_screen_failures, display_processing_messages
+from calculations import prepare_financial_data
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
