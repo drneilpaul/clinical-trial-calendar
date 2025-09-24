@@ -171,14 +171,6 @@ def visit_entry_modal():
                 visit_no = selected_visit.split(" ")[1].split(" ")[0]
                 visit_date = st.date_input("Visit Date")
                 
-                # Get default payment
-                visit_payment = existing_trials[
-                    (existing_trials["Study"] == study) & 
-                    (existing_trials["VisitNo"].astype(str) == visit_no)
-                ]
-                default_payment = visit_payment["Payment"].iloc[0] if len(visit_payment) > 0 and "Payment" in visit_payment.columns else 0
-                
-                actual_payment = st.number_input("Payment Amount", value=float(default_payment), min_value=0.0)
                 notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to stop future visits")
                 
                 # Validation
@@ -209,7 +201,6 @@ def visit_entry_modal():
                             "Study": study,
                             "VisitNo": visit_no,
                             "ActualDate": visit_date,
-                            "ActualPayment": actual_payment,
                             "Notes": notes or ""
                         }
                         
