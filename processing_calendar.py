@@ -361,6 +361,15 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
 
+    # Debug: Print visit records for first patient to see what's being generated
+    if visit_records:
+        first_patient_id = visit_records[0]['PatientID']
+        print(f"\nDEBUG: Visit records for {first_patient_id}:")
+        patient_records = [r for r in visit_records if r['PatientID'] == first_patient_id]
+        for record in sorted(patient_records, key=lambda x: x['Date']):
+            print(f"  Date: {record['Date'].strftime('%Y-%m-%d')}, Visit: '{record['Visit']}', VisitDay: {record.get('VisitDay', 'N/A')}, VisitName: '{record.get('VisitName', 'N/A')}'")
+        print("END DEBUG\n")
+
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
 
@@ -443,19 +452,23 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 if current_value == "":
                     calendar_df.at[i, col_id] = visit_info
                 else:
+                    # Handle multiple visits on same day
                     if visit_info in ["-", "+"]:
-                        if not any(x in current_value for x in ["✅", "🔴", "⚠"]):
+                        # Only add tolerance if there's no main visit already
+                        if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠"]) and not any(visit_name in str(current_value) for visit_name in ["Randomisation", "Screening", "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17", "V18", "V19", "V20", "V21"]):
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                             else:
                                 calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
                     else:
+                        # This is a main visit - it should replace tolerance periods
                         if current_value in ["-", "+", ""]:
                             calendar_df.at[i, col_id] = visit_info
                         else:
+                            # Multiple main visits on same day
                             calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
 
-            # Count payments
+            # Count payments for actual visits and scheduled main visits (not tolerance periods)
             if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
                 income_col = f"{study} Income"
                 if income_col in calendar_df.columns:
