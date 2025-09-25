@@ -9,9 +9,9 @@ def prepare_financial_data(visits_df):
     # Filter for relevant visits (exclude tolerance periods)
     financial_df = visits_df[
         (visits_df['Visit'].str.startswith("✅")) |
-        (visits_df['Visit'].str.startswith("❌ Screen Fail")) |
+        (visits_df['Visit'].str.startswith("⚠ Screen Fail")) |
         (visits_df['Visit'].str.startswith("🔴")) |
-        (visits_df['Visit'].str.contains('Visit', na=False) & (~visits_df.get('IsActual', False)))
+        (~visits_df['Visit'].isin(['-', '+']) & (~visits_df.get('IsActual', False)))
     ].copy()
 
     if not financial_df.empty:
@@ -211,22 +211,12 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
     period_column = period_config['column']
     period_name = period_config['name']
     
-    # FIXED: Check if financial_df has the required columns first
-    if financial_df.empty:
-        return []
-    
     if period_column == 'MonthYear':
-        if 'MonthYear' not in financial_df.columns:
-            return []
-        periods = sorted(financial_df['MonthYear'].unique())
+        periods = sorted(financial_df['MonthYear'].unique()) if not financial_df.empty else []
     elif period_column == 'QuarterYear':
-        if 'QuarterYear' not in financial_df.columns:
-            return []
-        periods = sorted(financial_df['QuarterYear'].unique())
+        periods = sorted(financial_df['QuarterYear'].unique()) if 'QuarterYear' in financial_df.columns else []
     elif period_column == 'FinancialYear':
-        if 'FinancialYear' not in financial_df.columns:
-            return []
-        periods = sorted(financial_df['FinancialYear'].unique())
+        periods = sorted(financial_df['FinancialYear'].unique()) if 'FinancialYear' in financial_df.columns else []
     else:
         return []
     
@@ -275,28 +265,20 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     completed_visits = fy_visits[fy_visits.get('IsActual', False)].copy()
     all_visits = fy_visits.copy()  # Both completed and scheduled
     
-    # Get payment amounts from trials file for each visit
-    # Create lookup for trial payments
+    # Get payment amounts from trials file for each visit - now using VisitName
     trials_lookup = {}
     for _, trial in trials_df.iterrows():
-        key = f"{trial['Study']}_{trial['VisitNo']}"
+        key = f"{trial['Study']}_{trial['VisitName']}"
         trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
     
     # Add trial payment amounts to visits
     def get_trial_payment(row):
-        # Extract visit number from visit string
-        visit_str = str(row['Visit'])
         study = str(row['Study'])
+        visit_name = str(row.get('VisitName', ''))  # Use VisitName from visits_df
         
-        # Handle different visit formats
-        if 'Visit' in visit_str:
-            # Extract number from "Visit 1", "✅ Visit 2", etc.
-            import re
-            match = re.search(r'Visit\s+(\d+)', visit_str)
-            if match:
-                visit_no = match.group(1)
-                key = f"{study}_{visit_no}"
-                return trials_lookup.get(key, 0)
+        if visit_name and visit_name not in ['-', '+']:
+            key = f"{study}_{visit_name}"
+            return trials_lookup.get(key, 0)
         return 0
     
     # Calculate metrics
@@ -347,23 +329,19 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
     # Add month-year column
     fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
     
-    # Get trial payments lookup
+    # Get trial payments lookup - now using VisitName
     trials_lookup = {}
     for _, trial in trials_df.iterrows():
-        key = f"{trial['Study']}_{trial['VisitNo']}"
+        key = f"{trial['Study']}_{trial['VisitName']}"
         trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
     
     def get_trial_payment(row):
-        visit_str = str(row['Visit'])
         study = str(row['Study'])
+        visit_name = str(row.get('VisitName', ''))
         
-        if 'Visit' in visit_str:
-            import re
-            match = re.search(r'Visit\s+(\d+)', visit_str)
-            if match:
-                visit_no = match.group(1)
-                key = f"{study}_{visit_no}"
-                return trials_lookup.get(key, 0)
+        if visit_name and visit_name not in ['-', '+']:
+            key = f"{study}_{visit_name}"
+            return trials_lookup.get(key, 0)
         return 0
     
     fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
@@ -409,23 +387,19 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
     # Remove tolerance periods
     remaining_visits = remaining_visits[~remaining_visits['Visit'].isin(['-', '+'])]
     
-    # Get trial payments
+    # Get trial payments - now using VisitName
     trials_lookup = {}
     for _, trial in trials_df.iterrows():
-        key = f"{trial['Study']}_{trial['VisitNo']}"
+        key = f"{trial['Study']}_{trial['VisitName']}"
         trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
     
     def get_trial_payment(row):
-        visit_str = str(row['Visit'])
         study = str(row['Study'])
+        visit_name = str(row.get('VisitName', ''))
         
-        if 'Visit' in visit_str:
-            import re
-            match = re.search(r'Visit\s+(\d+)', visit_str)
-            if match:
-                visit_no = match.group(1)
-                key = f"{study}_{visit_no}"
-                return trials_lookup.get(key, 0)
+        if visit_name and visit_name not in ['-', '+']:
+            key = f"{study}_{visit_name}"
+            return trials_lookup.get(key, 0)
         return 0
     
     remaining_visits['TrialPayment'] = remaining_visits.apply(get_trial_payment, axis=1)
@@ -445,23 +419,19 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
     """Calculate realization rates by site"""
     from datetime import date
     
-    # Get trial payments lookup
+    # Get trial payments lookup - now using VisitName
     trials_lookup = {}
     for _, trial in trials_df.iterrows():
-        key = f"{trial['Study']}_{trial['VisitNo']}"
+        key = f"{trial['Study']}_{trial['VisitName']}"
         trials_lookup[key] = float(trial.get('Payment', 0) or trial.get('Income', 0) or 0)
     
     def get_trial_payment(row):
-        visit_str = str(row['Visit'])
         study = str(row['Study'])
+        visit_name = str(row.get('VisitName', ''))
         
-        if 'Visit' in visit_str:
-            import re
-            match = re.search(r'Visit\s+(\d+)', visit_str)
-            if match:
-                visit_no = match.group(1)
-                key = f"{study}_{visit_no}"
-                return trials_lookup.get(key, 0)
+        if visit_name and visit_name not in ['-', '+']:
+            key = f"{study}_{visit_name}"
+            return trials_lookup.get(key, 0)
         return 0
     
     # Filter current financial year visits
