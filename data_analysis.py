@@ -50,9 +50,292 @@ def display_processing_messages(messages):
         for message in messages:
             if message.startswith("✅"):
                 st.success(message)
-            elif message.startswith("⚠️"):
+            elif message.startswith("⚠"):
                 st.warning(message)
             elif message.startswith("❌"):
                 st.error(message)
             else:
                 st.info(message)
+
+def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
+    """Display detailed statistics for each site with quarterly and financial year analysis"""
+    if visits_df.empty or patients_df.empty:
+        return
+    
+    st.subheader("📊 Site-wise Analysis")
+    
+    # Add time period columns to visits_df if not already present
+    visits_df_enhanced = visits_df.copy()
+    if 'QuarterYear' not in visits_df_enhanced.columns:
+        visits_df_enhanced['Quarter'] = visits_df_enhanced['Date'].dt.quarter
+        visits_df_enhanced['Year'] = visits_df_enhanced['Date'].dt.year
+        visits_df_enhanced['QuarterYear'] = visits_df_enhanced['Year'].astype(str) + '-Q' + visits_df_enhanced['Quarter'].astype(str)
+    
+    if 'FinancialYear' not in visits_df_enhanced.columns:
+        visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(
+            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+        )
+    
+    # Create tabs for each site
+    if len(unique_sites) > 1:
+        tabs = st.tabs(unique_sites)
+        
+        for i, site in enumerate(unique_sites):
+            with tabs[i]:
+                _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, site, screen_failures)
+    else:
+        # If only one site, display directly
+        _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, unique_sites[0], screen_failures)
+
+def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_failures):
+    """Display enhanced statistics for a single site including quarterly and financial year analysis"""
+    # Filter data for this site
+    site_patients = patients_df[patients_df['Site'] == site]
+    site_visits = visits_df[visits_df['SiteofVisit'] == site]
+    
+    if site_patients.empty:
+        st.warning(f"No patients found for site: {site}")
+        return
+    
+    st.subheader(f"🔍 {site} - Detailed Analysis")
+    
+    # Overall statistics
+    st.write("**Overall Statistics**")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_patients = len(site_patients)
+        st.metric("Total Patients", total_patients)
+    
+    with col2:
+        total_visits = len(site_visits)
+        st.metric("Total Visits", total_visits)
+    
+    with col3:
+        actual_visits = len(site_visits[site_visits.get('IsActual', False)])
+        st.metric("Completed Visits", actual_visits)
+    
+    with col4:
+        total_income = site_visits['Payment'].sum()
+        st.metric("Total Income", f"£{total_income:,.2f}")
+    
+    # Study breakdown
+    st.write("**Study Breakdown**")
+    study_breakdown = site_patients.groupby('Study').agg({
+        'PatientID': 'count'
+    }).rename(columns={'PatientID': 'Patient Count'})
+    
+    # Add visit counts and income
+    visit_breakdown = site_visits.groupby('Study').agg({
+        'Visit': 'count',
+        'Payment': 'sum'
+    }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
+    
+    combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
+    combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(lambda x: f"£{x:,.2f}")
+    
+    st.dataframe(combined_breakdown, use_container_width=True)
+    
+    # Quarterly Analysis
+    st.write("**Quarterly Analysis**")
+    
+    # Filter for relevant visits (exclude tolerance periods)
+    financial_site_visits = site_visits[
+        (site_visits['Visit'].str.startswith("✅", na=False)) |
+        (site_visits['Visit'].str.startswith("⚠ Screen Fail", na=False)) |
+        (site_visits['Visit'].str.startswith("🔴", na=False)) |
+        (~site_visits['Visit'].isin(['-', '+']) & (~site_visits.get('IsActual', False)))
+    ].copy()
+    
+    if not financial_site_visits.empty:
+        # Quarterly visit and income analysis
+        quarterly_stats = financial_site_visits.groupby('QuarterYear').agg({
+            'Visit': 'count',
+            'Payment': 'sum'
+        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
+        
+        if not quarterly_stats.empty:
+            quarterly_display = quarterly_stats.copy()
+            quarterly_display['Income'] = quarterly_display['Income'].apply(lambda x: f"£{x:,.2f}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("*Visit Counts by Quarter*")
+                st.dataframe(quarterly_stats[['Visit Count']], use_container_width=True)
+            
+            with col2:
+                st.write("*Income by Quarter*")
+                st.dataframe(quarterly_display[['Income']], use_container_width=True)
+    
+    # Financial Year Analysis
+    st.write("**Financial Year Analysis**")
+    
+    if not financial_site_visits.empty:
+        # Financial year visit and income analysis
+        fy_stats = financial_site_visits.groupby('FinancialYear').agg({
+            'Visit': 'count',
+            'Payment': 'sum'
+        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
+        
+        if not fy_stats.empty:
+            fy_display = fy_stats.copy()
+            fy_display['Income'] = fy_display['Income'].apply(lambda x: f"£{x:,.2f}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("*Visit Counts by Financial Year*")
+                st.dataframe(fy_stats[['Visit Count']], use_container_width=True)
+            
+            with col2:
+                st.write("*Income by Financial Year*")
+                st.dataframe(fy_display[['Income']], use_container_width=True)
+    
+    # Patient recruitment by time period
+    st.write("**Patient Recruitment Analysis**")
+    
+    # Add time period columns to patients data
+    site_patients_enhanced = site_patients.copy()
+    site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
+    site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
+    site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
+    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(
+        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+    )
+    
+    # Quarterly patient recruitment
+    quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()
+    
+    # Financial year patient recruitment
+    fy_recruitment = site_patients_enhanced.groupby('FinancialYear')['PatientID'].count()
+    
+    if not quarterly_recruitment.empty or not fy_recruitment.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if not quarterly_recruitment.empty:
+                st.write("*Patients Recruited by Quarter*")
+                quarterly_recruitment_df = quarterly_recruitment.to_frame()
+                quarterly_recruitment_df.columns = ['Patients Recruited']
+                st.dataframe(quarterly_recruitment_df, use_container_width=True)
+        
+        with col2:
+            if not fy_recruitment.empty:
+                st.write("*Patients Recruited by Financial Year*")
+                fy_recruitment_df = fy_recruitment.to_frame()
+                fy_recruitment_df.columns = ['Patients Recruited']
+                st.dataframe(fy_recruitment_df, use_container_width=True)
+    
+    # Combined quarterly summary
+    st.write("**Quarterly Summary Table**")
+    
+    # Create comprehensive quarterly summary
+    quarterly_summary_data = []
+    
+    all_quarters = set()
+    if not financial_site_visits.empty:
+        all_quarters.update(financial_site_visits['QuarterYear'].unique())
+    if not quarterly_recruitment.empty:
+        all_quarters.update(quarterly_recruitment.index)
+    
+    for quarter in sorted(all_quarters):
+        quarter_visits = quarterly_stats.loc[quarter, 'Visit Count'] if quarter in quarterly_stats.index else 0
+        quarter_income = quarterly_stats.loc[quarter, 'Income'] if quarter in quarterly_stats.index else 0
+        quarter_patients = quarterly_recruitment.loc[quarter] if quarter in quarterly_recruitment.index else 0
+        
+        quarterly_summary_data.append({
+            'Quarter': quarter,
+            'Patients Recruited': quarter_patients,
+            'Visits Completed': quarter_visits,
+            'Income': f"£{quarter_income:,.2f}"
+        })
+    
+    if quarterly_summary_data:
+        quarterly_summary_df = pd.DataFrame(quarterly_summary_data)
+        st.dataframe(quarterly_summary_df, use_container_width=True)
+    
+    # Combined financial year summary
+    st.write("**Financial Year Summary Table**")
+    
+    # Create comprehensive financial year summary
+    fy_summary_data = []
+    
+    all_fys = set()
+    if not financial_site_visits.empty:
+        all_fys.update(financial_site_visits['FinancialYear'].unique())
+    if not fy_recruitment.empty:
+        all_fys.update(fy_recruitment.index)
+    
+    for fy in sorted(all_fys):
+        fy_visits = fy_stats.loc[fy, 'Visit Count'] if fy in fy_stats.index else 0
+        fy_income = fy_stats.loc[fy, 'Income'] if fy in fy_stats.index else 0
+        fy_patients = fy_recruitment.loc[fy] if fy in fy_recruitment.index else 0
+        
+        fy_summary_data.append({
+            'Financial Year': fy,
+            'Patients Recruited': fy_patients,
+            'Visits Completed': fy_visits,
+            'Income': f"£{fy_income:,.2f}"
+        })
+    
+    if fy_summary_data:
+        fy_summary_df = pd.DataFrame(fy_summary_data)
+        st.dataframe(fy_summary_df, use_container_width=True)
+    
+    # Screen failures for this site
+    site_screen_failures = []
+    for patient in site_patients.itertuples():
+        patient_study_key = f"{patient.PatientID}_{patient.Study}"
+        if patient_study_key in screen_failures:
+            site_screen_failures.append({
+                'Patient': patient.PatientID,
+                'Study': patient.Study,
+                'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
+            })
+    
+    if site_screen_failures:
+        st.write("**Screen Failures**")
+        st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
+
+def display_monthly_analysis_by_site(visits_df):
+    """Display monthly analysis broken down by site"""
+    if visits_df.empty:
+        return
+    
+    st.subheader("📅 Monthly Analysis by Site")
+    
+    # Create monthly breakdown
+    visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
+    
+    # Group by month and site
+    monthly_site_data = visits_df.groupby(['MonthYear', 'SiteofVisit']).agg({
+        'Visit': 'count',
+        'Payment': 'sum'
+    }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
+    
+    # Pivot to show sites as columns
+    monthly_visits = monthly_site_data['Visit Count'].unstack(fill_value=0)
+    monthly_income = monthly_site_data['Income'].unstack(fill_value=0)
+    
+    # Display visit counts
+    st.write("**Monthly Visit Counts by Site:**")
+    monthly_visits.index = monthly_visits.index.astype(str)
+    st.dataframe(monthly_visits, use_container_width=True)
+    
+    # Display income
+    st.write("**Monthly Income by Site:**")
+    monthly_income_display = monthly_income.copy()
+    monthly_income_display.index = monthly_income_display.index.astype(str)
+    
+    # Format as currency
+    for col in monthly_income_display.columns:
+        monthly_income_display[col] = monthly_income_display[col].apply(lambda x: f"£{x:,.2f}")
+    
+    st.dataframe(monthly_income_display, use_container_width=True)
+    
+    # Chart showing monthly trends
+    if len(monthly_visits.columns) > 1:
+        st.write("**Monthly Visit Trends:**")
+        st.line_chart(monthly_visits)
+        
+        st.write("**Monthly Income Trends:**")
+        st.line_chart(monthly_income)
