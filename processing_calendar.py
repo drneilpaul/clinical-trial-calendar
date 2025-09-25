@@ -315,26 +315,29 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "VisitName": visit_name
                 })
 
-                # Add tolerance periods
-                for i in range(1, tolerance_before + 1):
-                    tolerance_date = scheduled_date - timedelta(days=i)
-                    if screen_fail_date is not None and tolerance_date > screen_fail_date:
-                        continue
-                    visit_records.append({
-                        "Date": tolerance_date,
-                        "PatientID": patient_id,
-                        "Visit": "-",
-                        "Study": study,
-                        "Payment": 0,
-                        "SiteofVisit": site,
-                        "PatientOrigin": patient_origin,
-                        "IsActual": False,
-                        "IsScreenFail": False,
-                        "IsOutOfProtocol": False,
-                        "VisitDay": visit_day,
-                        "VisitName": visit_name
-                    })
+                # Add tolerance periods - but skip tolerance before Day 1 visits
+                # Day 1 is the baseline, so tolerance periods before it don't make sense
+                if visit_day > 1:  # Only add tolerance periods for visits after Day 1
+                    for i in range(1, tolerance_before + 1):
+                        tolerance_date = scheduled_date - timedelta(days=i)
+                        if screen_fail_date is not None and tolerance_date > screen_fail_date:
+                            continue
+                        visit_records.append({
+                            "Date": tolerance_date,
+                            "PatientID": patient_id,
+                            "Visit": "-",
+                            "Study": study,
+                            "Payment": 0,
+                            "SiteofVisit": site,
+                            "PatientOrigin": patient_origin,
+                            "IsActual": False,
+                            "IsScreenFail": False,
+                            "IsOutOfProtocol": False,
+                            "VisitDay": visit_day,
+                            "VisitName": visit_name
+                        })
 
+                # Add tolerance periods after - this applies to all visits including Day 1
                 for i in range(1, tolerance_after + 1):
                     tolerance_date = scheduled_date + timedelta(days=i)
                     if screen_fail_date is not None and tolerance_date > screen_fail_date:
