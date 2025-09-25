@@ -43,13 +43,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         else:
             actual_visits_df["Notes"] = actual_visits_df["Notes"].fillna("").astype(str)
 
-        # Detect screen failures - only valid up to Day 1
+        # Detect screen failures - validate based on visit sequence, not scheduled days
         screen_fail_visits = actual_visits_df[
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
         
         for _, visit in screen_fail_visits.iterrows():
-            # Check if this visit is valid for screen failure (Day <= 1)
+            # For screen failure validation, we need to check if this represents a reasonable
+            # point for screen failure based on the visit sequence, not the scheduled day
             study_visits = trials_df[
                 (trials_df["Study"] == visit["Study"]) & 
                 (trials_df["VisitName"] == visit["VisitName"])
@@ -58,10 +59,36 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             if len(study_visits) == 0:
                 unmatched_visits.append(f"Screen failure visit '{visit['VisitName']}' not found in study {visit['Study']}")
                 continue
-                
-            visit_day = study_visits.iloc[0]["Day"]
-            if visit_day > 1:
-                raise ValueError(f"Screen failure cannot occur after Day 1. Visit '{visit['VisitName']}' is on Day {visit_day}")
+            
+            # Get all visits in this study to understand the sequence
+            all_study_visits = trials_df[trials_df["Study"] == visit["Study"]].sort_values('Day')
+            
+            # Find where this visit falls in the sequence
+            failed_visit_day = study_visits.iloc[0]["Day"]
+            
+            # Screen failures are allowed for:
+            # 1. Any visit that comes at or before the baseline visit (Day 1)
+            # 2. The actual randomisation visit itself (regardless of when scheduled)
+            baseline_visits = all_study_visits[all_study_visits["Day"] == 1]
+            
+            # If there's no Day 1 visit, use the earliest visit as reference
+            if len(baseline_visits) == 0:
+                baseline_day = all_study_visits.iloc[0]["Day"]
+            else:
+                baseline_day = 1
+            
+            # Allow screen failures for:
+            # - Pre-baseline visits (screening, etc.)
+            # - Baseline visits (randomisation)
+            # - Special case: if this is the randomisation visit, allow it regardless of scheduled day
+            is_randomisation = "randomisation" in visit["VisitName"].lower()
+            is_before_or_at_baseline = failed_visit_day <= baseline_day
+            
+            if not (is_before_or_at_baseline or is_randomisation):
+                # Only raise error for clearly post-baseline visits that aren't randomisation
+                post_baseline_visits = all_study_visits[all_study_visits["Day"] > baseline_day]
+                if len(post_baseline_visits) > 0 and failed_visit_day > baseline_day:
+                    st.warning(f"Note: Screen failure for '{visit['VisitName']}' in study {visit['Study']} occurs after baseline (Day {baseline_day}). This is unusual but will be processed.")
             
             patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
             screen_fail_date = visit['ActualDate']
@@ -163,9 +190,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
             continue
 
-        # Find Day 1 baseline visit
+        # Find baseline visit - prioritize actual Day 1 visit, but handle flexible baseline
         day_1_visits = study_visits[study_visits["Day"] == 1]
-        baseline_visit_name = day_1_visits.iloc[0]["VisitName"]
+        if len(day_1_visits) > 0:
+            baseline_visit_name = day_1_visits.iloc[0]["VisitName"]
+        else:
+            # If no Day 1 visit, use the earliest visit as baseline
+            baseline_visit_name = study_visits.iloc[0]["VisitName"]
+            st.warning(f"Study {study} has no Day 1 visit. Using {baseline_visit_name} as baseline.")
 
         # Get all actual visits for this patient
         patient_actual_visits = {}
@@ -187,17 +219,28 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 patient_actual_visits[visit_name] = actual_visit
                 actual_visits_used += 1
 
-        # Determine baseline date - Day 1 actual date or start date
+        # Determine baseline date - actual baseline visit or start date
         baseline_date = start_date  # Default baseline
-        day_1_actual_date = None
+        actual_baseline_date = None
         patient_needs_recalc = False
         
-        # Check if we have an actual Day 1 visit
+        # Check if we have an actual baseline visit
         if baseline_visit_name in patient_actual_visits:
-            day_1_actual_date = patient_actual_visits[baseline_visit_name]["ActualDate"]
-            if day_1_actual_date != start_date:
-                baseline_date = day_1_actual_date
+            actual_baseline_date = patient_actual_visits[baseline_visit_name]["ActualDate"]
+            if actual_baseline_date != start_date:
+                baseline_date = actual_baseline_date
                 patient_needs_recalc = True
+        
+        # IMPORTANT: If we have any actual visit, particularly randomisation, 
+        # that should take precedence for timeline establishment
+        actual_randomisation = None
+        for visit_name, actual_data in patient_actual_visits.items():
+            if "randomisation" in visit_name.lower():
+                actual_randomisation = actual_data["ActualDate"]
+                if actual_randomisation != baseline_date:
+                    baseline_date = actual_randomisation
+                    patient_needs_recalc = True
+                break
 
         # Process all visits for this patient
         for _, visit in study_visits.iterrows():
