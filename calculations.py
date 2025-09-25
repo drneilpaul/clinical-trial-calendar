@@ -6,23 +6,30 @@ def prepare_financial_data(visits_df):
     if visits_df.empty:
         return pd.DataFrame()
     
-    # Filter for relevant visits (exclude tolerance periods)
-    financial_df = visits_df[
-        (visits_df['Visit'].str.startswith("✅")) |
-        (visits_df['Visit'].str.startswith("⚠ Screen Fail")) |
-        (visits_df['Visit'].str.startswith("🔴")) |
-        (~visits_df['Visit'].isin(['-', '+']) & (~visits_df.get('IsActual', False)))
-    ].copy()
+    # Create copy first
+    financial_df = visits_df.copy()
+    
+    # Filter for relevant visits (exclude only tolerance periods '-' and '+')
+    # Include: actual visits (with ✅, 🔴, ⚠), scheduled visits (plain visit names), but exclude tolerance periods
+    mask = ~financial_df['Visit'].isin(['-', '+'])
+    
+    financial_df = financial_df[mask].copy()
 
-    if not financial_df.empty:
-        # Add all time period columns
-        financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
-        financial_df['Quarter'] = financial_df['Date'].dt.quarter
-        financial_df['Year'] = financial_df['Date'].dt.year
-        financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
-        financial_df['FinancialYear'] = financial_df['Date'].apply(
-            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-        )
+    if financial_df.empty:
+        # If filtering results in empty df, create empty df with required columns
+        financial_df = pd.DataFrame()
+        for col in ['MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
+            financial_df[col] = pd.Series(dtype='object')
+        return financial_df
+        
+    # Add all time period columns
+    financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
+    financial_df['Quarter'] = financial_df['Date'].dt.quarter
+    financial_df['Year'] = financial_df['Date'].dt.year
+    financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
+    financial_df['FinancialYear'] = financial_df['Date'].apply(
+        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
+    )
     
     return financial_df
 
