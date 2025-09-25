@@ -43,14 +43,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         else:
             actual_visits_df["Notes"] = actual_visits_df["Notes"].fillna("").astype(str)
 
-        # Detect screen failures - validate based on visit sequence, not scheduled days
+        # Detect screen failures - flexible validation based on clinical logic
         screen_fail_visits = actual_visits_df[
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
         
         for _, visit in screen_fail_visits.iterrows():
-            # For screen failure validation, we need to check if this represents a reasonable
-            # point for screen failure based on the visit sequence, not the scheduled day
+            # Just store the screen failure - remove all strict validation
+            # Clinical decision: actual visits override scheduled constraints
+            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+            screen_fail_date = visit['ActualDate']
+            
+            # Verify the visit exists in the study (basic validation only)
             study_visits = trials_df[
                 (trials_df["Study"] == visit["Study"]) & 
                 (trials_df["VisitName"] == visit["VisitName"])
@@ -60,40 +64,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 unmatched_visits.append(f"Screen failure visit '{visit['VisitName']}' not found in study {visit['Study']}")
                 continue
             
-            # Get all visits in this study to understand the sequence
-            all_study_visits = trials_df[trials_df["Study"] == visit["Study"]].sort_values('Day')
-            
-            # Find where this visit falls in the sequence
-            failed_visit_day = study_visits.iloc[0]["Day"]
-            
-            # Screen failures are allowed for:
-            # 1. Any visit that comes at or before the baseline visit (Day 1)
-            # 2. The actual randomisation visit itself (regardless of when scheduled)
-            baseline_visits = all_study_visits[all_study_visits["Day"] == 1]
-            
-            # If there's no Day 1 visit, use the earliest visit as reference
-            if len(baseline_visits) == 0:
-                baseline_day = all_study_visits.iloc[0]["Day"]
-            else:
-                baseline_day = 1
-            
-            # Allow screen failures for:
-            # - Pre-baseline visits (screening, etc.)
-            # - Baseline visits (randomisation)
-            # - Special case: if this is the randomisation visit, allow it regardless of scheduled day
-            is_randomisation = "randomisation" in visit["VisitName"].lower()
-            is_before_or_at_baseline = failed_visit_day <= baseline_day
-            
-            if not (is_before_or_at_baseline or is_randomisation):
-                # Only raise error for clearly post-baseline visits that aren't randomisation
-                post_baseline_visits = all_study_visits[all_study_visits["Day"] > baseline_day]
-                if len(post_baseline_visits) > 0 and failed_visit_day > baseline_day:
-                    st.warning(f"Note: Screen failure for '{visit['VisitName']}' in study {visit['Study']} occurs after baseline (Day {baseline_day}). This is unusual but will be processed.")
-            
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-            screen_fail_date = visit['ActualDate']
+            # Store the screen failure date (no day-based restrictions)
             if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
                 screen_failures[patient_study_key] = screen_fail_date
+                st.info(f"Screen failure recorded for patient {visit['PatientID']} at {visit['VisitName']} on {screen_fail_date.strftime('%Y-%m-%d')}")
 
         # Create lookup key for actual visits
         actual_visits_df["VisitKey"] = (
@@ -404,26 +378,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Track patients that had recalculations
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
-
-    # Debug: Print visit records for first patient to see what's being generated
-    if visit_records:
-        first_patient_id = visit_records[0]['PatientID']
-        first_patient_study = visit_records[0]['Study']
-        st.write(f"**DEBUG: Visit records for {first_patient_id} ({first_patient_study}):**")
-        patient_records = [r for r in visit_records if r['PatientID'] == first_patient_id and r['Study'] == first_patient_study]
-        
-        # Show only first 20 records to avoid overwhelming the screen
-        for i, record in enumerate(sorted(patient_records, key=lambda x: x['Date'])[:20]):
-            visit_display = record['Visit']
-            day_display = record.get('VisitDay', 'N/A')
-            name_display = record.get('VisitName', 'N/A')
-            st.write(f"  {i+1}. Date: {record['Date'].strftime('%Y-%m-%d')}, Visit: '{visit_display}', VisitDay: {day_display}, VisitName: '{name_display}'")
-        
-        if len(patient_records) > 20:
-            st.write(f"  ... and {len(patient_records) - 20} more records")
-        
-        st.write("**END DEBUG**")
-        st.divider()
 
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
