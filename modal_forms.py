@@ -146,7 +146,7 @@ def patient_entry_modal():
     patient_form()
 
 def visit_entry_modal():
-    """Modal for recording visits - now using VisitName"""
+    """Modal for recording visits - VisitName based, no payment fields"""
     @st.dialog("Record Visit")
     def visit_form():
         patients_file = st.session_state.get('patients_file')
@@ -181,41 +181,32 @@ def visit_entry_modal():
             patient_id = patient_info[0]
             study = patient_info[1].rstrip(")")
             
-            # Get available visits for this study - now using VisitName and sorted by Day
+            # Get available visits for this study - using VisitName and sorted by Day
             study_visits = existing_trials[existing_trials["Study"] == study].sort_values('Day')
             visit_options = []
             for _, visit in study_visits.iterrows():
                 day = visit['Day']
                 visit_name = visit['VisitName']
-                # Show visit name and day for clarity
                 visit_options.append(f"{visit_name} (Day {day})")
             
             selected_visit = st.selectbox("Visit", options=visit_options)
             
             if selected_visit:
-                # Extract visit name from the selection - everything before " (Day "
+                # Extract visit name from the selection
                 visit_name = selected_visit.split(" (Day ")[0]
-                visit_date = st.date_input("Visit Date")
                 
-                # Get default payment for this visit
-                visit_payment_row = existing_trials[
-                    (existing_trials["Study"] == study) & 
-                    (existing_trials["VisitName"] == visit_name)
-                ]
-                default_payment = visit_payment_row["Payment"].iloc[0] if len(visit_payment_row) > 0 and "Payment" in visit_payment_row.columns else 0
+                # UK date format
+                visit_date = st.date_input("Visit Date", format="DD/MM/YYYY")
                 
-                actual_payment = st.number_input("Payment Amount", value=float(default_payment), min_value=0.0)
-                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to mark screen failures - now allowed for any visit")
+                # Notes only - no payment field
+                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to mark screen failures")
                 
                 # Validation
                 validation_errors = []
                 if visit_date > date.today():
                     validation_errors.append("Visit date cannot be in future")
                 
-                # Remove the old Day 1 screen failure restriction
-                # Screen failures are now allowed for any visit
-                
-                # Check for duplicates - now using VisitName
+                # Check for duplicates
                 if len(existing_visits) > 0:
                     duplicate_visit = existing_visits[
                         (existing_visits["PatientID"].astype(str) == str(patient_id)) &
@@ -232,13 +223,12 @@ def visit_entry_modal():
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("Record Visit", disabled=bool(validation_errors), use_container_width=True):
-                        # Create new visit record - now using VisitName
+                        # Create new visit record - no ActualPayment field
                         new_visit_data = {
                             "PatientID": patient_id,
                             "Study": study,
-                            "VisitName": visit_name,  # Changed from VisitNo to VisitName
+                            "VisitName": visit_name,
                             "ActualDate": visit_date,
-                            "ActualPayment": actual_payment,
                             "Notes": notes or ""
                         }
                         
