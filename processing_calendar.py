@@ -364,11 +364,22 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     # Debug: Print visit records for first patient to see what's being generated
     if visit_records:
         first_patient_id = visit_records[0]['PatientID']
-        print(f"\nDEBUG: Visit records for {first_patient_id}:")
-        patient_records = [r for r in visit_records if r['PatientID'] == first_patient_id]
-        for record in sorted(patient_records, key=lambda x: x['Date']):
-            print(f"  Date: {record['Date'].strftime('%Y-%m-%d')}, Visit: '{record['Visit']}', VisitDay: {record.get('VisitDay', 'N/A')}, VisitName: '{record.get('VisitName', 'N/A')}'")
-        print("END DEBUG\n")
+        first_patient_study = visit_records[0]['Study']
+        st.write(f"**DEBUG: Visit records for {first_patient_id} ({first_patient_study}):**")
+        patient_records = [r for r in visit_records if r['PatientID'] == first_patient_id and r['Study'] == first_patient_study]
+        
+        # Show only first 20 records to avoid overwhelming the screen
+        for i, record in enumerate(sorted(patient_records, key=lambda x: x['Date'])[:20]):
+            visit_display = record['Visit']
+            day_display = record.get('VisitDay', 'N/A')
+            name_display = record.get('VisitName', 'N/A')
+            st.write(f"  {i+1}. Date: {record['Date'].strftime('%Y-%m-%d')}, Visit: '{visit_display}', VisitDay: {day_display}, VisitName: '{name_display}'")
+        
+        if len(patient_records) > 20:
+            st.write(f"  ... and {len(patient_records) - 20} more records")
+        
+        st.write("**END DEBUG**")
+        st.divider()
 
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
