@@ -6,6 +6,11 @@ def prepare_financial_data(visits_df):
     if visits_df.empty:
         return pd.DataFrame()
     
+    # Debug: Show visit values on screen
+    st.write(f"**DEBUG prepare_financial_data:** Total visits: {len(visits_df)}")
+    unique_visits = visits_df['Visit'].unique()
+    st.write(f"**Unique visit values:** {list(unique_visits[:15])}")  # Show first 15
+    
     # Create copy first
     financial_df = visits_df.copy()
     
@@ -14,13 +19,15 @@ def prepare_financial_data(visits_df):
     mask = ~financial_df['Visit'].isin(['-', '+'])
     
     financial_df = financial_df[mask].copy()
+    st.write(f"**After filtering:** {len(financial_df)} visits remain")
 
     if financial_df.empty:
+        st.error("WARNING: financial_df is empty after filtering!")
         # If filtering results in empty df, create empty df with required columns
-        financial_df = pd.DataFrame()
+        empty_df = pd.DataFrame()
         for col in ['MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
-            financial_df[col] = pd.Series(dtype='object')
-        return financial_df
+            empty_df[col] = pd.Series(dtype='object')
+        return empty_df
         
     # Add all time period columns
     financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
@@ -31,6 +38,7 @@ def prepare_financial_data(visits_df):
         lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
     )
     
+    st.success(f"Financial data prepared with {len(financial_df)} records")
     return financial_df
 
 def calculate_work_ratios(data_df, period_column, period_value):
