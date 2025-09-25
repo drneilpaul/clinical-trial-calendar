@@ -24,9 +24,12 @@ def prepare_financial_data(visits_df):
 
     if financial_df.empty:
         st.error("WARNING: financial_df is empty after filtering!")
-        # If filtering results in empty df, create empty df with required columns
+        # If filtering results in empty df, create empty df with required columns and proper structure
         empty_df = pd.DataFrame()
-        for col in ['MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
+        # Add all the required columns that the rest of the code expects
+        for col in ['Date', 'Visit', 'Study', 'Payment', 'SiteofVisit', 'PatientOrigin', 
+                   'IsActual', 'IsScreenFail', 'IsOutOfProtocol', 'VisitDay', 'VisitName',
+                   'MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
             empty_df[col] = pd.Series(dtype='object')
         return empty_df
         
@@ -226,6 +229,11 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
     """Build ratio breakdown data for any time period"""
     period_column = period_config['column']
     period_name = period_config['name']
+    
+    # Handle empty financial_df case
+    if financial_df.empty or period_column not in financial_df.columns:
+        st.warning(f"No data available for {period_config['title']}")
+        return []
     
     if period_column == 'MonthYear':
         periods = sorted(financial_df['MonthYear'].unique()) if not financial_df.empty else []
