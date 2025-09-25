@@ -51,7 +51,13 @@ def patient_entry_modal():
         # Main form fields first
         new_patient_id = st.text_input("Patient ID")
         new_study = st.selectbox("Study", options=available_studies)
-        new_start_date = st.date_input("Start Date")
+        
+        # Use columns to make the date input more prominent
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.write("**Start Date:**")
+        with col2:
+            new_start_date = st.date_input("", value=date.today(), key="patient_start_date")
         
         # Get existing sites
         patient_origin_col = None
