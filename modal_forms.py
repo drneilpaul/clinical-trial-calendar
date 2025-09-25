@@ -57,7 +57,7 @@ def patient_entry_modal():
         with col1:
             st.write("**Start Date:**")
         with col2:
-            new_start_date = st.date_input("", value=date.today(), key="patient_start_date")
+            new_start_date = st.date_input("", value=date.today(), format="DD/MM/YYYY", key="patient_start_date")
         
         # Get existing sites
         patient_origin_col = None
