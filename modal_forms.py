@@ -174,13 +174,13 @@ def visit_entry_modal():
             for _, visit in study_visits.iterrows():
                 day = visit['Day']
                 visit_name = visit['VisitName']
-                # Show day and visit name for clarity
+                # Show visit name and day for clarity
                 visit_options.append(f"{visit_name} (Day {day})")
             
             selected_visit = st.selectbox("Visit", options=visit_options)
             
             if selected_visit:
-                # Extract visit name from the selection
+                # Extract visit name from the selection - everything before " (Day "
                 visit_name = selected_visit.split(" (Day ")[0]
                 visit_date = st.date_input("Visit Date")
                 
@@ -192,18 +192,15 @@ def visit_entry_modal():
                 default_payment = visit_payment_row["Payment"].iloc[0] if len(visit_payment_row) > 0 and "Payment" in visit_payment_row.columns else 0
                 
                 actual_payment = st.number_input("Payment Amount", value=float(default_payment), min_value=0.0)
-                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to stop future visits (only valid for visits up to Day 1)")
+                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to mark screen failures - now allowed for any visit")
                 
                 # Validation
                 validation_errors = []
                 if visit_date > date.today():
                     validation_errors.append("Visit date cannot be in future")
                 
-                # Check if this is a screen failure and validate it's allowed
-                if "ScreenFail" in notes:
-                    visit_day = visit_payment_row["Day"].iloc[0] if len(visit_payment_row) > 0 else 999
-                    if visit_day > 1:
-                        validation_errors.append(f"Screen failures can only occur up to Day 1. {visit_name} is on Day {visit_day}")
+                # Remove the old Day 1 screen failure restriction
+                # Screen failures are now allowed for any visit
                 
                 # Check for duplicates - now using VisitName
                 if len(existing_visits) > 0:
