@@ -91,7 +91,12 @@ def display_action_buttons():
             st.session_state.show_patient_form = True
     with col2:
         if st.button("Record Visit", use_container_width=True):
-            st.session_state.show_visit_form = True
+            # Check if actual visits file is loaded before showing form
+            actual_visits_file = st.session_state.get('actual_visits_file')
+            if actual_visits_file:
+                st.session_state.show_visit_form = True
+            else:
+                st.error("Please upload an Actual Visits file before recording visits")
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
