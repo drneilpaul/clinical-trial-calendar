@@ -76,6 +76,15 @@ def patient_entry_modal():
         if new_start_date and new_start_date > date.today():
             validation_errors.append("Start date cannot be in future")
         
+        # Validate that the selected study has a Day 1 visit
+        if new_study:
+            study_visits = existing_trials[existing_trials["Study"] == new_study]
+            day_1_visits = study_visits[study_visits["Day"] == 1]
+            if len(day_1_visits) == 0:
+                validation_errors.append(f"Study {new_study} has no Day 1 visit defined")
+            elif len(day_1_visits) > 1:
+                validation_errors.append(f"Study {new_study} has multiple Day 1 visits - only one allowed")
+        
         if validation_errors:
             for error in validation_errors:
                 st.error(error)
@@ -124,7 +133,7 @@ def patient_entry_modal():
     patient_form()
 
 def visit_entry_modal():
-    """Modal for recording visits"""
+    """Modal for recording visits - now using VisitName"""
     @st.dialog("Record Visit")
     def visit_form():
         patients_file = st.session_state.get('patients_file')
@@ -159,34 +168,52 @@ def visit_entry_modal():
             patient_id = patient_info[0]
             study = patient_info[1].rstrip(")")
             
-            # Get available visits for this study
-            study_visits = existing_trials[existing_trials["Study"] == study]
+            # Get available visits for this study - now using VisitName and sorted by Day
+            study_visits = existing_trials[existing_trials["Study"] == study].sort_values('Day')
             visit_options = []
             for _, visit in study_visits.iterrows():
-                visit_options.append(f"Visit {visit['VisitNo']} (Day {visit['Day']})")
+                day = visit['Day']
+                visit_name = visit['VisitName']
+                # Show day and visit name for clarity
+                visit_options.append(f"{visit_name} (Day {day})")
             
-            selected_visit = st.selectbox("Visit Number", options=visit_options)
+            selected_visit = st.selectbox("Visit", options=visit_options)
             
             if selected_visit:
-                visit_no = selected_visit.split(" ")[1].split(" ")[0]
+                # Extract visit name from the selection
+                visit_name = selected_visit.split(" (Day ")[0]
                 visit_date = st.date_input("Visit Date")
                 
-                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to stop future visits")
+                # Get default payment for this visit
+                visit_payment_row = existing_trials[
+                    (existing_trials["Study"] == study) & 
+                    (existing_trials["VisitName"] == visit_name)
+                ]
+                default_payment = visit_payment_row["Payment"].iloc[0] if len(visit_payment_row) > 0 and "Payment" in visit_payment_row.columns else 0
+                
+                actual_payment = st.number_input("Payment Amount", value=float(default_payment), min_value=0.0)
+                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to stop future visits (only valid for visits up to Day 1)")
                 
                 # Validation
                 validation_errors = []
                 if visit_date > date.today():
                     validation_errors.append("Visit date cannot be in future")
                 
-                # Check for duplicates
+                # Check if this is a screen failure and validate it's allowed
+                if "ScreenFail" in notes:
+                    visit_day = visit_payment_row["Day"].iloc[0] if len(visit_payment_row) > 0 else 999
+                    if visit_day > 1:
+                        validation_errors.append(f"Screen failures can only occur up to Day 1. {visit_name} is on Day {visit_day}")
+                
+                # Check for duplicates - now using VisitName
                 if len(existing_visits) > 0:
                     duplicate_visit = existing_visits[
                         (existing_visits["PatientID"].astype(str) == str(patient_id)) &
                         (existing_visits["Study"] == study) &
-                        (existing_visits["VisitNo"].astype(str) == visit_no)
+                        (existing_visits["VisitName"] == visit_name)
                     ]
                     if len(duplicate_visit) > 0:
-                        validation_errors.append(f"Visit {visit_no} for patient {patient_id} already recorded")
+                        validation_errors.append(f"Visit '{visit_name}' for patient {patient_id} already recorded")
                 
                 if validation_errors:
                     for error in validation_errors:
@@ -195,12 +222,13 @@ def visit_entry_modal():
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("Record Visit", disabled=bool(validation_errors), use_container_width=True):
-                        # Create new visit record
+                        # Create new visit record - now using VisitName
                         new_visit_data = {
                             "PatientID": patient_id,
                             "Study": study,
-                            "VisitNo": visit_no,
+                            "VisitName": visit_name,  # Changed from VisitNo to VisitName
                             "ActualDate": visit_date,
+                            "ActualPayment": actual_payment,
                             "Notes": notes or ""
                         }
                         
