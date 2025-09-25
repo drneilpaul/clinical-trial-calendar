@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd  # Added this import
 from helpers import load_file, normalize_columns, parse_dates_column
 from processing_calendar import build_calendar
 from display_components import (
