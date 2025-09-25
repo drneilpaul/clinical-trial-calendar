@@ -1,4 +1,5 @@
 import pandas as pd
+import streamlit as st
 from datetime import date
 
 def prepare_financial_data(visits_df):
