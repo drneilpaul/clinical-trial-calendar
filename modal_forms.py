@@ -56,18 +56,27 @@ def patient_entry_modal():
                 patient_origin_col = col
                 break
         
-        existing_sites = sorted(existing_patients[patient_origin_col].dropna().unique().tolist()) if patient_origin_col else ["Ashfields", "Kiltearn"]
+        # Set up site selection based on whether we found an origin column
+        if patient_origin_col:
+            existing_sites = sorted(existing_patients[patient_origin_col].dropna().unique().tolist())
+            if not existing_sites:  # If column exists but is empty
+                existing_sites = ["Ashfields", "Kiltearn"]
+            
+            new_site = st.selectbox(f"Patient Site ({patient_origin_col})", options=existing_sites + ["Add New..."])
+            if new_site == "Add New...":
+                new_site = st.text_input("Enter New Site Name")
+                if not new_site:  # Prevent empty new site names
+                    st.warning("Please enter a site name or select from existing sites")
+        else:
+            # No patient origin column found - use text input with default
+            st.info("No patient site column found in your data. Using 'PatientPractice' as default.")
+            new_site = st.text_input("Patient Site", value="Ashfields")
+            patient_origin_col = "PatientPractice"  # Set default column name
         
+        # Main form fields
         new_patient_id = st.text_input("Patient ID")
         new_study = st.selectbox("Study", options=available_studies)
         new_start_date = st.date_input("Start Date")
-        
-        if patient_origin_col:
-            new_site = st.selectbox(f"{patient_origin_col}", options=existing_sites + ["Add New..."])
-            if new_site == "Add New...":
-                new_site = st.text_input("New Site Name")
-        else:
-            new_site = st.text_input("Patient Site")
         
         # Validation
         validation_errors = []
