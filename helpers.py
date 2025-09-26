@@ -242,3 +242,74 @@ def get_financial_year_boundaries(fy_string):
     end_date = pd.Timestamp(f"{start_year + 1}-03-31")
     
     return start_date, end_date
+
+def get_current_financial_year_boundaries():
+    """
+    Get the start and end dates for the current financial year
+    
+    Returns:
+        tuple: (start_date, end_date) as pandas.Timestamp objects
+    """
+    from datetime import date
+    today = pd.to_datetime(date.today())
+    
+    if today.month >= 4:
+        fy_start = pd.to_datetime(f"{today.year}-04-01")
+        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
+    else:
+        fy_start = pd.to_datetime(f"{today.year - 1}-04-01")
+        fy_end = pd.to_datetime(f"{today.year}-03-31")
+    
+    return fy_start, fy_end
+
+def create_trial_payment_lookup(trials_df):
+    """
+    Create a lookup dictionary for trial payments by study and visit name
+    
+    Args:
+        trials_df: DataFrame with trial information
+        
+    Returns:
+        dict: Dictionary with keys like "Study_VisitName" and payment values
+    """
+    trials_lookup = {}
+    
+    if trials_df.empty:
+        return trials_lookup
+    
+    for _, trial in trials_df.iterrows():
+        study = str(trial['Study'])
+        visit_name = str(trial['VisitName'])
+        payment_key = f"{study}_{visit_name}"
+        
+        # Handle payment column with multiple possible names
+        payment = 0.0
+        for col in ['Payment', 'Income', 'Cost']:
+            if col in trial.index and pd.notna(trial.get(col)):
+                try:
+                    payment = float(trial[col])
+                    break
+                except (ValueError, TypeError):
+                    continue
+        
+        trials_lookup[payment_key] = payment
+    
+    return trials_lookup
+
+def get_trial_payment_for_visit(trials_lookup, study, visit_name):
+    """
+    Get payment amount for a specific study and visit from the lookup dictionary
+    
+    Args:
+        trials_lookup: Dictionary created by create_trial_payment_lookup
+        study: Study name
+        visit_name: Visit name
+        
+    Returns:
+        float: Payment amount or 0 if not found
+    """
+    if not visit_name or visit_name in ['-', '+']:
+        return 0
+    
+    key = f"{study}_{visit_name}"
+    return trials_lookup.get(key, 0)
