@@ -1,484 +1,258 @@
-import streamlit as st
 import pandas as pd
-from formatters import (
-    apply_currency_formatting, apply_currency_or_empty_formatting,
-    create_fy_highlighting_function, format_dataframe_index_as_string,
-    format_currency, clean_numeric_for_display, apply_conditional_formatting
-)
-from calculations import (
-    calculate_income_realization_metrics, calculate_monthly_realization_breakdown,
-    calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
-)
-from helpers import get_financial_year
+import io
+from datetime import datetime
 
-def create_pivot_income_table(financial_df, group_cols, period_col, value_col='Payment'):
-    """Create a pivot table for income analysis"""
-    if financial_df.empty:
-        return None, None
+def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_column_mapping, unique_sites):
+    """Create Excel export with enhanced explanatory headers and documentation"""
     
-    income_by_period = financial_df.groupby(group_cols)[value_col].sum().reset_index()
-    if income_by_period.empty:
-        return None, None
-    
-    pivot = income_by_period.pivot(index=period_col, columns='SiteofVisit', values=value_col).fillna(0)
-    pivot['Total'] = pivot.sum(axis=1)
-    
-    return pivot, income_by_period
-
-def create_financial_year_totals(financial_df, site_columns):
-    """Create financial year totals for income data"""
-    fy_totals = []
-    for fy in sorted(financial_df['FinancialYear'].unique()):
-        fy_data = financial_df[financial_df['FinancialYear'] == fy]
-        fy_income_by_site = fy_data.groupby('SiteofVisit')['Payment'].sum()
-        
-        fy_row = {}
-        for site in site_columns:
-            if site == 'Total':
-                fy_row[site] = fy_income_by_site.sum()
-            else:
-                fy_row[site] = fy_income_by_site.get(site, 0)
-        
-        fy_totals.append((f"FY {fy}", fy_row))
-    
-    return fy_totals
-
-def display_income_table_pair(financial_df):
-    """Display monthly and quarterly income tables side by side"""
-    # Monthly analysis
-    monthly_pivot, _ = create_pivot_income_table(
-        financial_df, ['SiteofVisit', 'MonthYear'], 'MonthYear'
-    )
-    
-    # Quarterly analysis
-    quarterly_pivot, _ = create_pivot_income_table(
-        financial_df, ['SiteofVisit', 'QuarterYear'], 'QuarterYear'
-    )
-    
-    if monthly_pivot is not None and quarterly_pivot is not None:
-        # Create financial year totals
-        fy_monthly_totals = create_financial_year_totals(financial_df, monthly_pivot.columns)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Monthly Income by Visit Site**")
-            monthly_display = format_dataframe_index_as_string(monthly_pivot)
-            monthly_display = apply_currency_formatting(monthly_display, monthly_display.columns)
-            st.dataframe(monthly_display, use_container_width=True)
-            
-            # Financial year totals for monthly
-            if fy_monthly_totals:
-                st.write("**Financial Year Totals (Monthly)**")
-                display_fy_totals_table(fy_monthly_totals)
-        
-        with col2:
-            st.write("**Quarterly Income by Visit Site**")
-            quarterly_display = apply_currency_formatting(quarterly_pivot, quarterly_pivot.columns)
-            st.dataframe(quarterly_display, use_container_width=True)
-
-def display_fy_totals_table(fy_totals):
-    """Display financial year totals table"""
-    fy_data = []
-    for fy_name, fy_row in fy_totals:
-        formatted_row = {"Financial Year": fy_name}
-        for col, val in fy_row.items():
-            formatted_row[col] = format_currency(val)
-        fy_data.append(formatted_row)
-    
-    fy_df = pd.DataFrame(fy_data)
-    st.dataframe(fy_df, use_container_width=True)
-
-def create_styled_dataframe(df, highlight_column=None, highlight_value=None):
-    """Create a styled dataframe with optional highlighting"""
-    if highlight_column and highlight_value:
-        style_dict = {"bg_color": "#e6f3ff", "weight": "bold"}
-        return apply_conditional_formatting(df, highlight_column, highlight_value, style_dict)
-    return df
-
-def display_profit_sharing_table(quarterly_ratios):
-    """Display the main profit sharing analysis table"""
-    if not quarterly_ratios:
-        st.warning("No quarterly data available for analysis.")
-        return
-    
-    quarterly_df = pd.DataFrame(quarterly_ratios)
-    
-    # Style to highlight financial year rows
-    highlight_function = create_fy_highlighting_function()
-    styled_df = quarterly_df.style.apply(highlight_function, axis=1)
-    
-    st.write("**Quarterly Profit Sharing Analysis**")
-    st.dataframe(styled_df, use_container_width=True)
-
-def display_ratio_breakdown_table(ratio_data, title):
-    """Display a ratio breakdown table"""
-    if not ratio_data:
-        return
-    
-    st.write(f"**{title}**")
-    ratio_df = pd.DataFrame(ratio_data)
-    st.dataframe(ratio_df, use_container_width=True)
-
-def create_summary_metrics_row(data_dict, columns=4):
-    """Create a row of metric displays"""
-    cols = st.columns(columns)
-    
-    for i, (label, value) in enumerate(data_dict.items()):
-        with cols[i % columns]:
-            st.metric(label, value)
-
-def display_breakdown_by_study(df, patient_df, site):
-    """Display study breakdown for a specific site"""
-    site_patients = patient_df[patient_df['Site'] == site]
-    site_visits = df[df['SiteofVisit'] == site]
-    
-    if site_patients.empty:
-        return
-    
-    # Study breakdown
-    study_breakdown = site_patients.groupby('Study').agg({
-        'PatientID': 'count'
-    }).rename(columns={'PatientID': 'Patient Count'})
-    
-    # Add visit counts and income
-    visit_breakdown = site_visits.groupby('Study').agg({
-        'Visit': 'count',
-        'Payment': 'sum'
-    }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
-    
-    # Combine data
-    combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
-    combined_breakdown = apply_currency_formatting(combined_breakdown, ['Total Income'])
-    
-    st.dataframe(combined_breakdown, use_container_width=True)
-
-def create_time_period_config():
-    """Configuration for different time periods"""
-    return {
-        'monthly': {
-            'column': 'MonthYear',
-            'name': 'Month',
-            'title': 'Monthly Ratio Breakdowns'
-        },
-        'quarterly': {
-            'column': 'QuarterYear', 
-            'name': 'Quarter',
-            'title': 'Quarterly Ratio Breakdowns'
-        },
-        'financial_year': {
-            'column': 'FinancialYear',
-            'name': 'Financial Year', 
-            'title': 'Financial Year Ratio Breakdowns'
-        }
-    }
-
-def display_site_time_analysis(visits_df, patients_df, site, enhanced_visits_df):
-    """Display time-based analysis for a specific site"""
-    st.write("**Quarterly Analysis**")
-    
-    # Filter for financial visits only
-    financial_site_visits = enhanced_visits_df[enhanced_visits_df['SiteofVisit'] == site]
-    
-    if not financial_site_visits.empty:
-        # Quarterly stats
-        quarterly_stats = financial_site_visits.groupby('QuarterYear').agg({
-            'Visit': 'count',
-            'Payment': 'sum'
-        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
-        
-        # Financial year stats  
-        fy_stats = financial_site_visits.groupby('FinancialYear').agg({
-            'Visit': 'count',
-            'Payment': 'sum'
-        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
-        
-        if not quarterly_stats.empty:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("*Visit Counts by Quarter*")
-                st.dataframe(quarterly_stats[['Visit Count']], use_container_width=True)
-            
-            with col2:
-                quarterly_display = apply_currency_formatting(quarterly_stats[['Income']], ['Income'])
-                st.write("*Income by Quarter*")
-                st.dataframe(quarterly_display, use_container_width=True)
-        
-        st.write("**Financial Year Analysis**")
-        
-        if not fy_stats.empty:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("*Visit Counts by Financial Year*")
-                st.dataframe(fy_stats[['Visit Count']], use_container_width=True)
-            
-            with col2:
-                fy_display = apply_currency_formatting(fy_stats[['Income']], ['Income'])
-                st.write("*Income by Financial Year*")
-                st.dataframe(fy_display, use_container_width=True)
-
-def display_site_recruitment_analysis(site_patients, enhanced_visits_df, site):
-    """Display patient recruitment analysis for a site"""
-    st.write("**Patient Recruitment Analysis**")
-    
-    # Add time period columns to patients - FIXED to use centralized FY function
-    site_patients_enhanced = site_patients.copy()
-    site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
-    site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
-    site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
-    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
-    
-    # Recruitment summaries
-    quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()
-    fy_recruitment = site_patients_enhanced.groupby('FinancialYear')['PatientID'].count()
-    
-    if not quarterly_recruitment.empty or not fy_recruitment.empty:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if not quarterly_recruitment.empty:
-                st.write("*Patients Recruited by Quarter*")
-                quarterly_df = quarterly_recruitment.to_frame()
-                quarterly_df.columns = ['Patients Recruited']
-                st.dataframe(quarterly_df, use_container_width=True)
-        
-        with col2:
-            if not fy_recruitment.empty:
-                st.write("*Patients Recruited by Financial Year*")
-                fy_df = fy_recruitment.to_frame()
-                fy_df.columns = ['Patients Recruited']
-                st.dataframe(fy_df, use_container_width=True)
-    
-    # Combined summary tables
-    display_site_summary_tables(site_patients_enhanced, enhanced_visits_df, site, quarterly_recruitment, fy_recruitment)
-
-def display_site_summary_tables(site_patients, enhanced_visits_df, site, quarterly_recruitment, fy_recruitment):
-    """Display combined summary tables for a site"""
-    site_enhanced_visits = enhanced_visits_df[enhanced_visits_df['SiteofVisit'] == site]
-    
-    # Quarterly summary
-    st.write("**Quarterly Summary Table**")
-    quarterly_summary = build_period_summary(
-        site_enhanced_visits, quarterly_recruitment, 'QuarterYear', 'Quarter'
-    )
-    if quarterly_summary:
-        st.dataframe(pd.DataFrame(quarterly_summary), use_container_width=True)
-    
-    # Financial year summary  
-    st.write("**Financial Year Summary Table**")
-    fy_summary = build_period_summary(
-        site_enhanced_visits, fy_recruitment, 'FinancialYear', 'Financial Year'
-    )
-    if fy_summary:
-        st.dataframe(pd.DataFrame(fy_summary), use_container_width=True)
-
-def build_period_summary(visits_df, recruitment_series, period_col, period_name):
-    """Build summary data for a time period"""
-    if visits_df.empty:
-        return []
-    
-    visit_stats = visits_df.groupby(period_col).agg({'Visit': 'count', 'Payment': 'sum'})
-    all_periods = set(visit_stats.index) | set(recruitment_series.index)
-    
-    summary_data = []
-    for period in sorted(all_periods):
-        visits = visit_stats.loc[period, 'Visit'] if period in visit_stats.index else 0
-        income = visit_stats.loc[period, 'Payment'] if period in visit_stats.index else 0
-        patients = recruitment_series.loc[period] if period in recruitment_series.index else 0
-        
-        summary_data.append({
-            period_name: period if period_name == 'Quarter' else period,
-            'Patients Recruited': clean_numeric_for_display(patients),
-            'Visits Completed': clean_numeric_for_display(visits),
-            'Income': format_currency(income)
-        })
-    
-    return summary_data
-
-def display_site_screen_failures(site_patients, screen_failures):
-    """Display screen failures for a site"""
-    site_screen_failures = []
-    for patient in site_patients.itertuples():
-        patient_study_key = f"{patient.PatientID}_{patient.Study}"
-        if patient_study_key in screen_failures:
-            site_screen_failures.append({
-                'Patient': patient.PatientID,
-                'Study': patient.Study,
-                'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
-            })
-    
-    if site_screen_failures:
-        st.write("**Screen Failures**")
-        st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
-
-def create_excel_export_data(calendar_df, site_column_mapping, unique_visit_sites):
-    """Prepare data for Excel export with proper formatting - UPDATED for three-level structure"""
-    # Get ordered columns from the three-level structure
-    final_ordered_columns = ["Date", "Day"]
-    
-    for visit_site in unique_visit_sites:
-        site_data = site_column_mapping.get(visit_site, {})
-        site_columns = site_data.get('columns', [])
-        for col in site_columns:
-            if col in calendar_df.columns:
-                final_ordered_columns.append(col)
-
-    # Add financial columns
-    excel_financial_cols = ["Daily Total", "Monthly Total", "FY Total"] + [c for c in calendar_df.columns if "Income" in c]
-    all_columns = final_ordered_columns + [col for col in excel_financial_cols if col in calendar_df.columns]
-    
-    excel_df = calendar_df[all_columns].copy()
-    
-    # Format dates and currency
-    excel_df["Date"] = excel_df["Date"].dt.strftime("%d/%m/%Y")
-    excel_df = apply_currency_or_empty_formatting(excel_df, ["Monthly Total", "FY Total"])
-    excel_df = apply_currency_formatting(excel_df, [col for col in excel_financial_cols if col not in ["Monthly Total", "FY Total"] and col in excel_df.columns])
-    
-    return excel_df
-
-def apply_excel_formatting(ws, excel_df, site_column_mapping, unique_visit_sites):
-    """Apply formatting to Excel worksheet - UPDATED for three-level structure"""
     try:
-        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
-        
-        # Create three-level headers in Excel
-        for col_idx, col_name in enumerate(excel_df.columns, 1):
-            col_letter = get_column_letter(col_idx)
-            
-            if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
-                # Find which visit site and patient info this column belongs to
-                for visit_site in unique_visit_sites:
-                    site_data = site_column_mapping.get(visit_site, {})
-                    site_columns = site_data.get('columns', [])
-                    
-                    if col_name in site_columns:
-                        # Level 1: Visit site header
-                        ws[f"{col_letter}1"] = visit_site
-                        ws[f"{col_letter}1"].font = Font(bold=True, size=12)
-                        ws[f"{col_letter}1"].fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
-                        ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
-                        
-                        # Level 2: Study_Patient header
-                        patient_info = site_data.get('patient_info', [])
-                        for info in patient_info:
-                            if info['col_id'] == col_name:
-                                study_patient = f"{info['study']}_{info['patient_id']}"
-                                ws[f"{col_letter}2"] = study_patient
-                                ws[f"{col_letter}2"].font = Font(bold=True, size=10)
-                                ws[f"{col_letter}2"].fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
-                                ws[f"{col_letter}2"].alignment = Alignment(horizontal="center")
-                                
-                                # Level 3: Origin site
-                                origin_site = f"({info['origin_site']})"
-                                ws[f"{col_letter}3"] = origin_site
-                                ws[f"{col_letter}3"].font = Font(italic=True, size=9)
-                                ws[f"{col_letter}3"].fill = PatternFill(start_color="FF93C5FD", end_color="FF93C5FD", fill_type="solid")
-                                ws[f"{col_letter}3"].alignment = Alignment(horizontal="center")
-                                break
-                        break
-            else:
-                # System columns (Date, Day) and financial columns
-                ws[f"{col_letter}1"] = ""
-                ws[f"{col_letter}2"] = ""
-                ws[f"{col_letter}3"] = ""
-
-        # Auto-adjust column widths
-        for idx, col in enumerate(excel_df.columns, 1):
-            col_letter = get_column_letter(idx)
-            max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_df[col].tolist()] + [len(col)])
-            ws.column_dimensions[col_letter].width = max(10, max_length + 2)
-            
+        from openpyxl.worksheet.table import Table, TableStyleInfo
     except ImportError:
-        # If openpyxl styles not available, skip formatting
-        pass
+        st.error("openpyxl library required for enhanced Excel formatting")
+        return None
+    
+    # Create workbook with multiple sheets
+    wb = Workbook()
+    
+    # === Main Calendar Sheet ===
+    ws_calendar = wb.active
+    ws_calendar.title = "Clinical Trial Calendar"
+    
+    # Add title and metadata
+    ws_calendar['A1'] = "Clinical Trial Calendar - Patient Visit Schedule"
+    ws_calendar['A1'].font = Font(size=16, bold=True, color="1F4E79")
+    ws_calendar.merge_cells('A1:H1')
+    
+    ws_calendar['A2'] = f"Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    ws_calendar['A2'].font = Font(size=10, italic=True)
+    
+    ws_calendar['A3'] = f"Total Patients: {len(patients_df)} | Total Sites: {len(unique_sites)}"
+    ws_calendar['A3'].font = Font(size=10, italic=True)
+    
+    # Column explanations
+    explanations = {
+        'Date': 'Calendar Date (DD/MM/YYYY)',
+        'Day': 'Day of Week',
+        'Daily Total': 'Total Daily Revenue (£)',
+        'Monthly Total': 'Cumulative Monthly Revenue (£)', 
+        'FY Total': 'Cumulative Financial Year Revenue (£)'
+    }
+    
+    # Prepare enhanced dataframe
+    enhanced_df = calendar_df.copy()
+    
+    # Add site grouping headers row
+    site_headers_row = [''] * len(enhanced_df.columns)
+    column_explanations_row = [''] * len(enhanced_df.columns)
+    
+    for col_idx, col_name in enumerate(enhanced_df.columns):
+        # Add explanations for standard columns
+        if col_name in explanations:
+            column_explanations_row[col_idx] = explanations[col_name]
+        
+        # Add site headers for patient columns
+        if col_name not in ['Date', 'Day'] and not any(x in col_name for x in ['Income', 'Total']):
+            # Find which site this patient belongs to
+            for site in unique_sites:
+                if col_name in site_column_mapping.get(site, []):
+                    site_headers_row[col_idx] = f"Site: {site}"
+                    # Enhanced patient column explanation
+                    if '_' in col_name:
+                        study, patient_id = col_name.split('_', 1)
+                        column_explanations_row[col_idx] = f"Study: {study} | Patient: {patient_id}"
+                    else:
+                        column_explanations_row[col_idx] = f"Patient: {col_name}"
+                    break
+    
+    # Write to Excel starting from row 5
+    start_row = 5
+    
+    # Site headers row
+    for col_idx, header in enumerate(site_headers_row, 1):
+        if header:
+            cell = ws_calendar.cell(row=start_row, column=col_idx, value=header)
+            cell.font = Font(bold=True, size=11, color="FFFFFF")
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
+    
+    # Column explanations row
+    for col_idx, explanation in enumerate(column_explanations_row, 1):
+        if explanation:
+            cell = ws_calendar.cell(row=start_row + 1, column=col_idx, value=explanation)
+            cell.font = Font(size=9, italic=True, color="595959")
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    
+    # Column names row
+    for col_idx, col_name in enumerate(enhanced_df.columns, 1):
+        cell = ws_calendar.cell(row=start_row + 2, column=col_idx, value=col_name)
+        cell.font = Font(bold=True, size=10)
+        cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+    
+    # Data rows
+    for row_idx, row in enhanced_df.iterrows():
+        for col_idx, value in enumerate(row, 1):
+            cell = ws_calendar.cell(row=start_row + 3 + row_idx, column=col_idx, value=value)
+            # Format dates
+            if col_idx == 1 and isinstance(value, str):  # Date column
+                cell.number_format = 'DD/MM/YYYY'
+            # Format currency columns
+            elif any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
+                if isinstance(value, str) and '£' in value:
+                    cell.number_format = '"£"#,##0.00'
+    
+    # Auto-adjust column widths
+    for col_idx, col in enumerate(enhanced_df.columns, 1):
+        col_letter = get_column_letter(col_idx)
+        max_length = max(
+            len(str(site_headers_row[col_idx-1])),
+            len(str(column_explanations_row[col_idx-1])),
+            len(str(col)),
+            max([len(str(cell)) for cell in enhanced_df[col].astype(str)])
+        )
+        ws_calendar.column_dimensions[col_letter].width = min(max(12, max_length + 2), 25)
+    
+    # Set row heights for header rows
+    ws_calendar.row_dimensions[start_row].height = 25
+    ws_calendar.row_dimensions[start_row + 1].height = 35
+    ws_calendar.row_dimensions[start_row + 2].height = 20
+    
+    # === Data Dictionary Sheet ===
+    ws_dict = wb.create_sheet("Data Dictionary")
+    
+    dictionary_data = [
+        ["Column Name", "Description", "Data Type", "Example"],
+        ["Date", "Calendar date for the visit schedule", "Date", "15/09/2025"],
+        ["Day", "Day of the week", "Text", "Monday"],
+        ["Daily Total", "Total revenue for all visits on this date", "Currency", "£1,250.00"],
+        ["Monthly Total", "Cumulative revenue for the month up to this date", "Currency", "£15,750.00"],
+        ["FY Total", "Cumulative revenue for financial year up to this date", "Currency", "£125,500.00"],
+        ["Study_PatientID", "Visit information for specific patient", "Text", "V1, V2"],
+        ["Site Income", "Revenue generated by visits at specific site", "Currency", "£500.00"]
+    ]
+    
+    for row_idx, row_data in enumerate(dictionary_data, 1):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws_dict.cell(row=row_idx, column=col_idx, value=value)
+            if row_idx == 1:  # Header row
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill(start_color="2F5F8F", end_color="2F5F8F", fill_type="solid")
+            cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    
+    # Auto-adjust dictionary columns
+    for col_idx in range(1, 5):
+        col_letter = get_column_letter(col_idx)
+        if col_idx == 2:  # Description column
+            ws_dict.column_dimensions[col_letter].width = 40
+        else:
+            ws_dict.column_dimensions[col_letter].width = 15
+    
+    # === Summary Sheet ===
+    ws_summary = wb.create_sheet("Summary")
+    
+    summary_data = [
+        ["Clinical Trial Summary", ""],
+        ["", ""],
+        ["Total Patients", len(patients_df)],
+        ["Total Sites", len(unique_sites)],
+        ["Date Range", f"{enhanced_df['Date'].min()} to {enhanced_df['Date'].max()}"],
+        ["", ""],
+        ["Sites Included:", ""],
+    ]
+    
+    # Add site details
+    for site in sorted(unique_sites):
+        site_patients = len([col for col in enhanced_df.columns if col in site_column_mapping.get(site, [])])
+        summary_data.append([f"  - {site}", f"{site_patients} patients"])
+    
+    for row_idx, (label, value) in enumerate(summary_data, 1):
+        ws_summary.cell(row=row_idx, column=1, value=label).font = Font(bold=True if value == "" else False)
+        ws_summary.cell(row=row_idx, column=2, value=value)
+    
+    ws_summary.column_dimensions['A'].width = 20
+    ws_summary.column_dimensions['B'].width = 15
+    
+    # Save to BytesIO
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return output
 
-def display_complete_realization_analysis(visits_df, trials_df, patients_df):
-    """Display complete income realization analysis"""
-    st.subheader("💰 Income Realization Analysis")
+# Usage in your Streamlit app:
+def add_enhanced_download_section(calendar_df, patients_df, visits_df, site_column_mapping, unique_sites):
+    """Add enhanced download section with explanatory Excel export"""
     
-    # Calculate overall metrics
-    overall_metrics = calculate_income_realization_metrics(visits_df, trials_df, patients_df)
+    st.subheader("📊 Enhanced Downloads")
     
-    # Display key metrics  
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
+    
     with col1:
-        st.metric("Completed Income", format_currency(overall_metrics['completed_income']))
+        # Standard CSV download
+        csv_data = calendar_df.to_csv(index=False)
+        st.download_button(
+            label="📄 Download CSV",
+            data=csv_data,
+            file_name=f"clinical_calendar_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+    
     with col2:
-        st.metric("Total Scheduled", format_currency(overall_metrics['total_scheduled_income']))
+        # Basic Excel download
+        basic_excel = io.BytesIO()
+        with pd.ExcelWriter(basic_excel, engine='openpyxl') as writer:
+            calendar_df.to_excel(writer, sheet_name='Calendar', index=False)
+        basic_excel.seek(0)
+        
+        st.download_button(
+            label="📊 Download Basic Excel",
+            data=basic_excel.getvalue(),
+            file_name=f"clinical_calendar_basic_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
     with col3:
-        st.metric("Pipeline Remaining", format_currency(overall_metrics['pipeline_income']))
-    with col4:
-        st.metric("Realization Rate", f"{overall_metrics['realization_rate']:.1f}%")
-    
-    # Monthly breakdown
-    st.write("**Monthly Realization Breakdown**")
-    monthly_data = calculate_monthly_realization_breakdown(visits_df, trials_df)
-    
-    if monthly_data:
-        monthly_df = pd.DataFrame(monthly_data)
-        monthly_df['Completed_Income'] = monthly_df['Completed_Income'].apply(format_currency)
-        monthly_df['Scheduled_Income'] = monthly_df['Scheduled_Income'].apply(format_currency)
-        monthly_df['Realization_Rate'] = monthly_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        # Enhanced Excel download
+        enhanced_excel = create_enhanced_excel_export(
+            calendar_df, patients_df, visits_df, site_column_mapping, unique_sites
+        )
         
-        # Rename columns for display
-        monthly_df = monthly_df.rename(columns={
-            'Month': 'Month',
-            'Completed_Income': 'Completed Income',
-            'Scheduled_Income': 'Scheduled Income', 
-            'Realization_Rate': 'Realization %',
-            'Completed_Visits': 'Completed Visits',
-            'Scheduled_Visits': 'Total Visits'
-        })
+        if enhanced_excel:
+            st.download_button(
+                label="✨ Download Enhanced Excel",
+                data=enhanced_excel.getvalue(),
+                file_name=f"clinical_calendar_enhanced_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Includes explanatory headers, data dictionary, and summary sheet"
+            )
+    
+    # Information about enhanced features
+    with st.expander("ℹ️ What's included in the Enhanced Excel?"):
+        st.markdown("""
+        **Enhanced Excel Export Features:**
         
-        st.dataframe(monthly_df, use_container_width=True)
-    
-    # Study pipeline breakdown
-    st.write("**Study Pipeline Breakdown**")
-    study_pipeline = calculate_study_pipeline_breakdown(visits_df, trials_df)
-    
-    if not study_pipeline.empty:
-        study_pipeline_display = study_pipeline.copy()
-        study_pipeline_display['Pipeline_Value'] = study_pipeline_display['Pipeline_Value'].apply(format_currency)
-        study_pipeline_display = study_pipeline_display.rename(columns={
-            'Study': 'Study',
-            'Pipeline_Value': 'Pipeline Value',
-            'Remaining_Visits': 'Remaining Visits'
-        })
-        st.dataframe(study_pipeline_display, use_container_width=True)
-    
-    # Site realization breakdown
-    st.write("**Site Realization Breakdown**")
-    site_data = calculate_site_realization_breakdown(visits_df, trials_df)
-    
-    if site_data:
-        site_df = pd.DataFrame(site_data)
-        site_df['Completed_Income'] = site_df['Completed_Income'].apply(format_currency)
-        site_df['Total_Scheduled_Income'] = site_df['Total_Scheduled_Income'].apply(format_currency)
-        site_df['Pipeline_Income'] = site_df['Pipeline_Income'].apply(format_currency)
-        site_df['Realization_Rate'] = site_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
+        📋 **Main Calendar Sheet:**
+        - Site grouping headers above patient columns
+        - Column explanations (what each column represents)
+        - Professional formatting with colors and borders
+        - Auto-sized columns for better readability
         
-        site_df = site_df.rename(columns={
-            'Site': 'Site',
-            'Completed_Income': 'Completed Income',
-            'Total_Scheduled_Income': 'Total Scheduled',
-            'Pipeline_Income': 'Pipeline Value',
-            'Realization_Rate': 'Realization %',
-            'Completed_Visits': 'Completed Visits',
-            'Total_Visits': 'Total Visits',
-            'Remaining_Visits': 'Remaining Visits'
-        })
+        📖 **Data Dictionary Sheet:**
+        - Detailed explanation of each column type
+        - Data types and example values
+        - Easy reference for understanding the data
         
-        st.dataframe(site_df, use_container_width=True)
-    
-    # Analysis notes
-    st.info("""
-    **Income Realization Analysis Notes:**
-    - **Completed Income**: Actual payments received from completed visits
-    - **Total Scheduled**: Full potential income if all scheduled visits are completed
-    - **Pipeline Value**: Expected income from remaining scheduled visits
-    - **Realization Rate**: Percentage of scheduled income actually realized
-    - Analysis covers current financial year only (April to March)
-    """)
+        📊 **Summary Sheet:**
+        - Overview of total patients and sites
+        - Date range covered
+        - Breakdown of patients per site
+        - Quick statistics
+        
+        **Perfect for:**
+        - Sharing with stakeholders who need context
+        - Long-term archival with self-documenting format
+        - Compliance and audit requirements
+        """)
