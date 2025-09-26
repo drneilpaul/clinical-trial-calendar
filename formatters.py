@@ -34,36 +34,76 @@ def apply_currency_or_empty_formatting(df, columns):
     return df_formatted
 
 def create_site_header_row(columns, site_column_mapping):
-    """Create site header row for calendar display"""
-    site_header_row = {}
+    """Create enhanced three-level site header row for calendar display"""
+    header_rows = {
+        'level1_site': {},      # Visit site (where work is done)
+        'level2_study_patient': {},  # Study_PatientID 
+        'level3_origin': {}     # Origin site (who recruited)
+    }
+    
     for col in columns:
         if col in ["Date", "Day"]:
-            site_header_row[col] = ""
+            # System columns
+            header_rows['level1_site'][col] = ""
+            header_rows['level2_study_patient'][col] = ""
+            header_rows['level3_origin'][col] = ""
         else:
-            site_found = ""
-            for site, site_columns in site_column_mapping.items():
-                if col in site_columns:
-                    site_found = site
+            # Find which visit site this column belongs to
+            visit_site_found = ""
+            study_patient = ""
+            origin_site = ""
+            
+            for visit_site, site_data in site_column_mapping.items():
+                if col in site_data['columns']:
+                    visit_site_found = visit_site
+                    
+                    # Find patient info for this column
+                    for patient_info in site_data['patient_info']:
+                        if patient_info['col_id'] == col:
+                            study_patient = f"{patient_info['study']}_{patient_info['patient_id']}"
+                            origin_site = f"({patient_info['origin_site']})"
+                            break
                     break
-            site_header_row[col] = site_found
-    return site_header_row
+            
+            header_rows['level1_site'][col] = visit_site_found
+            header_rows['level2_study_patient'][col] = study_patient
+            header_rows['level3_origin'][col] = origin_site
+    
+    return header_rows
 
 def style_calendar_row(row, today_date):
-    """Apply styling to calendar rows"""
-    if row.name == 0:  # Site header row
-        return create_header_styles(row)
+    """Apply styling to calendar rows - updated for three-level headers"""
+    if row.name < 3:  # First three rows are headers
+        return create_enhanced_header_styles(row, row.name)
     else:
         return create_data_row_styles(row, today_date)
 
-def create_header_styles(row):
-    """Create styles for header row"""
+def create_enhanced_header_styles(row, header_level):
+    """Create styles for three-level headers"""
     styles = []
     for col_name in row.index:
-        if row[col_name] != "":
-            styles.append('background-color: #e6f3ff; font-weight: bold; text-align: center; border: 1px solid #ccc;')
+        if header_level == 0:  # Level 1: Visit sites
+            if row[col_name] != "":
+                styles.append('background-color: #1e40af; color: white; font-weight: bold; text-align: center; border: 1px solid #ccc; font-size: 14px;')
+            else:
+                styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
+        elif header_level == 1:  # Level 2: Study_PatientID  
+            if row[col_name] != "":
+                styles.append('background-color: #3b82f6; color: white; font-weight: bold; text-align: center; border: 1px solid #ccc; font-size: 12px;')
+            else:
+                styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
+        elif header_level == 2:  # Level 3: Origin sites
+            if row[col_name] != "":
+                styles.append('background-color: #93c5fd; color: #1e40af; font-weight: normal; text-align: center; border: 1px solid #ccc; font-size: 10px; font-style: italic;')
+            else:
+                styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
         else:
             styles.append('background-color: #f8f9fa; border: 1px solid #ccc;')
     return styles
+
+def create_header_styles(row):
+    """Legacy function - kept for compatibility"""
+    return create_enhanced_header_styles(row, 0)
 
 def create_data_row_styles(row, today_date):
     """Create styles for data rows"""
@@ -111,9 +151,9 @@ def get_visit_based_style(cell_str):
         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
     elif '🔴 OUT OF PROTOCOL' in cell_str:
         return 'background-color: #f5c6cb; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
-    elif '⚠ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
+    elif '⚠️ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "⚠"]):
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "⚠️"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
     elif cell_str in ["+", "-"]:
         return 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
@@ -140,7 +180,7 @@ def format_dataframe_index_as_string(df, index_col=None):
 def format_visit_display_string(visit_name, is_actual=False, is_screen_fail=False, is_out_of_protocol=False):
     """Format visit display string with appropriate emoji and status"""    
     if is_screen_fail:
-        return f"⚠ Screen Fail {visit_name}"
+        return f"⚠️ Screen Fail {visit_name}"
     elif visit_name.lower() in ["randomisation", "randomization"] and is_actual:
         # Randomisation is always just completed, never out of protocol
         return f"✅ {visit_name}"
