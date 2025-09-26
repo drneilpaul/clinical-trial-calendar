@@ -65,8 +65,17 @@ def _render_patient_form(is_modal=True):
     
     try:
         existing_patients = load_file(patients_file)
+        if existing_patients is None or existing_patients.empty:
+            st.error("Could not load patients file or file is empty")
+            return
+            
         existing_patients.columns = existing_patients.columns.str.strip()
+        
         existing_trials = load_file(trials_file)
+        if existing_trials is None or existing_trials.empty:
+            st.error("Could not load trials file or file is empty")
+            return
+            
         existing_trials.columns = existing_trials.columns.str.strip()
         
         available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
@@ -204,8 +213,17 @@ def _render_visit_form(is_modal=True):
     
     try:
         existing_patients = load_file(patients_file)
+        if existing_patients is None or existing_patients.empty:
+            st.error("Could not load patients file or file is empty")
+            return
+            
         existing_patients.columns = existing_patients.columns.str.strip()
+        
         existing_trials = load_file(trials_file)
+        if existing_trials is None or existing_trials.empty:
+            st.error("Could not load trials file or file is empty")
+            return
+            
         existing_trials.columns = existing_trials.columns.str.strip()
         
         # Load existing visits
