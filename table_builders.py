@@ -24,6 +24,47 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         st.error("openpyxl library required for enhanced Excel formatting")
         return None
     
+    # Clean the dataframe for Excel export - handle pandas NA values
+    def clean_for_excel(df):
+        """Clean dataframe for Excel export by handling NA values and Period objects"""
+        if df.empty:
+            return df
+            
+        cleaned_df = df.copy()
+        
+        # Handle pandas <NA> values by converting to None/NaN
+        for col in cleaned_df.columns:
+            if cleaned_df[col].dtype == 'object':
+                # Replace pandas <NA> with None
+                cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
+            elif str(cleaned_df[col].dtype).startswith('Int') or str(cleaned_df[col].dtype).startswith('Float'):
+                # Handle nullable integer/float types
+                cleaned_df[col] = cleaned_df[col].astype('object').where(pd.notna(cleaned_df[col]), None)
+        
+        # Convert Period objects to strings
+        for col in cleaned_df.columns:
+            if hasattr(cleaned_df[col].dtype, 'name') and 'period' in str(cleaned_df[col].dtype).lower():
+                cleaned_df[col] = cleaned_df[col].astype(str)
+            elif cleaned_df[col].dtype == 'object':
+                # Check for Period objects in object columns
+                sample_vals = cleaned_df[col].dropna().head(3) if not cleaned_df[col].empty else []
+                if len(sample_vals) > 0:
+                    for val in sample_vals:
+                        if val is not None and 'Period' in str(type(val)):
+                            cleaned_df[col] = cleaned_df[col].astype(str)
+                            break
+        
+        return cleaned_df
+    
+    # Clean all input dataframes
+    try:
+        enhanced_df = clean_for_excel(calendar_df)
+        clean_patients_df = clean_for_excel(patients_df) if not patients_df.empty else patients_df
+        clean_visits_df = clean_for_excel(visits_df) if not visits_df.empty else visits_df
+    except Exception as clean_error:
+        st.error(f"Error cleaning data for Excel: {clean_error}")
+        return None
+    
     # Create workbook with multiple sheets
     wb = Workbook()
     
@@ -39,7 +80,9 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     ws_calendar['A2'] = f"Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
     ws_calendar['A2'].font = Font(size=10, italic=True)
     
-    ws_calendar['A3'] = f"Total Patients: {len(patients_df)} | Total Sites: {len(unique_sites)}"
+    total_patients = len(clean_patients_df) if not clean_patients_df.empty else 0
+    total_sites = len(unique_sites) if unique_sites else 0
+    ws_calendar['A3'] = f"Total Patients: {total_patients} | Total Sites: {total_sites}"
     ws_calendar['A3'].font = Font(size=10, italic=True)
     
     # Column explanations
@@ -50,9 +93,6 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         'Monthly Total': 'Cumulative Monthly Revenue (£)', 
         'FY Total': 'Cumulative Financial Year Revenue (£)'
     }
-    
-    # Prepare enhanced dataframe
-    enhanced_df = calendar_df.copy()
     
     # Add site grouping headers row
     site_headers_row = [''] * len(enhanced_df.columns)
@@ -67,12 +107,17 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         if col_name not in ['Date', 'Day'] and not any(x in col_name for x in ['Income', 'Total']):
             # Find which site this patient belongs to
             for site in unique_sites:
-                if col_name in site_column_mapping.get(site, {}).get('columns', []):
+                site_data = site_column_mapping.get(site, {})
+                site_columns = site_data.get('columns', [])
+                if col_name in site_columns:
                     site_headers_row[col_idx] = f"Site: {site}"
                     # Enhanced patient column explanation
                     if '_' in col_name:
-                        study, patient_id = col_name.split('_', 1)
-                        column_explanations_row[col_idx] = f"Study: {study} | Patient: {patient_id}"
+                        try:
+                            study, patient_id = col_name.split('_', 1)
+                            column_explanations_row[col_idx] = f"Study: {study} | Patient: {patient_id}"
+                        except ValueError:
+                            column_explanations_row[col_idx] = f"Patient: {col_name}"
                     else:
                         column_explanations_row[col_idx] = f"Patient: {col_name}"
                     break
@@ -97,33 +142,45 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     
     # Column names row
     for col_idx, col_name in enumerate(enhanced_df.columns, 1):
-        cell = ws_calendar.cell(row=start_row + 2, column=col_idx, value=col_name)
+        cell = ws_calendar.cell(row=start_row + 2, column=col_idx, value=str(col_name))
         cell.font = Font(bold=True, size=10)
         cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows
-    for row_idx, row in enhanced_df.iterrows():
+    # Data rows - handle values carefully
+    for row_idx, (_, row) in enumerate(enhanced_df.iterrows()):
         for col_idx, value in enumerate(row, 1):
-            cell = ws_calendar.cell(row=start_row + 3 + row_idx, column=col_idx, value=value)
+            # Safely convert value for Excel
+            excel_value = value
+            if pd.isna(value) or value is None:
+                excel_value = ""
+            elif hasattr(value, '__iter__') and not isinstance(value, str):
+                # Handle any remaining complex objects
+                excel_value = str(value)
+            
+            cell = ws_calendar.cell(row=start_row + 3 + row_idx, column=col_idx, value=excel_value)
+            
             # Format dates
-            if col_idx == 1 and isinstance(value, str):  # Date column
+            if col_idx == 1 and isinstance(excel_value, str) and len(str(excel_value)) > 0:  # Date column
                 cell.number_format = 'DD/MM/YYYY'
             # Format currency columns
-            elif any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
-                if isinstance(value, str) and '£' in value:
+            elif col_idx > 2 and any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
+                if isinstance(excel_value, str) and '£' in excel_value:
                     cell.number_format = '"£"#,##0.00'
     
     # Auto-adjust column widths
     for col_idx, col in enumerate(enhanced_df.columns, 1):
         col_letter = get_column_letter(col_idx)
-        max_length = max(
-            len(str(site_headers_row[col_idx-1])),
-            len(str(column_explanations_row[col_idx-1])),
-            len(str(col)),
-            max([len(str(cell)) for cell in enhanced_df[col].astype(str)])
-        )
-        ws_calendar.column_dimensions[col_letter].width = min(max(12, max_length + 2), 25)
+        try:
+            max_length = max(
+                len(str(site_headers_row[col_idx-1])) if col_idx <= len(site_headers_row) else 0,
+                len(str(column_explanations_row[col_idx-1])) if col_idx <= len(column_explanations_row) else 0,
+                len(str(col)),
+                max([len(str(cell)) for cell in enhanced_df[col].astype(str)]) if not enhanced_df.empty else 0
+            )
+            ws_calendar.column_dimensions[col_letter].width = min(max(12, max_length + 2), 25)
+        except:
+            ws_calendar.column_dimensions[col_letter].width = 15  # Default width
     
     # Set row heights for header rows
     ws_calendar.row_dimensions[start_row].height = 25
@@ -146,7 +203,7 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     
     for row_idx, row_data in enumerate(dictionary_data, 1):
         for col_idx, value in enumerate(row_data, 1):
-            cell = ws_dict.cell(row=row_idx, column=col_idx, value=value)
+            cell = ws_dict.cell(row=row_idx, column=col_idx, value=str(value) if value is not None else "")
             if row_idx == 1:  # Header row
                 cell.font = Font(bold=True, color="FFFFFF")
                 cell.fill = PatternFill(start_color="2F5F8F", end_color="2F5F8F", fill_type="solid")
@@ -163,34 +220,53 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     # === Summary Sheet ===
     ws_summary = wb.create_sheet("Summary")
     
+    # Format date range safely
+    date_range_text = "N/A"
+    if not enhanced_df.empty and 'Date' in enhanced_df.columns:
+        try:
+            min_date = enhanced_df['Date'].min()
+            max_date = enhanced_df['Date'].max()
+            if pd.notna(min_date) and pd.notna(max_date):
+                date_range_text = f"{min_date} to {max_date}"
+        except:
+            date_range_text = "Date range unavailable"
+    
     summary_data = [
         ["Clinical Trial Summary", ""],
         ["", ""],
-        ["Total Patients", len(patients_df)],
-        ["Total Sites", len(unique_sites)],
-        ["Date Range", f"{enhanced_df['Date'].min()} to {enhanced_df['Date'].max()}"],
+        ["Total Patients", total_patients],
+        ["Total Sites", total_sites],
+        ["Date Range", date_range_text],
         ["", ""],
         ["Sites Included:", ""],
     ]
     
-    # Add site details
-    for site in sorted(unique_sites):
-        site_patients = len([col for col in enhanced_df.columns if col in site_column_mapping.get(site, {}).get('columns', [])])
-        summary_data.append([f"  - {site}", f"{site_patients} patients"])
+    # Add site details safely
+    for site in sorted(unique_sites) if unique_sites else []:
+        try:
+            site_data = site_column_mapping.get(site, {})
+            site_columns = site_data.get('columns', [])
+            site_patients = len([col for col in enhanced_df.columns if col in site_columns]) if not enhanced_df.empty else 0
+            summary_data.append([f"  - {site}", f"{site_patients} patients"])
+        except:
+            summary_data.append([f"  - {site}", "Data unavailable"])
     
     for row_idx, (label, value) in enumerate(summary_data, 1):
-        ws_summary.cell(row=row_idx, column=1, value=label).font = Font(bold=True if value == "" else False)
-        ws_summary.cell(row=row_idx, column=2, value=value)
+        ws_summary.cell(row=row_idx, column=1, value=str(label) if label is not None else "").font = Font(bold=True if value == "" else False)
+        ws_summary.cell(row=row_idx, column=2, value=str(value) if value is not None else "")
     
     ws_summary.column_dimensions['A'].width = 20
     ws_summary.column_dimensions['B'].width = 15
     
     # Save to BytesIO
     output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    
-    return output
+    try:
+        wb.save(output)
+        output.seek(0)
+        return output
+    except Exception as save_error:
+        st.error(f"Error saving Excel file: {save_error}")
+        return None
 
 # Add the missing table builder functions that display_components expects
 def display_income_table_pair(financial_df):
