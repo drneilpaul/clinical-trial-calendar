@@ -537,9 +537,19 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Patient origin analysis
         st.write("**Patient Origins (Who Recruited):**")
-        origin_breakdown = site_related_patients.groupby('Site')['PatientID'].count().reset_index()
-        origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-        st.dataframe(origin_breakdown, use_container_width=True)
+        # Find the appropriate site column for patient origins
+        site_col = None
+        for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+            if candidate in site_related_patients.columns:
+                site_col = candidate
+                break
+        
+        if site_col:
+            origin_breakdown = site_related_patients.groupby(site_col)['PatientID'].count().reset_index()
+            origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+            st.dataframe(origin_breakdown, use_container_width=True)
+        else:
+            st.info("No patient origin site information available")
         
         # Screen failures for patients with visits at this site
         _display_site_screen_failures(site_related_patients, screen_failures)
