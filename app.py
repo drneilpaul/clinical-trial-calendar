@@ -5,7 +5,8 @@ from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables, display_income_realization_analysis
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
+    display_verification_figures
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import (
