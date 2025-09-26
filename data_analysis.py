@@ -146,6 +146,10 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         (~site_visits['Visit'].isin(['-', '+']) & (~site_visits.get('IsActual', False)))
     ].copy()
     
+    # Initialize empty dataframes to avoid UnboundLocalError
+    quarterly_stats = pd.DataFrame()
+    fy_stats = pd.DataFrame()
+    
     if not financial_site_visits.empty:
         # Quarterly visit and income analysis
         quarterly_stats = financial_site_visits.groupby('QuarterYear').agg({
