@@ -570,20 +570,29 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
     st.subheader("💾 Download Options")
 
     try:
-        # Try to import openpyxl for enhanced Excel features
-        try:
-            import openpyxl
-            from openpyxl.styles import PatternFill, Font, Alignment
-            from openpyxl.utils import get_column_letter
-            excel_available = True
-        except ImportError:
-            excel_available = False
+        # Prepare Excel-safe dataframe by converting Period objects to strings
+        excel_df = calendar_df.copy()
+        
+        # Convert any Period columns to strings for Excel compatibility
+        for col in excel_df.columns:
+            if hasattr(excel_df[col].dtype, 'name') and 'period' in str(excel_df[col].dtype).lower():
+                excel_df[col] = excel_df[col].astype(str)
+            elif excel_df[col].dtype == 'object':
+                # Check if any values are Period objects
+                sample_vals = excel_df[col].dropna().head(5)
+                if len(sample_vals) > 0 and any(str(type(val)).find('Period') != -1 for val in sample_vals):
+                    excel_df[col] = excel_df[col].astype(str)
+        
+        # Format dates properly for Excel
+        if 'Date' in excel_df.columns:
+            if excel_df['Date'].dtype == 'datetime64[ns]':
+                excel_df['Date'] = excel_df['Date'].dt.strftime('%d/%m/%Y')
 
         col1, col2, col3 = st.columns(3)
         
         with col1:
             # CSV download
-            csv = calendar_df.to_csv(index=False)
+            csv = excel_df.to_csv(index=False)
             st.download_button(
                 "📄 Download as CSV",
                 data=csv,
@@ -592,38 +601,73 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             )
 
         with col2:
-            # Basic Excel download
+            # Basic Excel download with Period handling
             buf = io.BytesIO()
-            calendar_df.to_excel(buf, index=False)
-            st.download_button(
-                "💾 Download Basic Excel", 
-                data=buf.getvalue(), 
-                file_name="VisitCalendar.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            try:
+                excel_df.to_excel(buf, index=False, engine='openpyxl')
+                st.download_button(
+                    "💾 Download Basic Excel", 
+                    data=buf.getvalue(), 
+                    file_name="VisitCalendar.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception as excel_error:
+                st.error(f"Excel export failed: {excel_error}")
+                # Fallback to CSV with xlsx extension
+                csv_fallback = excel_df.to_csv(index=False)
+                st.download_button(
+                    "💾 Download as CSV (Excel failed)", 
+                    data=csv_fallback, 
+                    file_name="VisitCalendar.csv",
+                    mime="text/csv"
+                )
             
         with col3:
-            if excel_available:
-                # Enhanced Excel from table_builders
-                try:
-                    from table_builders import create_enhanced_excel_export
-                    enhanced_excel = create_enhanced_excel_export(
-                        calendar_df, pd.DataFrame(), pd.DataFrame(), site_column_mapping, unique_visit_sites
+            # Enhanced Excel from table_builders
+            try:
+                from table_builders import create_enhanced_excel_export
+                enhanced_excel = create_enhanced_excel_export(
+                    excel_df, pd.DataFrame(), pd.DataFrame(), site_column_mapping, unique_visit_sites
+                )
+                
+                if enhanced_excel:
+                    st.download_button(
+                        "✨ Enhanced Excel with Headers",
+                        data=enhanced_excel.getvalue(),
+                        file_name="VisitCalendar_Enhanced.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="Includes explanatory headers, data dictionary, and summary"
                     )
-                    
-                    if enhanced_excel:
-                        st.download_button(
-                            "✨ Enhanced Excel with Headers",
-                            data=enhanced_excel.getvalue(),
-                            file_name="VisitCalendar_Enhanced.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            help="Includes explanatory headers, data dictionary, and summary"
-                        )
-                except ImportError:
-                    st.info("Enhanced Excel requires table_builders module")
+                else:
+                    st.info("Enhanced Excel generation failed")
+            except Exception as e:
+                st.warning(f"Enhanced Excel unavailable: {e}")
+                # Provide basic Excel as fallback
+                try:
+                    buf2 = io.BytesIO()
+                    excel_df.to_excel(buf2, index=False, engine='openpyxl')
+                    st.download_button(
+                        "📊 Download Excel (Basic)",
+                        data=buf2.getvalue(),
+                        file_name="VisitCalendar_Basic.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except:
+                    st.info("Excel export requires openpyxl library")
 
     except Exception as e:
         st.error(f"Error creating download options: {e}")
+        # Ultimate fallback - CSV only
+        try:
+            csv_fallback = calendar_df.astype(str).to_csv(index=False)
+            st.download_button(
+                "📄 Download as CSV (Fallback)",
+                data=csv_fallback,
+                file_name="VisitCalendar_Fallback.csv",
+                mime="text/csv"
+            )
+        except Exception as fallback_error:
+            st.error(f"All download methods failed: {fallback_error}")
 
 def display_verification_figures(visits_df, calendar_df, financial_df, patients_df):
     """Display verification figures for testing and validation"""
