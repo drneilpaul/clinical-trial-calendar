@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from helpers import get_financial_year
+from helpers import get_financial_year, get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit
 
 def prepare_financial_data(visits_df):
     """Prepare visits data with financial period columns"""
@@ -10,6 +10,10 @@ def prepare_financial_data(visits_df):
     
     # Create copy first
     financial_df = visits_df.copy()
+    
+    # Ensure Payment column exists for financial calculations
+    if 'Payment' not in financial_df.columns:
+        financial_df['Payment'] = 0.0
     
     # Filter for relevant visits (exclude only tolerance periods '-' and '+')
     # Include: actual visits (with ✅, 🔴, ⚠  ), scheduled visits (plain visit names), but exclude tolerance periods
@@ -40,7 +44,7 @@ def prepare_financial_data(visits_df):
 
 def calculate_work_ratios(data_df, period_column, period_value):
     """Calculate work done ratios for a specific period"""
-    if data_df.empty:
+    if data_df.empty or period_column not in data_df.columns:
         return {
             'ashfields_work_ratio': 0,
             'kiltearn_work_ratio': 0,
@@ -51,7 +55,7 @@ def calculate_work_ratios(data_df, period_column, period_value):
     
     period_data = data_df[data_df[period_column] == period_value]
     
-    if len(period_data) == 0:
+    if len(period_data) == 0 or 'SiteofVisit' not in period_data.columns:
         return {
             'ashfields_work_ratio': 0,
             'kiltearn_work_ratio': 0,
@@ -76,7 +80,7 @@ def calculate_work_ratios(data_df, period_column, period_value):
 
 def calculate_recruitment_ratios(patients_df, period_column, period_value):
     """Calculate patient recruitment ratios for a specific period"""
-    if patients_df.empty:
+    if patients_df.empty or 'StartDate' not in patients_df.columns:
         return {
             'ashfields_recruitment_ratio': 0,
             'kiltearn_recruitment_ratio': 0,
@@ -105,7 +109,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 'kiltearn_recruitment_count': 0
             }
         
-        if period_patients.empty:
+        if period_patients.empty or 'Site' not in period_patients.columns:
             return {
                 'ashfields_recruitment_ratio': 0,
                 'kiltearn_recruitment_ratio': 0,
@@ -329,50 +333,24 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
 
 def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     """Calculate income realization and pipeline metrics"""
-    from datetime import date
-    
-    # Get current financial year
-    today = pd.to_datetime(date.today())
-    if today.month >= 4:
-        fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
-    else:
-        fy_end = pd.to_datetime(f"{today.year}-03-31")
-    
+    # Get current financial year boundaries using centralized function
+    fy_start, fy_end = get_current_financial_year_boundaries()
+
     # Filter visits for current financial year only
-    fy_visits = visits_df[visits_df['Date'] <= fy_end].copy()
+    fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
     
     # Separate completed vs scheduled work
     completed_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
     all_visits = fy_visits.copy()  # Both completed and scheduled
     
-    # Get payment amounts from trials file for each visit - now using VisitName
-    trials_lookup = {}
-    for _, trial in trials_df.iterrows():
-        study = str(trial['Study'])
-        visit_name = str(trial['VisitName'])
-        payment_key = f"{study}_{visit_name}"
-        
-        # Handle payment column with multiple possible names
-        payment = 0.0
-        for col in ['Payment', 'Income', 'Cost']:
-            if col in trial.index and pd.notna(trial.get(col)):
-                try:
-                    payment = float(trial[col])
-                    break
-                except (ValueError, TypeError):
-                    continue
-        
-        trials_lookup[payment_key] = payment
+    # Create trial payment lookup using centralized function
+    trials_lookup = create_trial_payment_lookup(trials_df)
     
     # Add trial payment amounts to visits
     def get_trial_payment(row):
         study = str(row['Study'])
         visit_name = str(row.get('VisitName', ''))  # Use VisitName from visits_df
-        
-        if visit_name and visit_name not in ['-', '+']:
-            key = f"{study}_{visit_name}"
-            return trials_lookup.get(key, 0)
-        return 0
+        return get_trial_payment_for_visit(trials_lookup, study, visit_name)
     
     # Calculate metrics safely
     try:
@@ -417,17 +395,9 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
 
 def calculate_monthly_realization_breakdown(visits_df, trials_df):
     """Calculate month-by-month realization metrics"""
-    from datetime import date
-    
     try:
-        # Get current financial year
-        today = pd.to_datetime(date.today())
-        if today.month >= 4:
-            fy_start = pd.to_datetime(f"{today.year}-04-01")
-            fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
-        else:
-            fy_start = pd.to_datetime(f"{today.year - 1}-04-01")
-            fy_end = pd.to_datetime(f"{today.year}-03-31")
+        # Get current financial year boundaries using centralized function
+        fy_start, fy_end = get_current_financial_year_boundaries()
         
         # Filter for current financial year
         fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
@@ -438,32 +408,13 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         # Add month-year column
         fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
         
-        # Get trial payments lookup - now using VisitName
-        trials_lookup = {}
-        for _, trial in trials_df.iterrows():
-            study = str(trial['Study'])
-            visit_name = str(trial['VisitName'])
-            payment_key = f"{study}_{visit_name}"
-            
-            payment = 0.0
-            for col in ['Payment', 'Income', 'Cost']:
-                if col in trial.index and pd.notna(trial.get(col)):
-                    try:
-                        payment = float(trial[col])
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            
-            trials_lookup[payment_key] = payment
+        # Create trial payment lookup using centralized function
+        trials_lookup = create_trial_payment_lookup(trials_df)
         
         def get_trial_payment(row):
             study = str(row['Study'])
             visit_name = str(row.get('VisitName', ''))
-            
-            if visit_name and visit_name not in ['-', '+']:
-                key = f"{study}_{visit_name}"
-                return trials_lookup.get(key, 0)
-            return 0
+            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
         
         fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
         
@@ -515,32 +466,13 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
         if remaining_visits.empty:
             return pd.DataFrame(columns=['Study', 'Pipeline_Value', 'Remaining_Visits'])
         
-        # Get trial payments - now using VisitName
-        trials_lookup = {}
-        for _, trial in trials_df.iterrows():
-            study = str(trial['Study'])
-            visit_name = str(trial['VisitName'])
-            payment_key = f"{study}_{visit_name}"
-            
-            payment = 0.0
-            for col in ['Payment', 'Income', 'Cost']:
-                if col in trial.index and pd.notna(trial.get(col)):
-                    try:
-                        payment = float(trial[col])
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            
-            trials_lookup[payment_key] = payment
+        # Create trial payment lookup using centralized function
+        trials_lookup = create_trial_payment_lookup(trials_df)
         
         def get_trial_payment(row):
             study = str(row['Study'])
             visit_name = str(row.get('VisitName', ''))
-            
-            if visit_name and visit_name not in ['-', '+']:
-                key = f"{study}_{visit_name}"
-                return trials_lookup.get(key, 0)
-            return 0
+            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
         
         remaining_visits['TrialPayment'] = remaining_visits.apply(get_trial_payment, axis=1)
         
@@ -560,44 +492,17 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
 
 def calculate_site_realization_breakdown(visits_df, trials_df):
     """Calculate realization rates by site"""
-    from datetime import date
-    
     try:
-        # Get trial payments lookup - now using VisitName
-        trials_lookup = {}
-        for _, trial in trials_df.iterrows():
-            study = str(trial['Study'])
-            visit_name = str(trial['VisitName'])
-            payment_key = f"{study}_{visit_name}"
-            
-            payment = 0.0
-            for col in ['Payment', 'Income', 'Cost']:
-                if col in trial.index and pd.notna(trial.get(col)):
-                    try:
-                        payment = float(trial[col])
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            
-            trials_lookup[payment_key] = payment
+        # Create trial payment lookup using centralized function
+        trials_lookup = create_trial_payment_lookup(trials_df)
         
         def get_trial_payment(row):
             study = str(row['Study'])
             visit_name = str(row.get('VisitName', ''))
-            
-            if visit_name and visit_name not in ['-', '+']:
-                key = f"{study}_{visit_name}"
-                return trials_lookup.get(key, 0)
-            return 0
+            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
         
-        # Filter current financial year visits
-        today = pd.to_datetime(date.today())
-        if today.month >= 4:
-            fy_start = pd.to_datetime(f"{today.year}-04-01")
-            fy_end = pd.to_datetime(f"{today.year + 1}-03-31")
-        else:
-            fy_start = pd.to_datetime(f"{today.year - 1}-04-01")
-            fy_end = pd.to_datetime(f"{today.year}-03-31")
+        # Get current financial year boundaries using centralized function
+        fy_start, fy_end = get_current_financial_year_boundaries()
         
         fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
         fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]  # Remove tolerance periods
