@@ -433,3 +433,147 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
             file_name="VisitCalendar.csv",
             mime="text/csv"
         )
+def display_verification_figures(visits_df, calendar_df, financial_df, patients_df):
+    """Display verification figures for testing and validation"""
+    st.subheader("🔍 Verification Figures")
+    st.caption("Copy these figures to verify calculations are correct")
+    
+    try:
+        # Calculate key metrics
+        verification_data = []
+        
+        # Overall totals
+        total_visits = len(visits_df)
+        completed_visits = len(visits_df[visits_df.get('IsActual', False) == True])
+        scheduled_visits = total_visits - completed_visits
+        total_income = visits_df['Payment'].sum()
+        completed_income = visits_df[visits_df.get('IsActual', False) == True]['Payment'].sum()
+        scheduled_income = visits_df[visits_df.get('IsActual', False) == False]['Payment'].sum()
+        
+        verification_data.append({
+            'Metric': 'Total Visits',
+            'Value': total_visits,
+            'Details': f"Completed: {completed_visits}, Scheduled: {scheduled_visits}"
+        })
+        
+        verification_data.append({
+            'Metric': 'Total Income',
+            'Value': f"£{total_income:,.2f}",
+            'Details': f"Completed: £{completed_income:,.2f}, Scheduled: £{scheduled_income:,.2f}"
+        })
+        
+        # By study
+        study_breakdown = visits_df.groupby('Study').agg({
+            'Visit': 'count',
+            'Payment': 'sum',
+            'IsActual': lambda x: x.sum() if x.dtype == bool else (x == True).sum()
+        }).rename(columns={'Visit': 'Total_Visits', 'Payment': 'Total_Income', 'IsActual': 'Completed_Visits'})
+        
+        for study, row in study_breakdown.iterrows():
+            verification_data.append({
+                'Metric': f'{study} - Visits',
+                'Value': int(row['Total_Visits']),
+                'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
+            })
+        
+        # By site
+        site_breakdown = visits_df.groupby('SiteofVisit').agg({
+            'Visit': 'count',
+            'Payment': 'sum',
+            'IsActual': lambda x: x.sum() if x.dtype == bool else (x == True).sum()
+        }).rename(columns={'Visit': 'Total_Visits', 'Payment': 'Total_Income', 'IsActual': 'Completed_Visits'})
+        
+        for site, row in site_breakdown.iterrows():
+            verification_data.append({
+                'Metric': f'{site} - Visits',
+                'Value': int(row['Total_Visits']),
+                'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
+            })
+        
+        # Screen failures
+        screen_failed_patients = visits_df[visits_df.get('IsScreenFail', False) == True]['PatientID'].nunique()
+        verification_data.append({
+            'Metric': 'Screen Failed Patients',
+            'Value': screen_failed_patients,
+            'Details': "Patients with screen failure visits"
+        })
+        
+        # Out of protocol visits
+        out_of_protocol_visits = len(visits_df[visits_df.get('IsOutOfProtocol', False) == True])
+        verification_data.append({
+            'Metric': 'Out of Protocol Visits',
+            'Value': out_of_protocol_visits,
+            'Details': "Visits outside tolerance windows"
+        })
+        
+        # Financial year totals
+        if not financial_df.empty and 'FinancialYear' in financial_df.columns:
+            fy_breakdown = financial_df.groupby('FinancialYear')['Payment'].sum()
+            for fy, total in fy_breakdown.items():
+                verification_data.append({
+                    'Metric': f'FY {fy} Income',
+                    'Value': f"£{total:,.2f}",
+                    'Details': f"Financial year total"
+                })
+        
+        # Calendar totals verification
+        calendar_daily_total = calendar_df['Daily Total'].sum()
+        calendar_fy_total = calendar_df['FY Total'].sum() if 'FY Total' in calendar_df.columns else 0
+        calendar_monthly_total = calendar_df['Monthly Total'].sum() if 'Monthly Total' in calendar_df.columns else 0
+        
+        verification_data.append({
+            'Metric': 'Calendar Daily Total Sum',
+            'Value': f"£{calendar_daily_total:,.2f}",
+            'Details': "Sum of all daily totals in calendar"
+        })
+        
+        if calendar_fy_total > 0:
+            verification_data.append({
+                'Metric': 'Calendar FY Total Sum',
+                'Value': f"£{calendar_fy_total:,.2f}",
+                'Details': "Sum of FY totals (should equal daily total)"
+            })
+        
+        if calendar_monthly_total > 0:
+            verification_data.append({
+                'Metric': 'Calendar Monthly Total Sum', 
+                'Value': f"£{calendar_monthly_total:,.2f}",
+                'Details': "Sum of monthly totals (should equal daily total)"
+            })
+        
+        # Patient recruitment by site
+        patient_site_breakdown = patients_df.groupby('Site')['PatientID'].count()
+        for site, count in patient_site_breakdown.items():
+            verification_data.append({
+                'Metric': f'{site} - Patients Recruited',
+                'Value': int(count),
+                'Details': "Total patients recruited at this site"
+            })
+        
+        # Create verification dataframe
+        verification_df = pd.DataFrame(verification_data)
+        
+        # Display in expandable section
+        with st.expander("📊 Detailed Verification Figures", expanded=False):
+            st.dataframe(verification_df, use_container_width=True, hide_index=True)
+            
+            # Create downloadable CSV
+            csv_data = verification_df.to_csv(index=False)
+            st.download_button(
+                "📥 Download Verification Figures (CSV)",
+                data=csv_data,
+                file_name="verification_figures.csv",
+                mime="text/csv"
+            )
+            
+            # Copy-paste friendly format
+            st.write("**Copy-Paste Format:**")
+            copy_text = "\n".join([
+                f"{row['Metric']}: {row['Value']} ({row['Details']})"
+                for _, row in verification_df.iterrows()
+            ])
+            st.code(copy_text, language="text")
+    
+    except Exception as e:
+        st.error(f"Error generating verification figures: {e}")
+        st.exception(e)
