@@ -114,10 +114,6 @@ def main():
     # Setup file uploaders
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-    # File structure information
-    with st.sidebar.expander("Required File Structure"):
-        st.markdown(get_file_structure_info())
-
     if patients_file and trials_file:
         # Display action buttons
         display_action_buttons()
@@ -180,7 +176,76 @@ def main():
 
     else:
         st.info("Please upload both Patients and Trials files to get started.")
-        st.markdown(get_file_structure_info())
+        
+        st.subheader("📋 Required File Structure")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            **🏥 Patients File**
+            
+            Required columns:
+            - **PatientID** - Unique patient identifier
+            - **Study** - Study name/code
+            - **StartDate** - Patient enrollment date (DD/MM/YYYY)
+            
+            Optional columns:
+            - **Site** / **PatientPractice** - Patient's home practice
+            - **PatientSite** / **OriginSite** - Alternative site columns
+            """)
+        
+        with col2:
+            st.markdown("""
+            **🔬 Trials File**
+            
+            Required columns:
+            - **Study** - Study name/code (must match Patients file)
+            - **Day** - Visit day number (Day 1 = baseline)
+            - **VisitName** - Visit identifier
+            - **SiteforVisit** - Where visit takes place
+            
+            Optional columns:
+            - **Payment** / **Income** - Visit payment amount
+            - **ToleranceBefore** - Days before visit allowed
+            - **ToleranceAfter** - Days after visit allowed
+            """)
+        
+        with col3:
+            st.markdown("""
+            **✅ Actual Visits File** *(Optional)*
+            
+            Required columns:
+            - **PatientID** - Must match Patients file
+            - **Study** - Must match Study files
+            - **VisitName** - Must match Trials file
+            - **ActualDate** - When visit actually occurred
+            
+            Optional columns:
+            - **ActualPayment** - Actual payment received
+            - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
+            """)
+        
+        st.markdown("---")
+        
+        st.markdown("""
+        **💡 Tips:**
+        - Use CSV or Excel (.xlsx) files
+        - Dates should be in UK format: DD/MM/YYYY (e.g., 31/12/2024)
+        - PatientID, Study, and VisitName columns must match exactly between files
+        - Each study must have exactly one Day 1 visit (baseline reference point)
+        - Use 'ScreenFail' in the Notes column to automatically exclude future visits
+        """)
+        
+        st.markdown("---")
+        
+        st.markdown("""
+        **🚀 Getting Started:**
+        1. Upload your Patients file and Trials file using the sidebar
+        2. Optionally upload Actual Visits file to track completed visits
+        3. Use the 'Add New Patient' and 'Record Visit' buttons to make updates
+        4. Download the generated calendar with financial analysis
+        """)
 
 if __name__ == "__main__":
     main()
