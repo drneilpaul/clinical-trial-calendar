@@ -21,9 +21,18 @@ def normalize_columns(df):
 
 def safe_string_conversion(value, default=""):
     """Safely convert value to string with fallback for NaN/None values"""
+    # Handle Series - apply to each element
+    if isinstance(value, pd.Series):
+        return value.apply(lambda x: safe_string_conversion(x, default))
+    
+    # Handle individual values
     if pd.isna(value) or value is None:
         return default
     return str(value).strip()
+
+def safe_string_conversion_series(series, default=""):
+    """Safely convert an entire Series to string values"""
+    return series.fillna(default).astype(str).str.strip()
 
 def parse_dates_column(df, col, errors="raise"):
     """Parse dates in a column with UK format preference (DD/MM/YYYY)"""
@@ -102,8 +111,8 @@ def standardize_visit_columns(df):
     if 'VisitName' not in df.columns:
         raise ValueError("VisitName column is required. VisitNo is no longer supported.")
     
-    # Ensure VisitName is string type
-    df['VisitName'] = safe_string_conversion(df['VisitName'])
+    # Ensure VisitName is string type - use the safe conversion for Series
+    df['VisitName'] = safe_string_conversion_series(df['VisitName'])
     return df
 
 def get_financial_year(date_obj):
