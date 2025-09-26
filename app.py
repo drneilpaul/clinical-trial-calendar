@@ -169,6 +169,9 @@ def main():
 
             # Download options
             display_download_buttons(calendar_df, site_column_mapping, unique_sites)
+            
+            # Verification figures for testing
+            display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
 
         except Exception as e:
             st.error(f"Error processing files: {e}")
