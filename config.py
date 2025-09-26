@@ -28,19 +28,19 @@ def get_file_structure_info():
     - Site/PatientPractice (optional - for patient origin)
     
     **Trials File:**
-    - Study, Day, VisitNo, SiteforVisit
+    - Study, Day, VisitName, SiteforVisit
     - Income/Payment, ToleranceBefore, ToleranceAfter (optional)
     
     **Actual Visits File (Optional):**
-    - PatientID, Study, VisitNo, ActualDate
+    - PatientID, Study, VisitName, ActualDate
     - ActualPayment, Notes (optional)
     - Use 'ScreenFail' in Notes to stop future visits
     """
 
 # Application constants
 APP_TITLE = "Clinical Trial Calendar Generator"
-APP_VERSION = "v2.3.1"
-APP_SUBTITLE = "Enhanced Modular Architecture - Fixed Version"
+APP_VERSION = "v2.3.2"
+APP_SUBTITLE = "Fixed Version - VisitName Only Support"
 
 # Default profit sharing weights
 DEFAULT_LIST_WEIGHT = 35
