@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import timedelta
-from helpers import safe_string_conversion, standardize_visit_columns, validate_required_columns
+from helpers import safe_string_conversion, standardize_visit_columns, validate_required_columns, get_financial_year_start_year, is_financial_year_end
 
 def build_calendar(patients_df, trials_df, actual_visits_df=None):
     """Build visit calendar with improved error handling and data validation"""
@@ -521,7 +521,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
         calendar_df.at[i, "Daily Total"] = daily_total
 
-    # Calculate monthly and financial year totals with improved FY logic
+    # Calculate monthly and financial year totals with centralized FY logic
     calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
     monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
     calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
@@ -529,17 +529,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA, axis=1
     )
 
-    # Fixed financial year calculation
-    def get_financial_year_start(d):
-        """Get the start year of the financial year for a given date"""
-        if d.month >= 4:  # April onwards is current FY
-            return d.year
-        else:  # Jan-Mar is previous FY 
-            return d.year - 1
-    
-    calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start)
+    # FIXED: Use centralized financial year calculation
+    calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start_year)
     fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
-    calendar_df["IsFYE"] = (calendar_df["Date"].dt.month == 3) & (calendar_df["Date"].dt.day == 31)
+    calendar_df["IsFYE"] = calendar_df["Date"].apply(is_financial_year_end)
     calendar_df["FY Total"] = calendar_df.apply(
         lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
     )
