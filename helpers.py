@@ -3,6 +3,7 @@ from dateutil.parser import parse
 from datetime import datetime
 
 def load_file(uploaded_file):
+    """Load CSV or Excel file with proper handling"""
     if uploaded_file is None:
         return None
     if uploaded_file.name.endswith(".csv"):
@@ -13,11 +14,19 @@ def load_file(uploaded_file):
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
 def normalize_columns(df):
+    """Normalize column names by stripping whitespace"""
     if df is not None:
         df.columns = df.columns.str.strip()
     return df
 
+def safe_string_conversion(value, default=""):
+    """Safely convert value to string with fallback for NaN/None values"""
+    if pd.isna(value) or value is None:
+        return default
+    return str(value).strip()
+
 def parse_dates_column(df, col, errors="raise"):
+    """Parse dates in a column with UK format preference (DD/MM/YYYY)"""
     if col not in df.columns:
         return df, []
     
@@ -74,3 +83,43 @@ def parse_dates_column(df, col, errors="raise"):
     df[col] = df[col].apply(try_parse_uk_date)
     
     return df, failed_rows
+
+def validate_required_columns(df, required_columns, file_name):
+    """Validate that required columns exist in dataframe"""
+    missing_columns = set(required_columns) - set(df.columns)
+    if missing_columns:
+        raise ValueError(f"{file_name} missing required columns: {', '.join(missing_columns)}")
+    return True
+
+def clean_numeric_column(df, column_name, default_value=0):
+    """Clean and convert a column to numeric, handling NaN values"""
+    if column_name in df.columns:
+        df[column_name] = pd.to_numeric(df[column_name], errors='coerce').fillna(default_value)
+    return df
+
+def standardize_visit_columns(df):
+    """Ensure VisitName column exists (no more VisitNo support)"""
+    if 'VisitName' not in df.columns:
+        raise ValueError("VisitName column is required. VisitNo is no longer supported.")
+    
+    # Ensure VisitName is string type
+    df['VisitName'] = safe_string_conversion(df['VisitName'])
+    return df
+
+def get_financial_year(date_obj):
+    """Get financial year for a given date (April to March)"""
+    if pd.isna(date_obj):
+        return None
+    if date_obj.month >= 4:  # April onwards
+        return f"{date_obj.year}-{date_obj.year+1}"
+    else:  # Jan-Mar
+        return f"{date_obj.year-1}-{date_obj.year}"
+
+def safe_numeric_conversion(value, default=0):
+    """Safely convert value to numeric with fallback"""
+    try:
+        if pd.isna(value) or value is None or value == '':
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
