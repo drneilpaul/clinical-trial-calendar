@@ -43,6 +43,11 @@ def show_legend(actual_visits_df):
     - Gray background = Weekend
     - Blue separator lines = Month boundaries (screen only)
     
+    **Three-Level Headers:**
+    - Dark blue header = Visit site (where visits are performed)
+    - Medium blue header = Study_PatientID
+    - Light blue header = Patient origin site (who recruited patient)
+    
     **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
     """ if actual_visits_df is not None else """
     **Legend:** 
@@ -54,20 +59,26 @@ def show_legend(actual_visits_df):
     - Gray background = Weekend
     - Blue separator lines = Month boundaries (screen only)
     
+    **Three-Level Headers:**
+    - Dark blue header = Visit site (where visits are performed)
+    - Medium blue header = Study_PatientID
+    - Light blue header = Patient origin site (who recruited patient)
+    
     **Note:** Day 1 visit is the baseline reference point for all visit scheduling.
     """
     
     st.info(legend_text)
 
-def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_visits=None):
-    """Display the main visit calendar with styling"""
+def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, excluded_visits=None):
+    """Display the main visit calendar with three-level styling"""
     st.subheader("Generated Visit Calendar")
 
     try:
         # Prepare display columns
         final_ordered_columns = ["Date", "Day"]
-        for site in unique_sites:
-            site_columns = site_column_mapping.get(site, [])
+        for visit_site in unique_visit_sites:
+            site_data = site_column_mapping.get(visit_site, {})
+            site_columns = site_data.get('columns', [])
             for col in site_columns:
                 if col in calendar_df.columns:
                     final_ordered_columns.append(col)
@@ -76,25 +87,36 @@ def display_calendar(calendar_df, site_column_mapping, unique_sites, excluded_vi
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
-        # Create site header and combine with data
-        site_header_row = create_site_header_row(display_df_for_view.columns, site_column_mapping)
-        site_header_df = pd.DataFrame([site_header_row])
-        display_with_header = pd.concat([site_header_df, display_df_for_view], ignore_index=True)
+        # Create three-level header rows
+        header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
+        
+        # Create header dataframes
+        level1_df = pd.DataFrame([header_rows['level1_site']])  # Visit sites
+        level2_df = pd.DataFrame([header_rows['level2_study_patient']])  # Study_Patient
+        level3_df = pd.DataFrame([header_rows['level3_origin']])  # Origin sites
+        
+        # Combine all headers with data
+        display_with_headers = pd.concat([
+            level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
+            level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
+            level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
+            display_df_for_view  # Actual visit data
+        ], ignore_index=True)
 
-        # Apply styling
+        # Apply styling for three header rows
         try:
             today = pd.to_datetime(date.today())
-            styled_df = display_with_header.style.apply(
+            styled_df = display_with_headers.style.apply(
                 lambda row: style_calendar_row(row, today), axis=1
             )
             
             # Generate HTML with month separators
             html_table = _generate_calendar_html_with_separators(styled_df)
-            components.html(html_table, height=720, scrolling=True)
+            components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
             
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
-            st.dataframe(display_with_header, use_container_width=True)
+            st.dataframe(display_with_headers, use_container_width=True)
 
         if excluded_visits and len(excluded_visits) > 0:
             st.warning("Some visits were excluded due to screen failure:")
@@ -112,8 +134,16 @@ def _generate_calendar_html_with_separators(styled_df):
         modified_html_lines = []
 
         prev_month = None
+        header_rows_passed = 0
+        
         for i, line in enumerate(html_lines):
-            if '<td>' in line and len(html_lines) > i+1:
+            # Skip month separator logic for header rows (first 3 data rows after table headers)
+            if '<td>' in line:
+                if header_rows_passed < 3:
+                    header_rows_passed += 1
+                    modified_html_lines.append(line)
+                    continue
+                    
                 date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
                 match = re.search(date_pattern, line)
                 if match:
@@ -237,7 +267,7 @@ def _display_weight_adjustment_interface():
         if total_weight == 100:
             st.success(f"✅ Total: {total_weight}% (Perfect!)")
         else:
-            st.error(f"❌ Total: {total_weight}% - Must equal 100%")
+            st.error(f"⌛ Total: {total_weight}% - Must equal 100%")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -302,7 +332,7 @@ def display_income_realization_analysis(visits_df, trials_df, patients_df):
     except Exception as e:
         st.error(f"Error displaying income realization analysis: {e}")
 
-def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
+def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures):
     """Display detailed statistics for each site with quarterly and financial year analysis"""
     if visits_df.empty or patients_df.empty:
         return
@@ -313,71 +343,70 @@ def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_fa
         # Prepare enhanced visits data
         enhanced_visits_df = prepare_financial_data(visits_df)
         
-        # Create tabs for each site or display directly if single site
-        if len(unique_sites) > 1:
-            tabs = st.tabs(unique_sites)
-            for i, site in enumerate(unique_sites):
+        # Create tabs for each visit site or display directly if single site
+        if len(unique_visit_sites) > 1:
+            tabs = st.tabs(unique_visit_sites)
+            for i, visit_site in enumerate(unique_visit_sites):
                 with tabs[i]:
-                    _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, site, screen_failures)
+                    _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, visit_site, screen_failures)
         else:
-            _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, unique_sites[0], screen_failures)
+            _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, unique_visit_sites[0], screen_failures)
     except Exception as e:
         st.error(f"Error displaying site-wise statistics: {e}")
 
 def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, site, screen_failures):
     """Display comprehensive analysis for a single site"""
     try:
-        site_patients = patients_df[patients_df['Site'] == site]
+        # Filter for visits that actually happen at this site
         site_visits = visits_df[visits_df['SiteofVisit'] == site]
         
-        if site_patients.empty:
-            st.warning(f"No patients found for site: {site}")
+        # Find patients who have visits at this site (may be from different origin sites)
+        patients_with_visits_here = visits_df[visits_df['SiteofVisit'] == site]['PatientID'].unique()
+        site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
+        
+        if site_related_patients.empty:
+            st.warning(f"No patients found with visits at site: {site}")
             return
         
-        st.subheader(f"🏥 {site} - Detailed Analysis")
+        st.subheader(f"🏥 {site} - Visit Site Analysis")
         
         # Overall statistics
         st.write("**Overall Statistics**")
         metrics_data = {
-            "Total Patients": len(site_patients),
-            "Total Visits": len(site_visits),
+            "Patients with visits here": len(site_related_patients),
+            "Total Visits at this site": len(site_visits),
             "Completed Visits": len(site_visits[site_visits.get('IsActual', False)]),
             "Total Income": format_currency(site_visits['Payment'].sum())
         }
         create_summary_metrics_row(metrics_data, 4)
         
-        # Study breakdown
-        st.write("**Studies at this site:**")
-        display_breakdown_by_study(site_visits, site_patients, site)
+        # Study breakdown at this site
+        st.write("**Studies performed at this site:**")
+        display_breakdown_by_study(site_visits, site_related_patients, site)
         
-        # Time-based analysis
-        display_site_time_analysis(visits_df, patients_df, site, enhanced_visits_df)
+        # Time-based analysis for work done at this site
+        display_site_time_analysis(site_visits, site_related_patients, site, enhanced_visits_df)
         
-        # Patient recruitment analysis
-        _display_site_recruitment_analysis(site_patients, enhanced_visits_df, site)
+        # Patient origin analysis
+        st.write("**Patient Origins (Who Recruited):**")
+        origin_breakdown = site_related_patients.groupby('Site')['PatientID'].count().reset_index()
+        origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+        st.dataframe(origin_breakdown, use_container_width=True)
         
-        # Screen failures
-        _display_site_screen_failures(site_patients, screen_failures)
+        # Screen failures for patients with visits at this site
+        _display_site_screen_failures(site_related_patients, screen_failures)
     except Exception as e:
         st.error(f"Error displaying analysis for site {site}: {e}")
 
-def _display_site_recruitment_analysis(site_patients, enhanced_visits_df, site):
-    """Display patient recruitment analysis for a site"""
-    try:
-        from table_builders import display_site_recruitment_analysis
-        display_site_recruitment_analysis(site_patients, enhanced_visits_df, site)
-    except Exception as e:
-        st.error(f"Error displaying recruitment analysis for {site}: {e}")
-
 def _display_site_screen_failures(site_patients, screen_failures):
-    """Display screen failures for a site"""
+    """Display screen failures for patients related to a site"""
     try:
         from table_builders import display_site_screen_failures
         display_site_screen_failures(site_patients, screen_failures)
     except Exception as e:
         st.error(f"Error displaying screen failures: {e}")
 
-def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
+def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites):
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
@@ -394,7 +423,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
         if excel_available:
             # Prepare data for Excel export
             from table_builders import create_excel_export_data, apply_excel_formatting
-            excel_df = create_excel_export_data(calendar_df, site_column_mapping, unique_sites)
+            excel_df = create_excel_export_data(calendar_df, site_column_mapping, unique_visit_sites)
             
             # Create Excel file
             output = io.BytesIO()
@@ -403,7 +432,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
                 ws = writer.sheets["VisitCalendar"]
 
                 # Add site headers and formatting
-                apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites)
+                apply_excel_formatting(ws, excel_df, site_column_mapping, unique_visit_sites)
 
             st.download_button(
                 "💰 Excel with Finances & Site Headers",
@@ -433,6 +462,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_sites):
             file_name="VisitCalendar.csv",
             mime="text/csv"
         )
+
 def display_verification_figures(visits_df, calendar_df, financial_df, patients_df):
     """Display verification figures for testing and validation"""
     st.subheader("🔍 Verification Figures")
@@ -476,7 +506,7 @@ def display_verification_figures(visits_df, calendar_df, financial_df, patients_
                 'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
             })
         
-        # By site
+        # By visit site (where work is done)
         site_breakdown = visits_df.groupby('SiteofVisit').agg({
             'Visit': 'count',
             'Payment': 'sum',
@@ -485,7 +515,7 @@ def display_verification_figures(visits_df, calendar_df, financial_df, patients_
         
         for site, row in site_breakdown.iterrows():
             verification_data.append({
-                'Metric': f'{site} - Visits',
+                'Metric': f'{site} - Visit Site',
                 'Value': int(row['Total_Visits']),
                 'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
             })
@@ -541,13 +571,13 @@ def display_verification_figures(visits_df, calendar_df, financial_df, patients_
                 'Details': "Sum of monthly totals (should equal daily total)"
             })
         
-        # Patient recruitment by site
+        # Patient recruitment by origin site
         patient_site_breakdown = patients_df.groupby('Site')['PatientID'].count()
         for site, count in patient_site_breakdown.items():
             verification_data.append({
                 'Metric': f'{site} - Patients Recruited',
                 'Value': int(count),
-                'Details': "Total patients recruited at this site"
+                'Details': "Total patients recruited at this origin site"
             })
         
         # Create verification dataframe
