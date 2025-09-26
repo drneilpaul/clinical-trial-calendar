@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
+from helpers import get_financial_year
 
 def prepare_financial_data(visits_df):
     """Prepare visits data with financial period columns"""
@@ -11,7 +12,7 @@ def prepare_financial_data(visits_df):
     financial_df = visits_df.copy()
     
     # Filter for relevant visits (exclude only tolerance periods '-' and '+')
-    # Include: actual visits (with ✅, 🔴, ⚠ ), scheduled visits (plain visit names), but exclude tolerance periods
+    # Include: actual visits (with ✅, 🔴, ⚠  ), scheduled visits (plain visit names), but exclude tolerance periods
     mask = ~financial_df['Visit'].isin(['-', '+'])
     
     financial_df = financial_df[mask].copy()
@@ -32,17 +33,8 @@ def prepare_financial_data(visits_df):
     financial_df['Year'] = financial_df['Date'].dt.year
     financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
     
-    # Fixed financial year calculation - avoid issues around year boundaries
-    def calculate_financial_year(d):
-        """Calculate financial year (April to March)"""
-        if pd.isna(d):
-            return None
-        if d.month >= 4:  # April onwards
-            return f"{d.year}-{d.year+1}"
-        else:  # Jan-Mar
-            return f"{d.year-1}-{d.year}"
-    
-    financial_df['FinancialYear'] = financial_df['Date'].apply(calculate_financial_year)
+    # FIXED: Use consistent FY calculation from helpers
+    financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
     
     return financial_df
 
@@ -101,15 +93,8 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
             patients_quarter = patients_df['StartDate'].dt.year.astype(str) + '-Q' + patients_df['StartDate'].dt.quarter.astype(str)
             period_patients = patients_df[patients_quarter == str(period_value)]
         elif period_column == 'FinancialYear':
-            def get_patient_fy(d):
-                if pd.isna(d):
-                    return None
-                if d.month >= 4:
-                    return f"{d.year}-{d.year+1}"
-                else:
-                    return f"{d.year-1}-{d.year}"
-            
-            patient_fy = patients_df['StartDate'].apply(get_patient_fy)
+            # FIXED: Use centralized FY calculation from helpers
+            patient_fy = patients_df['StartDate'].apply(get_financial_year)
             period_patients = patients_df[patient_fy == str(period_value)]
         else:
             return {
@@ -341,7 +326,6 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
         })
     
     return ratio_data
-
 
 def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     """Calculate income realization and pipeline metrics"""
