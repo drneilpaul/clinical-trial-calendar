@@ -115,14 +115,77 @@ def standardize_visit_columns(df):
     df['VisitName'] = safe_string_conversion_series(df['VisitName'])
     return df
 
+# CENTRALIZED FINANCIAL YEAR FUNCTIONS - Single Source of Truth
 def get_financial_year(date_obj):
-    """Get financial year for a given date (April to March)"""
-    if pd.isna(date_obj):
+    """
+    Get financial year for a given date (April to March)
+    Returns format: "2024-2025" for dates from April 2024 to March 2025
+    
+    Args:
+        date_obj: pandas.Timestamp or datetime object
+        
+    Returns:
+        str: Financial year in format "YYYY-YYYY" or None if date is NaT/None
+        
+    Examples:
+        get_financial_year(pd.Timestamp('2024-03-31')) -> '2023-2024'  
+        get_financial_year(pd.Timestamp('2024-04-01')) -> '2024-2025'
+        get_financial_year(pd.Timestamp('2024-12-25')) -> '2024-2025'
+    """
+    if pd.isna(date_obj) or date_obj is None:
         return None
     if date_obj.month >= 4:  # April onwards
         return f"{date_obj.year}-{date_obj.year+1}"
     else:  # Jan-Mar
         return f"{date_obj.year-1}-{date_obj.year}"
+
+def get_financial_year_start_year(date_obj):
+    """
+    Get the starting year of the financial year for a given date
+    Used for grouping and sorting operations
+    
+    Args:
+        date_obj: pandas.Timestamp or datetime object
+        
+    Returns:
+        int: Starting year of the financial year or None if date is NaT/None
+        
+    Examples:
+        get_financial_year_start_year(pd.Timestamp('2024-03-31')) -> 2023
+        get_financial_year_start_year(pd.Timestamp('2024-04-01')) -> 2024
+    """
+    if pd.isna(date_obj) or date_obj is None:
+        return None
+    if date_obj.month >= 4:  # April onwards
+        return date_obj.year
+    else:  # Jan-Mar
+        return date_obj.year - 1
+
+def is_financial_year_end(date_obj):
+    """
+    Check if date is financial year end (31 March)
+    
+    Args:
+        date_obj: pandas.Timestamp or datetime object
+        
+    Returns:
+        bool: True if date is 31 March, False otherwise
+    """
+    if pd.isna(date_obj) or date_obj is None:
+        return False
+    return date_obj.month == 3 and date_obj.day == 31
+
+def get_financial_year_for_series(date_series):
+    """
+    Apply financial year calculation to an entire pandas Series efficiently
+    
+    Args:
+        date_series: pandas.Series of datetime objects
+        
+    Returns:
+        pandas.Series: Series of financial year strings
+    """
+    return date_series.apply(get_financial_year)
 
 def safe_numeric_conversion(value, default=0):
     """Safely convert value to numeric with fallback"""
@@ -132,3 +195,50 @@ def safe_numeric_conversion(value, default=0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+# Validation functions for financial year logic
+def validate_financial_year_string(fy_string):
+    """
+    Validate that a financial year string is in the correct format
+    
+    Args:
+        fy_string: str like "2024-2025"
+        
+    Returns:
+        bool: True if valid format, False otherwise
+    """
+    if not isinstance(fy_string, str):
+        return False
+    
+    try:
+        parts = fy_string.split('-')
+        if len(parts) != 2:
+            return False
+        
+        start_year = int(parts[0])
+        end_year = int(parts[1])
+        
+        # End year should be exactly start year + 1
+        return end_year == start_year + 1
+    except ValueError:
+        return False
+
+def get_financial_year_boundaries(fy_string):
+    """
+    Get the start and end dates for a financial year string
+    
+    Args:
+        fy_string: str like "2024-2025"
+        
+    Returns:
+        tuple: (start_date, end_date) as pandas.Timestamp objects
+    """
+    if not validate_financial_year_string(fy_string):
+        raise ValueError(f"Invalid financial year format: {fy_string}")
+    
+    start_year = int(fy_string.split('-')[0])
+    
+    start_date = pd.Timestamp(f"{start_year}-04-01")
+    end_date = pd.Timestamp(f"{start_year + 1}-03-31")
+    
+    return start_date, end_date
