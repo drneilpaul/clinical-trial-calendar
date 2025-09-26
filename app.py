@@ -135,8 +135,8 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
 
-            # Build calendar
-            visits_df, calendar_df, stats, messages, site_column_mapping, unique_sites = build_calendar(
+            # Build calendar - now returns unique_visit_sites instead of unique_sites
+            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
@@ -152,7 +152,8 @@ def main():
                 display_site_statistics(site_summary_df)
 
             show_legend(actual_visits_df)
-            display_calendar(calendar_df, site_column_mapping, unique_sites)
+            # Updated to use unique_visit_sites instead of unique_sites
+            display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
             
             # Monthly Income Tables and Ratio Calculations (NO CHARTS)
             display_monthly_income_tables(visits_df)
@@ -165,11 +166,11 @@ def main():
             # Income Realization Analysis
             display_income_realization_analysis(visits_df, trials_df, patients_df)
 
-            # Site statistics and analysis
-            display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures)
+            # Site statistics and analysis - use unique_visit_sites for consistency
+            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
-            # Download options
-            display_download_buttons(calendar_df, site_column_mapping, unique_sites)
+            # Download options - use unique_visit_sites 
+            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
             
             # Verification figures for testing
             display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
@@ -239,13 +240,14 @@ def main():
         - PatientID, Study, and VisitName columns must match exactly between files
         - Each study must have exactly one Day 1 visit (baseline reference point)
         - Use 'ScreenFail' in the Notes column to automatically exclude future visits
+        - Use unique study names (e.g., ASH_Alpha, KIL_Alpha) if same study runs at multiple sites
         """)
         
         st.markdown("---")
         
         st.markdown("""
         **🚀 Getting Started:**
-        1. Upload your Patients file and Trials file using the sidebar
+        1. Upload your Trials file and Patients file using the sidebar
         2. Optionally upload Actual Visits file to track completed visits
         3. Use the 'Add New Patient' and 'Record Visit' buttons to make updates
         4. Download the generated calendar with financial analysis
