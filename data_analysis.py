@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from helpers import get_financial_year
 
 def extract_screen_failures(actual_visits_df):
     """Extract screen failure information from actual visits"""
@@ -36,10 +37,9 @@ def prepare_financial_data(visits_df):
         financial_df['Year'] = financial_df['Date'].dt.year
         financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
     
+    # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in financial_df.columns:
-        financial_df['FinancialYear'] = financial_df['Date'].apply(
-            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-        )
+        financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
     
     return financial_df
 
@@ -52,7 +52,7 @@ def display_processing_messages(messages):
                 st.success(message)
             elif message.startswith("⚠"):
                 st.warning(message)
-            elif message.startswith("❌"):
+            elif message.startswith("⌛"):
                 st.error(message)
             else:
                 st.info(message)
@@ -71,10 +71,9 @@ def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_fa
         visits_df_enhanced['Year'] = visits_df_enhanced['Date'].dt.year
         visits_df_enhanced['QuarterYear'] = visits_df_enhanced['Year'].astype(str) + '-Q' + visits_df_enhanced['Quarter'].astype(str)
     
+    # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in visits_df_enhanced.columns:
-        visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(
-            lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-        )
+        visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(get_financial_year)
     
     # Create tabs for each site
     if len(unique_sites) > 1:
@@ -97,7 +96,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         st.warning(f"No patients found for site: {site}")
         return
     
-    st.subheader(f"🔍 {site} - Detailed Analysis")
+    st.subheader(f"📍 {site} - Detailed Analysis")
     
     # Overall statistics
     st.write("**Overall Statistics**")
@@ -142,7 +141,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
     # Filter for relevant visits (exclude tolerance periods)
     financial_site_visits = site_visits[
         (site_visits['Visit'].str.startswith("✅", na=False)) |
-        (site_visits['Visit'].str.startswith("⚠ Screen Fail", na=False)) |
+        (site_visits['Visit'].str.startswith("⚠️ Screen Fail", na=False)) |
         (site_visits['Visit'].str.startswith("🔴", na=False)) |
         (~site_visits['Visit'].isin(['-', '+']) & (~site_visits.get('IsActual', False)))
     ].copy()
@@ -198,9 +197,8 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
     site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
     site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
     site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
-    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(
-        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-    )
+    # FIXED: Use centralized FY calculation from helpers
+    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
     
     # Quarterly patient recruitment
     quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()
