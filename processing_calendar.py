@@ -4,7 +4,7 @@ from datetime import timedelta
 from helpers import safe_string_conversion, standardize_visit_columns, validate_required_columns, get_financial_year_start_year, is_financial_year_end
 
 def build_calendar(patients_df, trials_df, actual_visits_df=None):
-    """Build visit calendar with improved error handling and data validation"""
+    """Build visit calendar with three-level headers grouped by visit site"""
     # Clean columns
     patients_df.columns = patients_df.columns.str.strip()
     trials_df.columns = trials_df.columns.str.strip()
@@ -451,23 +451,58 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     calendar_df = pd.DataFrame({"Date": calendar_dates})
     calendar_df["Day"] = calendar_df["Date"].dt.day_name()
 
-    # Group patients by site
+    # NEW: Group patients by visit site instead of home site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
-    unique_sites = sorted(patients_df["Site"].unique())
     
-    # Create ordered columns
+    # Get unique visit sites (where work is actually done)
+    unique_visit_sites = sorted(visits_df["SiteofVisit"].unique())
+    
+    # Create three-level column structure
     ordered_columns = ["Date", "Day"]
     site_column_mapping = {}
     
-    for site in unique_sites:
-        site_patients = patients_df[patients_df["Site"] == site].sort_values(["Study", "PatientID"])
+    for visit_site in unique_visit_sites:
+        # Find all patients who have visits at this site
+        site_visits = visits_df[visits_df["SiteofVisit"] == visit_site]
+        site_patients_info = []
+        
+        # Get unique patient-study combinations at this visit site
+        for patient_study in site_visits[['PatientID', 'Study']].drop_duplicates().itertuples():
+            patient_id = patient_study.PatientID
+            study = patient_study.Study
+            
+            # Find this patient's origin site
+            patient_row = patients_df[
+                (patients_df['PatientID'] == patient_id) & 
+                (patients_df['Study'] == study)
+            ]
+            
+            if not patient_row.empty:
+                origin_site = patient_row.iloc[0]['Site']
+                col_id = f"{study}_{patient_id}"
+                
+                site_patients_info.append({
+                    'col_id': col_id,
+                    'study': study,
+                    'patient_id': patient_id,
+                    'origin_site': origin_site
+                })
+        
+        # Sort by study then patient ID for consistent ordering
+        site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
+        
+        # Add columns for this visit site
         site_columns = []
-        for _, patient in site_patients.iterrows():
-            col_id = patient["ColumnID"]
+        for patient_info in site_patients_info:
+            col_id = patient_info['col_id']
             ordered_columns.append(col_id)
             site_columns.append(col_id)
             calendar_df[col_id] = ""
-        site_column_mapping[site] = site_columns
+        
+        site_column_mapping[visit_site] = {
+            'columns': site_columns,
+            'patient_info': site_patients_info
+        }
 
     # Create income tracking columns
     for study in trials_df["Study"].unique():
@@ -544,4 +579,5 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         "out_of_window_visits": out_of_window_visits
     }
 
-    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_sites
+    # Return unique_visit_sites instead of unique_sites to match new structure
+    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
