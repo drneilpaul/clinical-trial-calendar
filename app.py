@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from helpers import load_file, normalize_columns, parse_dates_column
+from helpers import load_file, normalize_columns, parse_dates_column, standardize_visit_columns, safe_string_conversion
 from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
@@ -41,29 +41,17 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
             st.error(f"Unparseable ActualDate values: {failed_actuals}")
 
     # Data type conversion - ensure consistent string types
-    patients_df["PatientID"] = patients_df["PatientID"].astype(str)
-    patients_df["Study"] = patients_df["Study"].astype(str)
+    patients_df["PatientID"] = safe_string_conversion(patients_df["PatientID"])
+    patients_df["Study"] = safe_string_conversion(patients_df["Study"])
     
-    # Handle VisitName vs VisitNo compatibility
-    if "VisitName" not in trials_df.columns and "VisitNo" in trials_df.columns:
-        trials_df["VisitName"] = trials_df["VisitNo"].astype(str)
-    elif "VisitName" in trials_df.columns:
-        trials_df["VisitName"] = trials_df["VisitName"].astype(str)
-    else:
-        st.error("Trials file must have either 'VisitName' or 'VisitNo' column")
-        st.stop()
-    
-    trials_df["Study"] = trials_df["Study"].astype(str)
+    # Standardize visit columns (VisitName only - no VisitNo support)
+    trials_df = standardize_visit_columns(trials_df)
+    trials_df["Study"] = safe_string_conversion(trials_df["Study"])
     
     if actual_visits_df is not None:
-        actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
-        actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
-        
-        # Handle VisitName vs VisitNo compatibility for actual visits
-        if "VisitName" not in actual_visits_df.columns and "VisitNo" in actual_visits_df.columns:
-            actual_visits_df["VisitName"] = actual_visits_df["VisitNo"].astype(str)
-        elif "VisitName" in actual_visits_df.columns:
-            actual_visits_df["VisitName"] = actual_visits_df["VisitName"].astype(str)
+        actual_visits_df = standardize_visit_columns(actual_visits_df)
+        actual_visits_df["PatientID"] = safe_string_conversion(actual_visits_df["PatientID"])
+        actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
 
     # Check missing studies
     missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
