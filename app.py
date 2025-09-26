@@ -16,17 +16,33 @@ from calculations import prepare_financial_data
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
-    """Extract site summary statistics from patients dataframe"""
+    """Extract site summary statistics from patients dataframe with robust site detection"""
     if patients_df.empty:
         return pd.DataFrame()
-    
-    # Group by site and count patients
-    site_summary = patients_df.groupby('Site').agg({
+
+    df = patients_df.copy()
+    # Determine the most appropriate site column
+    site_col = None
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in df.columns:
+            site_col = candidate
+            break
+    if site_col is None:
+        # Fallback: mark as Unknown Site
+        df['__Site'] = 'Unknown Site'
+        site_col = '__Site'
+
+    # Ensure string types
+    df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
+
+    # Group by resolved site and count patients
+    site_summary = df.groupby(site_col).agg({
         'PatientID': 'count',
-        'Study': lambda x: ', '.join(x.unique())
+        'Study': lambda x: ', '.join(sorted(map(str, x.unique())))
     }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
-    
+
     site_summary = site_summary.reset_index()
+    site_summary = site_summary.rename(columns={site_col: 'Site'})
     return site_summary
 
 def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
