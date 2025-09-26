@@ -147,7 +147,7 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows - handle values carefully
+    # Data rows - handle values carefully with UK accounting format
     for row_idx, (_, row) in enumerate(enhanced_df.iterrows()):
         for col_idx, value in enumerate(row, 1):
             # Safely convert value for Excel
@@ -163,10 +163,25 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             # Format dates
             if col_idx == 1 and isinstance(excel_value, str) and len(str(excel_value)) > 0:  # Date column
                 cell.number_format = 'DD/MM/YYYY'
-            # Format currency columns
+            # Format currency columns with UK accounting format
             elif col_idx > 2 and any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
                 if isinstance(excel_value, str) and '£' in excel_value:
-                    cell.number_format = '"£"#,##0.00'
+                    # Remove £ symbol and convert to number for proper accounting format
+                    try:
+                        numeric_value = float(excel_value.replace('£', '').replace(',', ''))
+                        cell.value = numeric_value
+                        # UK Accounting format: positive numbers normal, negative in brackets, zero shows dash
+                        cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                    except (ValueError, AttributeError):
+                        # Fallback to standard currency if conversion fails
+                        cell.number_format = '"£"#,##0.00'
+                elif isinstance(excel_value, (int, float)) and excel_value != 0:
+                    # Direct numeric values
+                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                elif excel_value == 0 or excel_value == "":
+                    # Zero values - set to 0 and apply accounting format
+                    cell.value = 0
+                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
     
     # Auto-adjust column widths
     for col_idx, col in enumerate(enhanced_df.columns, 1):
