@@ -371,7 +371,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     # Calculate overall metrics
     overall_metrics = calculate_income_realization_metrics(visits_df, trials_df, patients_df)
     
-    # Display key metrics
+    # Display key metrics  
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Completed Income", format_currency(overall_metrics['completed_income']))
