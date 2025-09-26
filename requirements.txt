@@ -3,3 +3,4 @@ numpy
 pandas>=2.0.0
 openpyxl
 matplotlib
+python-dateutil
