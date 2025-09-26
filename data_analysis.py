@@ -57,12 +57,12 @@ def display_processing_messages(messages):
             else:
                 st.info(message)
 
-def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_failures):
-    """Display detailed statistics for each site with quarterly and financial year analysis"""
+def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures):
+    """Display detailed statistics for each visit site with quarterly and financial year analysis"""
     if visits_df.empty or patients_df.empty:
         return
     
-    st.subheader("📊 Site-wise Analysis")
+    st.subheader("📊 Visit Site Analysis")
     
     # Add time period columns to visits_df if not already present
     visits_df_enhanced = visits_df.copy()
@@ -75,36 +75,39 @@ def display_site_wise_statistics(visits_df, patients_df, unique_sites, screen_fa
     if 'FinancialYear' not in visits_df_enhanced.columns:
         visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(get_financial_year)
     
-    # Create tabs for each site
-    if len(unique_sites) > 1:
-        tabs = st.tabs(unique_sites)
+    # Create tabs for each visit site
+    if len(unique_visit_sites) > 1:
+        tabs = st.tabs(unique_visit_sites)
         
-        for i, site in enumerate(unique_sites):
+        for i, visit_site in enumerate(unique_visit_sites):
             with tabs[i]:
-                _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, site, screen_failures)
+                _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, visit_site, screen_failures)
     else:
         # If only one site, display directly
-        _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, unique_sites[0], screen_failures)
+        _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, unique_visit_sites[0], screen_failures)
 
 def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_failures):
-    """Display enhanced statistics for a single site including quarterly and financial year analysis"""
-    # Filter data for this site
-    site_patients = patients_df[patients_df['Site'] == site]
+    """Display enhanced statistics for a single visit site including quarterly and financial year analysis"""
+    # Filter data for this visit site (where work is actually done)
     site_visits = visits_df[visits_df['SiteofVisit'] == site]
     
-    if site_patients.empty:
-        st.warning(f"No patients found for site: {site}")
+    # Find patients who have visits at this site (regardless of their origin)
+    patients_with_visits_here = site_visits['PatientID'].unique()
+    site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
+    
+    if site_related_patients.empty:
+        st.warning(f"No patients found with visits at site: {site}")
         return
     
-    st.subheader(f"📍 {site} - Detailed Analysis")
+    st.subheader(f"🏥 {site} - Visit Site Analysis")
     
     # Overall statistics
     st.write("**Overall Statistics**")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_patients = len(site_patients)
-        st.metric("Total Patients", total_patients)
+        total_patients = len(site_related_patients)
+        st.metric("Patients with visits here", total_patients)
     
     with col2:
         total_visits = len(site_visits)
@@ -118,13 +121,13 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         total_income = site_visits['Payment'].sum()
         st.metric("Total Income", f"£{total_income:,.2f}")
     
-    # Study breakdown
-    st.write("**Study Breakdown**")
-    study_breakdown = site_patients.groupby('Study').agg({
+    # Study breakdown at this visit site
+    st.write("**Studies performed at this site:**")
+    study_breakdown = site_related_patients.groupby('Study').agg({
         'PatientID': 'count'
     }).rename(columns={'PatientID': 'Patient Count'})
     
-    # Add visit counts and income
+    # Add visit counts and income for work done at this site
     visit_breakdown = site_visits.groupby('Study').agg({
         'Visit': 'count',
         'Payment': 'sum'
@@ -134,6 +137,12 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
     combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(lambda x: f"£{x:,.2f}")
     
     st.dataframe(combined_breakdown, use_container_width=True)
+    
+    # Patient origin breakdown (who recruited the patients)
+    st.write("**Patient Origins (Who Recruited):**")
+    origin_breakdown = site_related_patients.groupby('Site')['PatientID'].count().reset_index()
+    origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+    st.dataframe(origin_breakdown, use_container_width=True)
     
     # Quarterly Analysis
     st.write("**Quarterly Analysis**")
@@ -193,11 +202,11 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                 st.write("*Income by Financial Year*")
                 st.dataframe(fy_display[['Income']], use_container_width=True)
     
-    # Patient recruitment by time period
+    # Patient recruitment by time period (for patients who have visits at this site)
     st.write("**Patient Recruitment Analysis**")
     
     # Add time period columns to patients data
-    site_patients_enhanced = site_patients.copy()
+    site_patients_enhanced = site_related_patients.copy()
     site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
     site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
     site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
@@ -283,9 +292,9 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         fy_summary_df = pd.DataFrame(fy_summary_data)
         st.dataframe(fy_summary_df, use_container_width=True)
     
-    # Screen failures for this site
+    # Screen failures for patients who have visits at this site
     site_screen_failures = []
-    for patient in site_patients.itertuples():
+    for patient in site_related_patients.itertuples():
         patient_study_key = f"{patient.PatientID}_{patient.Study}"
         if patient_study_key in screen_failures:
             site_screen_failures.append({
@@ -299,32 +308,32 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
 
 def display_monthly_analysis_by_site(visits_df):
-    """Display monthly analysis broken down by site"""
+    """Display monthly analysis broken down by visit site"""
     if visits_df.empty:
         return
     
-    st.subheader("📅 Monthly Analysis by Site")
+    st.subheader("📅 Monthly Analysis by Visit Site")
     
     # Create monthly breakdown
     visits_df['MonthYear'] = visits_df['Date'].dt.to_period('M')
     
-    # Group by month and site
+    # Group by month and visit site (where work is done)
     monthly_site_data = visits_df.groupby(['MonthYear', 'SiteofVisit']).agg({
         'Visit': 'count',
         'Payment': 'sum'
     }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Income'})
     
-    # Pivot to show sites as columns
+    # Pivot to show visit sites as columns
     monthly_visits = monthly_site_data['Visit Count'].unstack(fill_value=0)
     monthly_income = monthly_site_data['Income'].unstack(fill_value=0)
     
     # Display visit counts
-    st.write("**Monthly Visit Counts by Site:**")
+    st.write("**Monthly Visit Counts by Visit Site:**")
     monthly_visits.index = monthly_visits.index.astype(str)
     st.dataframe(monthly_visits, use_container_width=True)
     
     # Display income
-    st.write("**Monthly Income by Site:**")
+    st.write("**Monthly Income by Visit Site:**")
     monthly_income_display = monthly_income.copy()
     monthly_income_display.index = monthly_income_display.index.astype(str)
     
