@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import timedelta
-from helpers import safe_string_conversion
+from helpers import safe_string_conversion, standardize_visit_columns, validate_required_columns
 
 def build_calendar(patients_df, trials_df, actual_visits_df=None):
     """Build visit calendar with improved error handling and data validation"""
@@ -12,13 +12,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         actual_visits_df.columns = actual_visits_df.columns.str.strip()
 
     # Validate required columns
-    required_patients = {"PatientID", "Study", "StartDate"}
-    required_trials = {"Study", "Day", "VisitName"}
+    validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
+    validate_required_columns(trials_df, {"Study", "Day", "VisitName"}, "Trials file")
 
-    if not required_patients.issubset(patients_df.columns):
-        raise ValueError(f"Patients file missing required columns: {required_patients - set(patients_df.columns)}")
-    if not required_trials.issubset(trials_df.columns):
-        raise ValueError(f"Trials file missing required columns: {required_trials - set(trials_df.columns)}")
+    # Standardize visit columns (enforce VisitName only)
+    trials_df = standardize_visit_columns(trials_df)
+    if actual_visits_df is not None:
+        validate_required_columns(actual_visits_df, {"PatientID", "Study", "VisitName", "ActualDate"}, "Actual visits file")
+        actual_visits_df = standardize_visit_columns(actual_visits_df)
 
     # Check for SiteforVisit column
     if "SiteforVisit" not in trials_df.columns:
@@ -29,10 +30,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Process actual visits if provided
     if actual_visits_df is not None:
-        required_actual = {"PatientID", "Study", "VisitName", "ActualDate"}
-        if not required_actual.issubset(actual_visits_df.columns):
-            raise ValueError(f"Actual visits file missing required columns: {required_actual}")
-
         # Ensure proper data types with safe conversion
         actual_visits_df["PatientID"] = safe_string_conversion(actual_visits_df["PatientID"])
         actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
