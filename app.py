@@ -77,8 +77,8 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
     st.sidebar.header("Upload Data Files")
-    patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
     trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+    patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
     actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
     
     # Store in session state
