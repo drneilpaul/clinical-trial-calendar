@@ -9,6 +9,7 @@ from calculations import (
     calculate_income_realization_metrics, calculate_monthly_realization_breakdown,
     calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
 )
+from helpers import get_financial_year
 
 def create_pivot_income_table(financial_df, group_cols, period_col, value_col='Payment'):
     """Create a pivot table for income analysis"""
@@ -222,14 +223,12 @@ def display_site_recruitment_analysis(site_patients, enhanced_visits_df, site):
     """Display patient recruitment analysis for a site"""
     st.write("**Patient Recruitment Analysis**")
     
-    # Add time period columns to patients
+    # Add time period columns to patients - FIXED to use centralized FY function
     site_patients_enhanced = site_patients.copy()
     site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
     site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
     site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
-    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(
-        lambda d: f"{d.year}-{d.year+1}" if d.month >= 4 else f"{d.year-1}-{d.year}"
-    )
+    site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
     
     # Recruitment summaries
     quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()
@@ -314,12 +313,14 @@ def display_site_screen_failures(site_patients, screen_failures):
         st.write("**Screen Failures**")
         st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
 
-def create_excel_export_data(calendar_df, site_column_mapping, unique_sites):
-    """Prepare data for Excel export with proper formatting"""
-    # Get ordered columns
+def create_excel_export_data(calendar_df, site_column_mapping, unique_visit_sites):
+    """Prepare data for Excel export with proper formatting - UPDATED for three-level structure"""
+    # Get ordered columns from the three-level structure
     final_ordered_columns = ["Date", "Day"]
-    for site in unique_sites:
-        site_columns = site_column_mapping.get(site, [])
+    
+    for visit_site in unique_visit_sites:
+        site_data = site_column_mapping.get(visit_site, {})
+        site_columns = site_data.get('columns', [])
         for col in site_columns:
             if col in calendar_df.columns:
                 final_ordered_columns.append(col)
@@ -337,29 +338,59 @@ def create_excel_export_data(calendar_df, site_column_mapping, unique_sites):
     
     return excel_df
 
-def apply_excel_formatting(ws, excel_df, site_column_mapping, unique_sites):
-    """Apply formatting to Excel worksheet"""
+def apply_excel_formatting(ws, excel_df, site_column_mapping, unique_visit_sites):
+    """Apply formatting to Excel worksheet - UPDATED for three-level structure"""
     try:
         from openpyxl.styles import PatternFill, Font, Alignment
         from openpyxl.utils import get_column_letter
         
-        # Add site headers
+        # Create three-level headers in Excel
         for col_idx, col_name in enumerate(excel_df.columns, 1):
             col_letter = get_column_letter(col_idx)
+            
             if col_name not in ["Date", "Day"] and not any(x in col_name for x in ["Income", "Total"]):
-                for site in unique_sites:
-                    if col_name in site_column_mapping.get(site, []):
-                        ws[f"{col_letter}1"] = site
+                # Find which visit site and patient info this column belongs to
+                for visit_site in unique_visit_sites:
+                    site_data = site_column_mapping.get(visit_site, {})
+                    site_columns = site_data.get('columns', [])
+                    
+                    if col_name in site_columns:
+                        # Level 1: Visit site header
+                        ws[f"{col_letter}1"] = visit_site
                         ws[f"{col_letter}1"].font = Font(bold=True, size=12)
-                        ws[f"{col_letter}1"].fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
+                        ws[f"{col_letter}1"].fill = PatternFill(start_color="FF1E40AF", end_color="FF1E40AF", fill_type="solid")
                         ws[f"{col_letter}1"].alignment = Alignment(horizontal="center")
+                        
+                        # Level 2: Study_Patient header
+                        patient_info = site_data.get('patient_info', [])
+                        for info in patient_info:
+                            if info['col_id'] == col_name:
+                                study_patient = f"{info['study']}_{info['patient_id']}"
+                                ws[f"{col_letter}2"] = study_patient
+                                ws[f"{col_letter}2"].font = Font(bold=True, size=10)
+                                ws[f"{col_letter}2"].fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid")
+                                ws[f"{col_letter}2"].alignment = Alignment(horizontal="center")
+                                
+                                # Level 3: Origin site
+                                origin_site = f"({info['origin_site']})"
+                                ws[f"{col_letter}3"] = origin_site
+                                ws[f"{col_letter}3"].font = Font(italic=True, size=9)
+                                ws[f"{col_letter}3"].fill = PatternFill(start_color="FF93C5FD", end_color="FF93C5FD", fill_type="solid")
+                                ws[f"{col_letter}3"].alignment = Alignment(horizontal="center")
+                                break
                         break
+            else:
+                # System columns (Date, Day) and financial columns
+                ws[f"{col_letter}1"] = ""
+                ws[f"{col_letter}2"] = ""
+                ws[f"{col_letter}3"] = ""
 
         # Auto-adjust column widths
         for idx, col in enumerate(excel_df.columns, 1):
             col_letter = get_column_letter(idx)
             max_length = max([len(str(cell)) if cell is not None else 0 for cell in excel_df[col].tolist()] + [len(col)])
             ws.column_dimensions[col_letter].width = max(10, max_length + 2)
+            
     except ImportError:
         # If openpyxl styles not available, skip formatting
         pass
