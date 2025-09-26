@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd  # Added this import
+import pandas as pd
 from helpers import load_file, normalize_columns, parse_dates_column
 from processing_calendar import build_calendar
 from display_components import (
@@ -9,14 +9,13 @@ from display_components import (
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
 from data_analysis import (
-    extract_screen_failures, prepare_financial_data,
-    display_site_wise_statistics,
-    display_processing_messages
+    extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
+from calculations import prepare_financial_data
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
-    """Extract site summary statistics from patients dataframe - no changes needed"""
+    """Extract site summary statistics from patients dataframe"""
     if patients_df.empty:
         return pd.DataFrame()
     
@@ -30,7 +29,7 @@ def extract_site_summary(patients_df, screen_failures=None):
     return site_summary
 
 def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
-    """Handle date parsing and basic validation - updated for VisitName"""
+    """Handle date parsing and basic validation"""
     # Date parsing
     patients_df, failed_patients = parse_dates_column(patients_df, "StartDate")
     if failed_patients:
@@ -41,15 +40,33 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
         if failed_actuals:
             st.error(f"Unparseable ActualDate values: {failed_actuals}")
 
-    # Data type conversion - now using VisitName instead of VisitNo
+    # Data type conversion - ensure consistent string types
     patients_df["PatientID"] = patients_df["PatientID"].astype(str)
-    if "VisitName" in trials_df.columns:
+    patients_df["Study"] = patients_df["Study"].astype(str)
+    
+    # Handle VisitName vs VisitNo compatibility
+    if "VisitName" not in trials_df.columns and "VisitNo" in trials_df.columns:
+        trials_df["VisitName"] = trials_df["VisitNo"].astype(str)
+    elif "VisitName" in trials_df.columns:
         trials_df["VisitName"] = trials_df["VisitName"].astype(str)
-    if actual_visits_df is not None and "VisitName" in actual_visits_df.columns:
-        actual_visits_df["VisitName"] = actual_visits_df["VisitName"].astype(str)
+    else:
+        st.error("Trials file must have either 'VisitName' or 'VisitNo' column")
+        st.stop()
+    
+    trials_df["Study"] = trials_df["Study"].astype(str)
+    
+    if actual_visits_df is not None:
+        actual_visits_df["PatientID"] = actual_visits_df["PatientID"].astype(str)
+        actual_visits_df["Study"] = actual_visits_df["Study"].astype(str)
+        
+        # Handle VisitName vs VisitNo compatibility for actual visits
+        if "VisitName" not in actual_visits_df.columns and "VisitNo" in actual_visits_df.columns:
+            actual_visits_df["VisitName"] = actual_visits_df["VisitNo"].astype(str)
+        elif "VisitName" in actual_visits_df.columns:
+            actual_visits_df["VisitName"] = actual_visits_df["VisitName"].astype(str)
 
     # Check missing studies
-    missing_studies = set(patients_df["Study"].astype(str)) - set(trials_df["Study"].astype(str))
+    missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
     if missing_studies:
         st.error(f"Missing Study Definitions: {missing_studies}")
         st.stop()
@@ -70,7 +87,7 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
     return patients_df, trials_df, actual_visits_df
 
 def setup_file_uploaders():
-    """Setup file uploaders and store in session state - no changes needed"""
+    """Setup file uploaders and store in session state"""
     st.sidebar.header("Upload Data Files")
     patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
     trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
@@ -84,7 +101,7 @@ def setup_file_uploaders():
     return patients_file, trials_file, actual_visits_file
 
 def display_action_buttons():
-    """Display action buttons for adding patients and recording visits - no changes needed"""
+    """Display action buttons for adding patients and recording visits"""
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         if st.button("Add New Patient", use_container_width=True):
@@ -109,7 +126,7 @@ def main():
     # Setup file uploaders
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-    # File structure information - now updated for VisitName
+    # File structure information
     with st.sidebar.expander("Required File Structure"):
         st.markdown(get_file_structure_info())
 
@@ -128,12 +145,12 @@ def main():
             trials_df = normalize_columns(load_file(trials_file))
             actual_visits_df = normalize_columns(load_file(actual_visits_file)) if actual_visits_file else None
 
-            # Process dates and validation - includes Day 1 baseline validation
+            # Process dates and validation
             patients_df, trials_df, actual_visits_df = process_dates_and_validation(
                 patients_df, trials_df, actual_visits_df
             )
 
-            # Build calendar - now using VisitName based processing
+            # Build calendar
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
@@ -160,7 +177,7 @@ def main():
             if not financial_df.empty:
                 display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
-            # Income Realization Analysis - NEW SECTION
+            # Income Realization Analysis
             display_income_realization_analysis(visits_df, trials_df, patients_df)
 
             # Site statistics and analysis
