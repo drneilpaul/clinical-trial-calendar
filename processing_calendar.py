@@ -309,6 +309,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             actual_visit_data = patient_actual_visits.get(visit_name)
             
             if actual_visit_data is not None:
+                # This visit has actual data - process the actual visit
                 visit_date = actual_visit_data["ActualDate"]
                 
                 trial_payment = visit.get("Payment", 0)
@@ -390,7 +391,67 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "VisitName": visit_name
                 })
                 
+                # ALWAYS add tolerance windows around actual visits for future scheduling
+                expected_date = baseline_date + timedelta(days=visit_day - 1)
+                tolerance_before = 0
+                tolerance_after = 0
+                
+                try:
+                    if pd.notna(visit.get("ToleranceBefore")):
+                        tolerance_before = int(float(visit.get("ToleranceBefore", 0)))
+                except:
+                    tolerance_before = 0
+                    
+                try:
+                    if pd.notna(visit.get("ToleranceAfter")):
+                        tolerance_after = int(float(visit.get("ToleranceAfter", 0)))
+                except:
+                    tolerance_after = 0
+                
+                # Add tolerance windows even for actual visits (for reference)
+                if visit_day > 1:
+                    for i in range(1, tolerance_before + 1):
+                        tolerance_date = expected_date - timedelta(days=i)
+                        if screen_fail_date is not None and tolerance_date > screen_fail_date:
+                            continue
+                        if tolerance_date != visit_date:  # Don't duplicate the actual visit date
+                            visit_records.append({
+                                "Date": tolerance_date,
+                                "PatientID": patient_id,
+                                "Visit": "-",
+                                "Study": study,
+                                "Payment": 0,
+                                "SiteofVisit": site,
+                                "PatientOrigin": patient_origin,
+                                "IsActual": False,
+                                "IsScreenFail": False,
+                                "IsOutOfProtocol": False,
+                                "VisitDay": visit_day,
+                                "VisitName": visit_name
+                            })
+
+                for i in range(1, tolerance_after + 1):
+                    tolerance_date = expected_date + timedelta(days=i)
+                    if screen_fail_date is not None and tolerance_date > screen_fail_date:
+                        continue
+                    if tolerance_date != visit_date:  # Don't duplicate the actual visit date
+                        visit_records.append({
+                            "Date": tolerance_date,
+                            "PatientID": patient_id,
+                            "Visit": "+",
+                            "Study": study,
+                            "Payment": 0,
+                            "SiteofVisit": site,
+                            "PatientOrigin": patient_origin,
+                            "IsActual": False,
+                            "IsScreenFail": False,
+                            "IsOutOfProtocol": False,
+                            "VisitDay": visit_day,
+                            "VisitName": visit_name
+                        })
+                
             else:
+                # This visit has NO actual data - show as scheduled/predicted
                 scheduled_date = baseline_date + timedelta(days=visit_day - 1)
                 
                 # FIXED: Use patient-specific screen failure check
@@ -422,6 +483,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 
                 site = str(visit.get("SiteforVisit", "Unknown Site"))
                 
+                # Add the main scheduled visit
                 visit_records.append({
                     "Date": scheduled_date,
                     "PatientID": patient_id,
@@ -437,6 +499,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "VisitName": visit_name
                 })
 
+                # Add tolerance windows for scheduled visits
                 if visit_day > 1:
                     for i in range(1, tolerance_before + 1):
                         tolerance_date = scheduled_date - timedelta(days=i)
@@ -696,3 +759,4 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     }
 
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
+  
