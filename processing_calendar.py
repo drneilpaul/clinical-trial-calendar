@@ -16,10 +16,23 @@ def process_study_events(event_templates, actual_visits_df):
     ]
     
     for _, event_visit in study_events.iterrows():
-        study = str(event_visit['Study'])
-        visit_name = str(event_visit['VisitName'])
-        visit_type = str(event_visit.get('VisitType', 'siv'))
-        status = str(event_visit.get('Status', 'completed')).lower()
+        # Validate required fields and skip if missing/invalid
+        study = safe_string_conversion(event_visit.get('Study', ''))
+        visit_name = safe_string_conversion(event_visit.get('VisitName', ''))
+        visit_type = safe_string_conversion(event_visit.get('VisitType', 'siv')).lower()
+        status = safe_string_conversion(event_visit.get('Status', 'completed')).lower()
+        
+        # Skip if essential fields are missing or invalid
+        if not study or study.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('Study')):
+            continue
+        if not visit_name or visit_name.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('VisitName')):
+            continue
+        if not visit_type or visit_type not in ['siv', 'monitor']:
+            continue
+            
+        # Validate date
+        if pd.isna(event_visit.get('ActualDate')):
+            continue
         
         template = event_templates[
             (event_templates['Study'] == study) & 
@@ -47,7 +60,7 @@ def process_study_events(event_templates, actual_visits_df):
         else:
             continue
         
-        site = str(template_row.get('SiteforVisit', 'Unknown Site'))
+        site = safe_string_conversion(template_row.get('SiteforVisit', 'Unknown Site'))
         
         event_records.append({
             "Date": event_visit['ActualDate'],
@@ -594,9 +607,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 if visit_site not in site_events:
                     site_events[visit_site] = []
                 
+                # Validate event data before formatting
+                event_type = safe_string_conversion(visit.get("EventType", "")).upper()
+                study_name = safe_string_conversion(visit.get("Study", ""))
+                
+                # Skip if essential data is missing or invalid
+                if not event_type or event_type in ['NAN', 'NONE', '']:
+                    continue
+                if not study_name or study_name in ['NAN', 'NONE', ''] or study_name.upper() == 'NAN':
+                    continue
+                
                 # Format event for display
-                event_type = str(visit.get("EventType", "")).upper()
-                event_display = f"{event_type}_{study}"
+                event_display = f"{event_type}_{study_name}"
                 if "PROPOSED" in visit_info:
                     event_display += " (PROPOSED)"
                 elif "CANCELLED" in visit_info:
@@ -607,7 +629,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 site_events[visit_site].append(event_display)
                 
                 # Add to study income
-                income_col = f"{study} Income"
+                income_col = f"{study_name} Income"
                 if income_col in calendar_df.columns and payment > 0:
                     calendar_df.at[i, income_col] += payment
                     daily_total += payment
