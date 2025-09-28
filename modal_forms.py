@@ -401,3 +401,318 @@ def show_visit_download():
             st.rerun()
     st.info("Visit recorded! Download and re-upload to see changes.")
     st.divider()
+
+def handle_study_event_modal():
+    """Handle study event management modal"""
+    if st.session_state.get('show_study_event_form', False):
+        try:
+            if hasattr(st, 'dialog'):
+                study_event_management_modal()
+            else:
+                st.error("Modal dialogs require Streamlit 1.28+")
+                study_event_management_inline()
+        except Exception as e:
+            st.error(f"Error displaying study event form: {e}")
+            st.session_state.show_study_event_form = False
+
+def study_event_management_modal():
+    """Modal for managing study events"""
+    @st.dialog("Study Event Management")
+    def study_event_form():
+        _render_study_event_form(is_modal=True)
+    
+    study_event_form()
+
+def _render_study_event_form(is_modal=True):
+    """Form for managing study events (SIV, Monitor)"""
+    trials_file = st.session_state.get('trials_file')
+    actual_visits_file = st.session_state.get('actual_visits_file')
+    
+    if not trials_file:
+        st.error("Trials file not available")
+        return
+    
+    try:
+        trials_df = load_file(trials_file)
+        
+        # Get study event templates
+        event_templates = trials_df[
+            trials_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
+        ]
+        
+        if event_templates.empty:
+            st.info("No study event templates defined in trials file")
+            return
+        
+        # Load existing events
+        existing_events = pd.DataFrame()
+        if actual_visits_file:
+            existing_events = load_file_with_defaults(
+                actual_visits_file,
+                {'VisitType': 'patient', 'Status': 'completed'}
+            )
+        
+        # Study selection
+        available_studies = sorted(event_templates['Study'].unique())
+        selected_study = st.selectbox("Select Study", available_studies)
+        
+        if selected_study:
+            study_templates = event_templates[event_templates['Study'] == selected_study]
+            
+            # Event type selection
+            event_types = sorted(study_templates['VisitType'].unique())
+            selected_event_type = st.selectbox("Event Type", event_types)
+            
+            # Show existing events for this study/type
+            existing_study_events = existing_events[
+                (existing_events['Study'] == selected_study) &
+                (existing_events.get('VisitType', 'patient') == selected_event_type)
+            ] if not existing_events.empty else pd.DataFrame()
+            
+            _display_existing_study_events(existing_study_events)
+            
+            st.divider()
+            
+            # Action selection
+            if not existing_study_events.empty:
+                action = st.radio(
+                    "Action", 
+                    ["Add New Event", "Update Existing Event"]
+                )
+            else:
+                action = "Add New Event"
+            
+            if action == "Update Existing Event":
+                _render_update_event_section(existing_study_events)
+            else:
+                _render_new_event_section(selected_study, selected_event_type, study_templates)
+    
+    except Exception as e:
+        st.error(f"Error loading study event form: {e}")
+
+def _display_existing_study_events(events_df):
+    """Display existing events for study/type"""
+    st.write("**Existing Events:**")
+    
+    if events_df.empty:
+        st.info("No existing events found")
+        return
+    
+    display_events = events_df[['ActualDate', 'Status', 'Notes']].copy()
+    display_events['ActualDate'] = pd.to_datetime(display_events['ActualDate']).dt.strftime('%d/%m/%Y')
+    display_events = display_events.sort_values('ActualDate')
+    display_events.columns = ['Date', 'Status', 'Notes']
+    
+    st.dataframe(display_events, use_container_width=True, hide_index=True)
+
+def _render_update_event_section(events_df):
+    """Section for updating existing events"""
+    if events_df.empty:
+        st.warning("No events to update")
+        return
+    
+    # Select event to update
+    event_options = []
+    for idx, event in events_df.iterrows():
+        date_str = pd.to_datetime(event['ActualDate']).strftime('%d/%m/%Y')
+        status = event['Status'].title()
+        event_options.append(f"{date_str} - {status}")
+    
+    selected_idx = st.selectbox(
+        "Select Event to Update", 
+        range(len(event_options)), 
+        format_func=lambda x: event_options[x]
+    )
+    
+    if selected_idx is not None:
+        selected_event = events_df.iloc[selected_idx]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Current Details:**")
+            current_date = pd.to_datetime(selected_event['ActualDate']).strftime('%d/%m/%Y')
+            st.info(f"Date: {current_date}\nStatus: {selected_event['Status']}\nNotes: {selected_event.get('Notes', 'None')}")
+        
+        with col2:
+            st.write("**Update To:**")
+            update_action = st.radio(
+                "Action", 
+                ["Change Date", "Mark as Completed", "Cancel Event"]
+            )
+            
+            if update_action == "Change Date":
+                new_date = st.date_input(
+                    "New Date", 
+                    value=pd.to_datetime(selected_event['ActualDate']).date()
+                )
+                new_notes = st.text_area(
+                    "Updated Notes", 
+                    value=selected_event.get('Notes', '')
+                )
+                new_status = 'proposed'
+            
+            elif update_action == "Mark as Completed":
+                new_date = st.date_input(
+                    "Actual Date", 
+                    value=pd.to_datetime(selected_event['ActualDate']).date()
+                )
+                new_notes = st.text_area(
+                    "Completion Notes", 
+                    placeholder="Event details, attendees, outcomes..."
+                )
+                new_status = 'completed'
+            
+            else:  # Cancel
+                new_date = st.date_input("Cancellation Date", value=date.today())
+                new_notes = st.text_area(
+                    "Cancellation Reason", 
+                    placeholder="Why was this event cancelled?"
+                )
+                new_status = 'cancelled'
+        
+        if st.button("Update Event", use_container_width=True):
+            success = update_study_event(
+                selected_event, new_date, new_notes, new_status
+            )
+            if success:
+                st.success(f"Event updated to {new_status}")
+                st.rerun()
+
+def _render_new_event_section(study, event_type, templates):
+    """Section for adding new events"""
+    type_templates = templates[templates['VisitType'] == event_type]
+    visit_names = type_templates['VisitName'].tolist()
+    
+    if not visit_names:
+        st.error(f"No {event_type} templates found for {study}")
+        return
+    
+    selected_visit_name = st.selectbox("Event Name", visit_names)
+    
+    if selected_visit_name:
+        template = type_templates[type_templates['VisitName'] == selected_visit_name].iloc[0]
+        template_payment = template.get('Payment', 0)
+        template_site = template.get('SiteforVisit', 'Unknown')
+        
+        st.info(f"Template: {selected_visit_name} - £{template_payment:.2f} at {template_site}")
+        
+        # Event details
+        status = st.radio("Status", ["Proposed", "Completed"])
+        
+        date_label = "Proposed Date" if status == "Proposed" else "Actual Date"
+        event_date = st.date_input(date_label, format="DD/MM/YYYY")
+        
+        notes = st.text_area(
+            "Notes", 
+            placeholder="Event details, planning notes, outcomes..."
+        )
+        
+        if st.button(f"Add {status} Event", use_container_width=True):
+            success = create_study_event(
+                study, event_type, selected_visit_name, 
+                event_date, status.lower(), notes
+            )
+            if success:
+                st.success(f"{status} event created successfully!")
+                st.rerun()
+
+def update_study_event(original_event, new_date, new_notes, new_status):
+    """Update existing study event in file"""
+    try:
+        actual_visits_file = st.session_state.get('actual_visits_file')
+        if not actual_visits_file:
+            st.error("No actual visits file available")
+            return False
+        
+        existing_visits = load_file_with_defaults(
+            actual_visits_file,
+            {'VisitType': 'patient', 'Status': 'completed'}
+        )
+        
+        # Find the record to update
+        unique_key = get_event_unique_key(
+            original_event['PatientID'],
+            original_event['Study'],
+            original_event['VisitName'],
+            original_event.get('VisitType', 'siv')
+        )
+        
+        mask = (
+            (existing_visits['PatientID'] == original_event['PatientID']) &
+            (existing_visits['Study'] == original_event['Study']) &
+            (existing_visits['VisitName'] == original_event['VisitName']) &
+            (existing_visits.get('VisitType', 'patient') == original_event.get('VisitType', 'siv'))
+        )
+        
+        if not mask.any():
+            st.error("Event not found for update")
+            return False
+        
+        # Update the record
+        existing_visits.loc[mask, 'ActualDate'] = new_date
+        existing_visits.loc[mask, 'Notes'] = new_notes
+        existing_visits.loc[mask, 'Status'] = new_status
+        
+        # Save updated file
+        output = io.BytesIO()
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                existing_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
+        except ImportError:
+            existing_visits.to_csv(output, index=False)
+        
+        st.session_state.updated_events_file = output.getvalue()
+        st.session_state.updated_events_filename = f"ActualVisits_Updated_{new_date.strftime('%Y%m%d')}.xlsx"
+        st.session_state.event_updated = True
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error updating event: {e}")
+        return False
+
+def create_study_event(study, event_type, visit_name, event_date, status, notes):
+    """Create new study event"""
+    try:
+        # Generate patient ID for event
+        patient_id = f"{event_type.upper()}_{study}"
+        
+        new_event_data = {
+            "PatientID": patient_id,
+            "Study": study,
+            "VisitName": visit_name,
+            "ActualDate": event_date,
+            "Notes": notes,
+            "VisitType": event_type,
+            "Status": status
+        }
+        
+        # Load existing visits or create new file
+        actual_visits_file = st.session_state.get('actual_visits_file')
+        if actual_visits_file:
+            existing_visits = load_file_with_defaults(
+                actual_visits_file,
+                {'VisitType': 'patient', 'Status': 'completed'}
+            )
+            updated_visits = pd.concat([existing_visits, pd.DataFrame([new_event_data])], ignore_index=True)
+        else:
+            updated_visits = pd.DataFrame([new_event_data])
+        
+        # Save file
+        output = io.BytesIO()
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                updated_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
+        except ImportError:
+            updated_visits.to_csv(output, index=False)
+        
+        st.session_state.updated_events_file = output.getvalue()
+        st.session_state.updated_events_filename = f"ActualVisits_Updated_{event_date.strftime('%Y%m%d')}.xlsx"
+        st.session_state.event_added = True
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error creating event: {e}")
+        return False
