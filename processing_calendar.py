@@ -128,7 +128,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if "Status" not in actual_visits_df.columns:
             actual_visits_df["Status"] = "completed"
 
-        # Detect screen failures - FIXED: Patient-specific tracking
+        # Detect screen failures - Patient-specific tracking
         screen_fail_visits = actual_visits_df[
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
@@ -224,7 +224,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             visit_names = day_1_visits["VisitName"].tolist()
             raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
 
-    # Separate visit types - FIXED: Handle missing VisitType column safely
+    # Separate visit types - Handle missing VisitType column safely
     if 'VisitType' in trials_df.columns:
         patient_visits = trials_df[
             (trials_df['VisitType'] == 'patient') |
@@ -261,7 +261,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if pd.isna(start_date):
             continue
 
-        # FIXED: Use patient-specific screen failure key
+        # Use patient-specific screen failure key
         this_patient_screen_fail_key = f"{patient_id}_{study}"
         screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
 
@@ -321,7 +321,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 notes = str(actual_visit_data.get("Notes", ""))
                 is_screen_fail = "ScreenFail" in notes
                 
-                # FIXED: Improved data validation with warnings
+                # Improved data validation with warnings
                 if screen_fail_date is not None and visit_date > screen_fail_date:
                     visit_status = f"⚠️ DATA ERROR {visit_name}"
                     is_out_of_protocol = False
@@ -391,7 +391,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "VisitName": visit_name
                 })
                 
-                # ALWAYS add tolerance windows around actual visits for future scheduling
+                # Add tolerance windows around actual visits for future scheduling
                 expected_date = baseline_date + timedelta(days=visit_day - 1)
                 tolerance_before = 0
                 tolerance_after = 0
@@ -454,7 +454,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 # This visit has NO actual data - show as scheduled/predicted
                 scheduled_date = baseline_date + timedelta(days=visit_day - 1)
                 
-                # FIXED: Use patient-specific screen failure check
+                # Use patient-specific screen failure check
                 if screen_fail_date is not None and scheduled_date > screen_fail_date:
                     screen_fail_exclusions += 1
                     continue
@@ -654,10 +654,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         visits_today = visits_df[visits_df["Date"] == date]
         daily_total = 0.0
 
-        # Debug: Add logging to see what visits exist
-        if len(visits_today) > 0:
-            processing_messages.append(f"DEBUG: {len(visits_today)} visits found for {date.strftime('%Y-%m-%d')}")
-
         # Group events by site for the events columns
         site_events = {}
 
@@ -668,14 +664,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
             is_actual = visit.get("IsActual", False)
             visit_site = visit["SiteofVisit"]
+
+            # Handle study events - FIXED: Properly handle NaN values
             is_study_event = visit.get("IsStudyEvent", False)
-
-            # Debug: Log each visit being processed with event flag
-            processing_messages.append(f"DEBUG: Processing visit - Patient: {pid}, Study: {study}, Visit: {visit_info}, Site: {visit_site}, IsStudyEvent: {is_study_event}")
-
-            # Handle study events
+            # Convert NaN to False (pandas NaN evaluates to True in if statements)
+            if pd.isna(is_study_event):
+                is_study_event = False
+            
             if is_study_event:
-                processing_messages.append(f"DEBUG: Treating as STUDY EVENT - {pid}")
                 if visit_site not in site_events:
                     site_events[visit_site] = []
                 
@@ -708,12 +704,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
             else:
                 # Handle regular patient visits
-                processing_messages.append(f"DEBUG: Treating as PATIENT VISIT - {pid}")
                 col_id = f"{study}_{pid}"
-                processing_messages.append(f"DEBUG: Looking for column: {col_id}")
                 
                 if col_id in calendar_df.columns:
-                    processing_messages.append(f"DEBUG: Found column {col_id}, adding visit: {visit_info}")
                     current_value = calendar_df.at[i, col_id]
                     
                     if current_value == "":
@@ -732,8 +725,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                                 calendar_df.at[i, col_id] = visit_info
                             else:
                                 calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
-                else:
-                    processing_messages.append(f"DEBUG: Column {col_id} NOT FOUND in calendar. Available columns: {list(calendar_df.columns)[:10]}...")
 
                 # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
