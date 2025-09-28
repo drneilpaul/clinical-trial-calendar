@@ -523,6 +523,8 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
             total_scheduled_income = site_visits['TrialPayment'].sum()
             
             # Remaining pipeline for this site
+            from datetime import date
+            today = pd.to_datetime(date.today())
             remaining = site_visits[(site_visits['Date'] >= today) & (site_visits.get('IsActual', False) == False)]
             pipeline_income = remaining['TrialPayment'].sum()
             
