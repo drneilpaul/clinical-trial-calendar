@@ -668,12 +668,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
             is_actual = visit.get("IsActual", False)
             visit_site = visit["SiteofVisit"]
+            is_study_event = visit.get("IsStudyEvent", False)
 
-            # Debug: Log each visit being processed
-            processing_messages.append(f"DEBUG: Processing visit - Patient: {pid}, Study: {study}, Visit: {visit_info}, Site: {visit_site}")
+            # Debug: Log each visit being processed with event flag
+            processing_messages.append(f"DEBUG: Processing visit - Patient: {pid}, Study: {study}, Visit: {visit_info}, Site: {visit_site}, IsStudyEvent: {is_study_event}")
 
             # Handle study events
-            if visit.get("IsStudyEvent", False):
+            if is_study_event:
+                processing_messages.append(f"DEBUG: Treating as STUDY EVENT - {pid}")
                 if visit_site not in site_events:
                     site_events[visit_site] = []
                 
@@ -706,6 +708,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
             else:
                 # Handle regular patient visits
+                processing_messages.append(f"DEBUG: Treating as PATIENT VISIT - {pid}")
                 col_id = f"{study}_{pid}"
                 processing_messages.append(f"DEBUG: Looking for column: {col_id}")
                 
