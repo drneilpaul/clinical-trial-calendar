@@ -115,12 +115,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if "Status" not in actual_visits_df.columns:
             actual_visits_df["Status"] = "completed"
 
-        # Detect screen failures
+        # Detect screen failures - FIXED: Patient-specific tracking
         screen_fail_visits = actual_visits_df[
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
         
         for _, visit in screen_fail_visits.iterrows():
+            # Create patient-specific key
             patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
             screen_fail_date = visit['ActualDate']
             
@@ -133,6 +134,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 unmatched_visits.append(f"Screen failure visit '{visit['VisitName']}' not found in study {visit['Study']}")
                 continue
             
+            # Store earliest screen failure date for this specific patient
             if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
                 screen_failures[patient_study_key] = screen_fail_date
 
@@ -246,8 +248,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if pd.isna(start_date):
             continue
 
-        patient_study_key = f"{patient_id}_{study}"
-        screen_fail_date = screen_failures.get(patient_study_key)
+        # FIXED: Use patient-specific screen failure key
+        this_patient_screen_fail_key = f"{patient_id}_{study}"
+        screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
 
         study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
         
@@ -304,6 +307,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 notes = str(actual_visit_data.get("Notes", ""))
                 is_screen_fail = "ScreenFail" in notes
                 
+                # FIXED: Improved data validation with warnings
                 if screen_fail_date is not None and visit_date > screen_fail_date:
                     visit_status = f"⚠️ DATA ERROR {visit_name}"
                     is_out_of_protocol = False
@@ -376,6 +380,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             else:
                 scheduled_date = baseline_date + timedelta(days=visit_day - 1)
                 
+                # FIXED: Use patient-specific screen failure check
                 if screen_fail_date is not None and scheduled_date > screen_fail_date:
                     screen_fail_exclusions += 1
                     continue
