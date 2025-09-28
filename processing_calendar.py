@@ -654,6 +654,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         visits_today = visits_df[visits_df["Date"] == date]
         daily_total = 0.0
 
+        # Debug: Add logging to see what visits exist
+        if len(visits_today) > 0:
+            processing_messages.append(f"DEBUG: {len(visits_today)} visits found for {date.strftime('%Y-%m-%d')}")
+
         # Group events by site for the events columns
         site_events = {}
 
@@ -664,6 +668,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
             is_actual = visit.get("IsActual", False)
             visit_site = visit["SiteofVisit"]
+
+            # Debug: Log each visit being processed
+            processing_messages.append(f"DEBUG: Processing visit - Patient: {pid}, Study: {study}, Visit: {visit_info}, Site: {visit_site}")
 
             # Handle study events
             if visit.get("IsStudyEvent", False):
@@ -700,7 +707,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             else:
                 # Handle regular patient visits
                 col_id = f"{study}_{pid}"
+                processing_messages.append(f"DEBUG: Looking for column: {col_id}")
+                
                 if col_id in calendar_df.columns:
+                    processing_messages.append(f"DEBUG: Found column {col_id}, adding visit: {visit_info}")
                     current_value = calendar_df.at[i, col_id]
                     
                     if current_value == "":
@@ -719,6 +729,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                                 calendar_df.at[i, col_id] = visit_info
                             else:
                                 calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
+                else:
+                    processing_messages.append(f"DEBUG: Column {col_id} NOT FOUND in calendar. Available columns: {list(calendar_df.columns)[:10]}...")
 
                 # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
@@ -759,4 +771,3 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     }
 
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
-  
