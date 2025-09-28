@@ -1,7 +1,8 @@
 import pandas as pd
 import streamlit as st
 from datetime import timedelta
-from helpers import safe_string_conversion, standardize_visit_columns, validate_required_columns, get_financial_year_start_year, is_financial_year_end, format_site_events
+from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
+                    get_financial_year_start_year, is_financial_year_end, format_site_events)
 
 def process_study_events(event_templates, actual_visits_df):
     """Process all study-level events (SIV, monitor, etc.)"""
@@ -10,7 +11,6 @@ def process_study_events(event_templates, actual_visits_df):
     if actual_visits_df is None or event_templates.empty:
         return event_records
     
-    # Get all study-level events from actual visits
     study_events = actual_visits_df[
         actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
     ]
@@ -21,34 +21,31 @@ def process_study_events(event_templates, actual_visits_df):
         visit_type = str(event_visit.get('VisitType', 'siv'))
         status = str(event_visit.get('Status', 'completed')).lower()
         
-        # Find template for this event
         template = event_templates[
             (event_templates['Study'] == study) & 
             (event_templates['VisitName'] == visit_name) &
-            (event_templates.get('VisitType', 'patient') == visit_type)
+            (event_templates['VisitType'] == visit_type)
         ]
         
         if template.empty:
-            # Skip events without templates
             continue
         
         template_row = template.iloc[0]
-
-        # Payment logic - only for completed events
+        
         if status == 'completed':
             payment = float(template_row.get('Payment', 0))
             visit_status = f"✅ {visit_type.upper()}_{study}"
             is_actual = True
         elif status == 'proposed':
-            payment = 0  # No income for proposed
+            payment = 0
             visit_status = f"{visit_type.upper()}_{study} (PROPOSED)"
             is_actual = False
         elif status == 'cancelled':
-            payment = 0  # No income for cancelled
+            payment = 0
             visit_status = f"{visit_type.upper()}_{study} (CANCELLED)"
             is_actual = False
         else:
-            continue  # Skip unknown statuses
+            continue
         
         site = str(template_row.get('SiteforVisit', 'Unknown Site'))
         
@@ -59,11 +56,11 @@ def process_study_events(event_templates, actual_visits_df):
             "Study": study,
             "Payment": payment,
             "SiteofVisit": site,
-            "PatientOrigin": site,  # Events originate from hosting site
+            "PatientOrigin": site,
             "IsActual": is_actual,
             "IsScreenFail": False,
             "IsOutOfProtocol": False,
-            "VisitDay": 0 if visit_type == 'siv' else 999,  # SIVs sort first
+            "VisitDay": 0 if visit_type == 'siv' else 999,
             "VisitName": visit_name,
             "IsStudyEvent": True,
             "EventType": visit_type,
@@ -75,7 +72,7 @@ def process_study_events(event_templates, actual_visits_df):
 def build_calendar(patients_df, trials_df, actual_visits_df=None):
     """Enhanced calendar builder with study events support"""
     
-    # Clean the dataframes
+    # Clean columns
     patients_df.columns = patients_df.columns.str.strip()
     trials_df.columns = trials_df.columns.str.strip()
     if actual_visits_df is not None:
@@ -85,7 +82,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
     validate_required_columns(trials_df, {"Study", "Day", "VisitName"}, "Trials file")
 
-    # Standardize visit columns (enforce VisitName only)
+    # Standardize visit columns
     trials_df = standardize_visit_columns(trials_df)
     if actual_visits_df is not None:
         validate_required_columns(actual_visits_df, {"PatientID", "Study", "VisitName", "ActualDate"}, "Actual visits file")
@@ -100,16 +97,13 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Process actual visits if provided
     if actual_visits_df is not None:
-        # Ensure proper data types with safe conversion
         actual_visits_df["PatientID"] = safe_string_conversion(actual_visits_df["PatientID"])
         actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
         actual_visits_df["VisitName"] = safe_string_conversion(actual_visits_df["VisitName"])
         
-        # Ensure ActualDate is properly parsed
         if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
             actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
         
-        # Handle optional columns with defaults
         if "Notes" not in actual_visits_df.columns:
             actual_visits_df["Notes"] = ""
         else:
@@ -121,7 +115,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if "Status" not in actual_visits_df.columns:
             actual_visits_df["Status"] = "completed"
 
-        # Detect screen failures with improved validation
+        # Detect screen failures
         screen_fail_visits = actual_visits_df[
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
@@ -130,7 +124,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
             screen_fail_date = visit['ActualDate']
             
-            # Basic validation - ensure visit exists in trials
             study_visits = trials_df[
                 (trials_df["Study"] == visit["Study"]) & 
                 (trials_df["VisitName"] == visit["VisitName"])
@@ -140,41 +133,35 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 unmatched_visits.append(f"Screen failure visit '{visit['VisitName']}' not found in study {visit['Study']}")
                 continue
             
-            # Store screen failure date
             if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
                 screen_failures[patient_study_key] = screen_fail_date
 
-        # Create lookup key for actual visits with safe string conversion
         actual_visits_df["VisitKey"] = (
             safe_string_conversion(actual_visits_df["PatientID"]) + "_" +
             safe_string_conversion(actual_visits_df["Study"]) + "_" +
             safe_string_conversion(actual_visits_df["VisitName"])
         )
 
-    # Normalize column names with safer mapping
+    # Normalize column names
     column_mapping = {
         'Income': 'Payment',
         'Tolerance Before': 'ToleranceBefore',
-        'Tolerance After': 'ToleranceAfter',
-        'ToleranceBefore': 'ToleranceBefore',  # Keep existing
-        'ToleranceAfter': 'ToleranceAfter'     # Keep existing
+        'Tolerance After': 'ToleranceAfter'
     }
     trials_df = trials_df.rename(columns=column_mapping)
 
-    # Process patient data types with safe conversion
+    # Process patient data types
     patients_df["PatientID"] = safe_string_conversion(patients_df["PatientID"])
     patients_df["Study"] = safe_string_conversion(patients_df["Study"])
     
-    # Ensure StartDate is datetime
     if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
     
-    # Process trials data types with safe conversion
+    # Process trials data types
     trials_df["Study"] = safe_string_conversion(trials_df["Study"])
     trials_df["VisitName"] = safe_string_conversion(trials_df["VisitName"])
     trials_df["SiteforVisit"] = safe_string_conversion(trials_df["SiteforVisit"])
     
-    # Handle Day column safely
     try:
         trials_df["Day"] = pd.to_numeric(trials_df["Day"], errors='coerce').fillna(1).astype(int)
     except:
@@ -194,20 +181,17 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     else:
         patients_df['OriginSite'] = "Unknown Origin"
 
-    # Create patient-site mapping with fallback logic
+    # Create patient-site mapping
     if patient_origin_col:
         patients_df['Site'] = patients_df['OriginSite']
     else:
-        # Improved fallback: use site from trials file but ensure uniqueness
         patient_site_mapping = {}
         for _, patient in patients_df.iterrows():
             study = patient["Study"]
             patient_id = patient["PatientID"]
             
-            # Get all unique sites for this study
             study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
             if len(study_sites) > 0:
-                # Use first site but ensure consistent mapping
                 patient_site_mapping[patient_id] = study_sites[0]
             else:
                 patient_site_mapping[patient_id] = f"{study}_Site"
@@ -225,17 +209,21 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             visit_names = day_1_visits["VisitName"].tolist()
             raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
 
-    # Separate visit types
-    patient_visits = trials_df[
-        (trials_df.get('VisitType', 'patient') == 'patient') |
-        (pd.isna(trials_df.get('VisitType')))
-    ]
-    
-    study_event_templates = trials_df[
-        trials_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
-    ]
+    # Separate visit types - FIXED: Handle missing VisitType column safely
+    if 'VisitType' in trials_df.columns:
+        patient_visits = trials_df[
+            (trials_df['VisitType'] == 'patient') |
+            (pd.isna(trials_df['VisitType']))
+        ]
+        
+        study_event_templates = trials_df[
+            trials_df['VisitType'].isin(['siv', 'monitor'])
+        ]
+    else:
+        patient_visits = trials_df.copy()
+        study_event_templates = pd.DataFrame()
 
-    # Build visit records with improved error handling
+    # Build visit records
     visit_records = []
     
     # Process study events first
@@ -258,22 +246,18 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if pd.isna(start_date):
             continue
 
-        # Check if this patient has a screen failure
         patient_study_key = f"{patient_id}_{study}"
         screen_fail_date = screen_failures.get(patient_study_key)
 
-        # Get all visits for this study and sort by Day
         study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
         
         if len(study_visits) == 0:
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
             continue
 
-        # Find baseline visit (Day 1)
         day_1_visits = study_visits[study_visits["Day"] == 1]
         baseline_visit_name = str(day_1_visits.iloc[0]["VisitName"])
 
-        # Get all actual visits for this patient (patient visits only, not study events)
         patient_actual_visits = {}
         if actual_visits_df is not None:
             patient_actuals = actual_visits_df[
@@ -285,7 +269,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             for _, actual_visit in patient_actuals.iterrows():
                 visit_name = str(actual_visit["VisitName"])
                 
-                # Check if this visit name exists in trials with exact string match
                 matching_trial = study_visits[study_visits["VisitName"] == visit_name]
                 if len(matching_trial) == 0:
                     unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials")
@@ -294,30 +277,24 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 patient_actual_visits[visit_name] = actual_visit
                 actual_visits_used += 1
 
-        # Determine baseline date with improved logic
         baseline_date = start_date
         patient_needs_recalc = False
         
-        # Check if we have an actual baseline visit
         if baseline_visit_name in patient_actual_visits:
             actual_baseline_date = patient_actual_visits[baseline_visit_name]["ActualDate"]
             if actual_baseline_date != start_date:
                 baseline_date = actual_baseline_date
                 patient_needs_recalc = True
 
-        # Process all visits for this patient
         for _, visit in study_visits.iterrows():
             visit_day = int(visit["Day"])
             visit_name = str(visit["VisitName"])
             
-            # Check if we have an actual visit for this visit name
             actual_visit_data = patient_actual_visits.get(visit_name)
             
             if actual_visit_data is not None:
-                # This is an actual visit
                 visit_date = actual_visit_data["ActualDate"]
                 
-                # Handle payment with safe conversion
                 trial_payment = visit.get("Payment", 0)
                 if pd.notna(trial_payment):
                     payment = float(trial_payment)
@@ -325,20 +302,15 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     payment = 0.0
                 
                 notes = str(actual_visit_data.get("Notes", ""))
-                
-                # Check for screen failure
                 is_screen_fail = "ScreenFail" in notes
                 
-                # Check if this visit is after a screen failure for this patient
                 if screen_fail_date is not None and visit_date > screen_fail_date:
                     visit_status = f"⚠️ DATA ERROR {visit_name}"
                     is_out_of_protocol = False
                     processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure")
                 else:
-                    # Calculate expected date from baseline
                     expected_date = baseline_date + timedelta(days=visit_day - 1)
                     
-                    # Handle tolerance with safe conversion
                     tolerance_before = 0
                     tolerance_after = 0
                     
@@ -357,7 +329,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
                     latest_acceptable = expected_date + timedelta(days=tolerance_after)
                     
-                    # Day 1 baseline visit is never out of protocol
                     is_day_1 = (visit_day == 1)
                     
                     if is_day_1:
@@ -378,7 +349,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                             'tolerance': f"+{tolerance_after}/-{tolerance_before} days"
                         })
                     
-                    # Set visit status
                     if is_screen_fail:
                         visit_status = f"⚠️ Screen Fail {visit_name}"
                     elif is_out_of_protocol:
@@ -386,7 +356,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     else:
                         visit_status = f"✅ {visit_name}"
                 
-                # Record the actual visit
                 site = str(visit.get("SiteforVisit", "Unknown Site"))
                 
                 visit_records.append({
@@ -405,15 +374,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 })
                 
             else:
-                # This is a scheduled visit - calculate from baseline
                 scheduled_date = baseline_date + timedelta(days=visit_day - 1)
                 
-                # Check if this scheduled visit is after this patient's screen failure
                 if screen_fail_date is not None and scheduled_date > screen_fail_date:
                     screen_fail_exclusions += 1
                     continue
                 
-                # Normal scheduled visit processing
                 try:
                     payment = float(visit.get("Payment", 0) or 0)
                 except:
@@ -421,7 +387,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     
                 visit_status = visit_name
                 
-                # Handle tolerance with safe conversion
                 tolerance_before = 0
                 tolerance_after = 0
                 
@@ -439,7 +404,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                 
                 site = str(visit.get("SiteforVisit", "Unknown Site"))
                 
-                # Add main visit
                 visit_records.append({
                     "Date": scheduled_date,
                     "PatientID": patient_id,
@@ -455,8 +419,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     "VisitName": visit_name
                 })
 
-                # Add tolerance periods - skip tolerance before Day 1 visits
-                if visit_day > 1:  # Only add tolerance periods for visits after Day 1
+                if visit_day > 1:
                     for i in range(1, tolerance_before + 1):
                         tolerance_date = scheduled_date - timedelta(days=i)
                         if screen_fail_date is not None and tolerance_date > screen_fail_date:
@@ -476,7 +439,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                             "VisitName": visit_name
                         })
 
-                # Add tolerance periods after - applies to all visits including Day 1
                 for i in range(1, tolerance_after + 1):
                     tolerance_date = scheduled_date + timedelta(days=i)
                     if screen_fail_date is not None and tolerance_date > screen_fail_date:
@@ -496,7 +458,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                         "VisitName": visit_name
                     })
         
-        # Track patients that had recalculations
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
 
@@ -537,10 +498,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     calendar_df = pd.DataFrame({"Date": calendar_dates})
     calendar_df["Day"] = calendar_df["Date"].dt.day_name()
 
-    # Group patients by visit site instead of home site for three-level headers
+    # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
     
-    # Get unique visit sites (where work is actually done)
+    # Get unique visit sites
     unique_visit_sites = sorted(visits_df["SiteofVisit"].unique())
     
     # Create enhanced column structure with site events
@@ -548,7 +509,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     site_column_mapping = {}
     
     for visit_site in unique_visit_sites:
-        # Find all patients who have visits at this site
         site_visits = visits_df[visits_df["SiteofVisit"] == visit_site]
         site_patients_info = []
         
@@ -561,7 +521,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             if patient_id.startswith(('SIV_', 'MONITOR_')):
                 continue
             
-            # Find this patient's origin site
             patient_row = patients_df[
                 (patients_df['PatientID'] == patient_id) & 
                 (patients_df['Study'] == study)
@@ -649,7 +608,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     daily_total += payment
 
             else:
-                # Handle regular patient visits (existing logic)
+                # Handle regular patient visits
                 col_id = f"{study}_{pid}"
                 if col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
@@ -659,21 +618,19 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     else:
                         # Handle multiple visits on same day
                         if visit_info in ["-", "+"]:
-                            # Only add tolerance if there's no main visit already
                             if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
                                 else:
                                     calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
                         else:
-                            # This is a main visit - replace tolerance periods
+                            # This is a main visit
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                             else:
-                                # Multiple main visits on same day
                                 calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
 
-                # Count payments for actual visits and scheduled main visits (not tolerance periods)
+                # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
                     income_col = f"{study} Income"
                     if income_col in calendar_df.columns:
@@ -688,7 +645,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
 
         calendar_df.at[i, "Daily Total"] = daily_total
 
-    # Calculate monthly and financial year totals with centralized FY logic
+    # Calculate monthly and financial year totals
     calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
     monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
     calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
@@ -696,7 +653,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA, axis=1
     )
 
-    # FIXED: Use centralized financial year calculation
+    # Use centralized financial year calculation
     calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start_year)
     fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
     calendar_df["IsFYE"] = calendar_df["Date"].apply(is_financial_year_end)
@@ -711,5 +668,4 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         "out_of_window_visits": out_of_window_visits
     }
 
-    # Return unique_visit_sites instead of unique_sites to match new structure
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
