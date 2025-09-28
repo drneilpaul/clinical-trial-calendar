@@ -13,6 +13,19 @@ def load_file(uploaded_file):
         # For Excel files, also avoid automatic date parsing to maintain control
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
+def load_file_with_defaults(uploaded_file, default_columns=None):
+    """Load file and ensure required columns exist with defaults"""
+    df = load_file(uploaded_file)
+    if df is None or df.empty:
+        return df
+    
+    if default_columns:
+        for col, default_value in default_columns.items():
+            if col not in df.columns:
+                df[col] = default_value
+    
+    return df
+
 def normalize_columns(df):
     """Normalize column names by stripping whitespace"""
     if df is not None:
@@ -114,6 +127,35 @@ def standardize_visit_columns(df):
     # Ensure VisitName is string type - use the safe conversion for Series
     df['VisitName'] = safe_string_conversion_series(df['VisitName'])
     return df
+
+def get_event_unique_key(patient_id, study, visit_name, visit_type):
+    """Generate unique key for event identification"""
+    return f"{patient_id}_{study}_{visit_name}_{visit_type}"
+
+def format_site_events(events_list, max_length=50):
+    """Format multiple events for site column with readability"""
+    if not events_list:
+        return ""
+    
+    if len(events_list) == 1:
+        return events_list[0]
+    
+    # For multiple events, check total length
+    combined = ", ".join(events_list)
+    
+    if len(combined) <= max_length:
+        return combined
+    
+    # If too long, show abbreviated format
+    event_types = []
+    for event in events_list:
+        if "_" in event:
+            event_type = event.split("_")[0]
+            event_types.append(event_type)
+        else:
+            event_types.append(event[:8])
+    
+    return f"{len(events_list)} Events: {', '.join(set(event_types))}"
 
 # CENTRALIZED FINANCIAL YEAR FUNCTIONS - Single Source of Truth
 def get_financial_year(date_obj):
