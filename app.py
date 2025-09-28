@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from helpers import load_file, normalize_columns, parse_dates_column, standardize_visit_columns, safe_string_conversion_series
+from helpers import load_file, normalize_columns, parse_dates_column, standardize_visit_columns, safe_string_conversion_series, load_file_with_defaults
 from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
@@ -8,7 +8,7 @@ from display_components import (
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
     display_verification_figures
 )
-from modal_forms import handle_patient_modal, handle_visit_modal, show_download_sections
+from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
@@ -106,19 +106,114 @@ def setup_file_uploaders():
     return patients_file, trials_file, actual_visits_file
 
 def display_action_buttons():
-    """Display action buttons for adding patients and recording visits"""
+    """Enhanced action buttons with study events"""
     col1, col2, col3 = st.columns([1, 1, 1])
+    
     with col1:
         if st.button("Add New Patient", use_container_width=True):
             st.session_state.show_patient_form = True
+    
     with col2:
-        if st.button("Record Visit", use_container_width=True):
+        if st.button("Record Patient Visit", use_container_width=True):
             # Check if actual visits file is loaded before showing form
             actual_visits_file = st.session_state.get('actual_visits_file')
             if actual_visits_file:
                 st.session_state.show_visit_form = True
             else:
                 st.error("Please upload an Actual Visits file before recording visits")
+    
+    with col3:
+        if st.button("Manage Study Events", use_container_width=True):
+            st.session_state.show_study_event_form = True
+
+def show_download_sections():
+    """Enhanced download sections including study events"""
+    if st.session_state.get('patient_added', False):
+        show_patient_download()
+    
+    if st.session_state.get('visit_added', False):
+        show_visit_download()
+    
+    if st.session_state.get('event_added', False) or st.session_state.get('event_updated', False):
+        show_event_download()
+
+def show_patient_download():
+    """Show patient download section"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        filename = st.session_state.get('updated_filename', 'Patients_Updated.xlsx')
+        file_data = st.session_state.get('updated_patients_file')
+        
+        if file_data:
+            # Determine MIME type
+            mime_type = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+                        if filename.endswith('.xlsx') else "text/csv")
+            
+            st.download_button(
+                "Download Updated Patients File",
+                data=file_data,
+                file_name=filename,
+                mime=mime_type,
+                use_container_width=True
+            )
+        
+        if st.button("Done", use_container_width=True):
+            st.session_state.patient_added = False
+            st.rerun()
+    st.info("Patient added! Download and re-upload to see changes.")
+    st.divider()
+
+def show_visit_download():
+    """Show visit download section"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        filename = st.session_state.get('updated_visits_filename', 'ActualVisits_Updated.xlsx')
+        file_data = st.session_state.get('updated_visits_file')
+        
+        if file_data:
+            # Determine MIME type
+            mime_type = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+                        if filename.endswith('.xlsx') else "text/csv")
+            
+            st.download_button(
+                "Download Updated Visits File",
+                data=file_data,
+                file_name=filename,
+                mime=mime_type,
+                use_container_width=True
+            )
+        
+        if st.button("Done", use_container_width=True):
+            st.session_state.visit_added = False
+            st.rerun()
+    st.info("Visit recorded! Download and re-upload to see changes.")
+    st.divider()
+
+def show_event_download():
+    """Show event download section"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        filename = st.session_state.get('updated_events_filename', 'ActualVisits_Updated.xlsx')
+        file_data = st.session_state.get('updated_events_file')
+        
+        if file_data:
+            mime_type = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+                        if filename.endswith('.xlsx') else "text/csv")
+            
+            st.download_button(
+                "Download Updated Events File",
+                data=file_data,
+                file_name=filename,
+                mime=mime_type,
+                use_container_width=True
+            )
+        
+        if st.button("Done", use_container_width=True):
+            st.session_state.event_added = False
+            st.session_state.event_updated = False
+            st.rerun()
+    st.info("Study event updated! Download and re-upload to see changes.")
+    st.divider()
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
@@ -138,13 +233,19 @@ def main():
         # Handle modals and downloads
         handle_patient_modal()
         handle_visit_modal()
+        handle_study_event_modal()
         show_download_sections()
 
         try:
-            # Load and process files
+            # Load and process files with enhanced defaults for new columns
             patients_df = normalize_columns(load_file(patients_file))
             trials_df = normalize_columns(load_file(trials_file))
-            actual_visits_df = normalize_columns(load_file(actual_visits_file)) if actual_visits_file else None
+            actual_visits_df = None
+            if actual_visits_file:
+                actual_visits_df = normalize_columns(load_file_with_defaults(
+                    actual_visits_file,
+                    {'VisitType': 'patient', 'Status': 'completed'}
+                ))
 
             # Process dates and validation
             patients_df, trials_df, actual_visits_df = process_dates_and_validation(
@@ -198,13 +299,13 @@ def main():
     else:
         st.info("Please upload both Patients and Trials files to get started.")
         
-        st.subheader("📋 Required File Structure")
+        st.subheader("Required File Structure")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             st.markdown("""
-            **🏥 Patients File**
+            **Patients File**
             
             Required columns:
             - **PatientID** - Unique patient identifier
@@ -218,7 +319,7 @@ def main():
         
         with col2:
             st.markdown("""
-            **🔬 Trials File**
+            **Trials File**
             
             Required columns:
             - **Study** - Study name/code (must match Patients file)
@@ -230,11 +331,12 @@ def main():
             - **Payment** / **Income** - Visit payment amount
             - **ToleranceBefore** - Days before visit allowed
             - **ToleranceAfter** - Days after visit allowed
+            - **VisitType** - patient/siv/monitor for study events
             """)
         
         with col3:
             st.markdown("""
-            **✅ Actual Visits File** *(Optional)*
+            **Actual Visits File** *(Optional)*
             
             Required columns:
             - **PatientID** - Must match Patients file
@@ -243,29 +345,30 @@ def main():
             - **ActualDate** - When visit actually occurred
             
             Optional columns:
-            - **ActualPayment** - Actual payment received
             - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
+            - **VisitType** - patient/siv/monitor (defaults to patient)
+            - **Status** - completed/proposed/cancelled (defaults to completed)
             """)
         
         st.markdown("---")
         
         st.markdown("""
-        **💡 Tips:**
+        **Tips:**
         - Use CSV or Excel (.xlsx) files
         - Dates should be in UK format: DD/MM/YYYY (e.g., 31/12/2024)
         - PatientID, Study, and VisitName columns must match exactly between files
         - Each study must have exactly one Day 1 visit (baseline reference point)
         - Use 'ScreenFail' in the Notes column to automatically exclude future visits
-        - Use unique study names (e.g., ASH_Alpha, KIL_Alpha) if same study runs at multiple sites
+        - For study events (SIV/Monitor): use empty Day field in Trials file, manage via Actual Visits
         """)
         
         st.markdown("---")
         
         st.markdown("""
-        **🚀 Getting Started:**
+        **Getting Started:**
         1. Upload your Trials file and Patients file using the sidebar
         2. Optionally upload Actual Visits file to track completed visits
-        3. Use the 'Add New Patient' and 'Record Visit' buttons to make updates
+        3. Use the 'Add New Patient', 'Record Patient Visit', and 'Manage Study Events' buttons
         4. Download the generated calendar with financial analysis
         """)
 
