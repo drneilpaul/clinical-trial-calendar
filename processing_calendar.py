@@ -348,8 +348,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     latest_acceptable = expected_date + timedelta(days=tolerance_after)
                     
                     is_day_1 = (visit_day == 1)
+                    is_screening = visit_name.lower() in ['screening', 'screen', 'scr', 'v0']
                     
-                    if is_day_1:
+                    # Only visits after baseline/screening can be out of protocol
+                    if is_day_1 or is_screening:
                         is_out_of_protocol = False
                     else:
                         is_out_of_protocol = visit_date < earliest_acceptable or visit_date > latest_acceptable
