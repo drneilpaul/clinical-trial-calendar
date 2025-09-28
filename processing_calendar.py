@@ -590,7 +590,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
                     site_events[visit_site] = []
                 
                 # Format event for display
-                event_type = visit.get("EventType", "").upper()
+                event_type = str(visit.get("EventType", "")).upper()
                 event_display = f"{event_type}_{study}"
                 if "PROPOSED" in visit_info:
                     event_display += " (PROPOSED)"
