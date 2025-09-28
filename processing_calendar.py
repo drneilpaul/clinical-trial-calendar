@@ -2,7 +2,9 @@ import pandas as pd
 import streamlit as st
 from datetime import timedelta
 from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
-                    get_financial_year_start_year, is_financial_year_end, format_site_events)
+                    get_financial_year_start_year, is_financial_year_end)
+
+# Import from our new modules
 from visit_processor import process_study_events, detect_screen_failures
 from patient_processor import process_single_patient
 from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
