@@ -328,7 +328,13 @@ def main():
 
         # NEW - Option to load from database instead
         if st.session_state.get('use_database', False):
-            log_activity("Loading data from database...", level='info')
+            # Check if we need to force refresh
+            if st.session_state.get('data_refresh_needed', False):
+                log_activity("Refreshing data from database...", level='info')
+                st.session_state.data_refresh_needed = False
+            else:
+                log_activity("Loading data from database...", level='info')
+            
             patients_df = database.fetch_all_patients()
             trials_df = database.fetch_all_trial_schedules()
             actual_visits_df = database.fetch_all_actual_visits()
@@ -337,6 +343,18 @@ def main():
                 st.error("Failed to load from database. Please upload files instead.")
                 st.session_state.use_database = False
                 st.stop()
+            
+            # Log what we actually loaded
+            log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
+            
+            # Debug: Show what we're actually working with
+            if st.session_state.get('show_debug_info', False):
+                st.write("**Debug - Data being used for calendar:**")
+                st.write(f"Patients: {len(patients_df)} records")
+                st.write(f"Trials: {len(trials_df)} records")
+                if actual_visits_df is not None:
+                    st.write(f"Visits: {len(actual_visits_df)} records")
+                st.dataframe(patients_df.head())
             
             # Skip file processing, go straight to calendar generation
         else:
@@ -425,6 +443,9 @@ def main():
                 st.divider()
                 st.subheader("Database Debug")
                 
+                # Debug toggle
+                st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
+                
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🔍 Check Database Contents"):
@@ -449,8 +470,16 @@ def main():
                 
                 with col2:
                     if st.button("🔄 Refresh App Data"):
+                        # Clear any cached data
+                        if 'patients_df' in st.session_state:
+                            del st.session_state['patients_df']
+                        if 'trials_df' in st.session_state:
+                            del st.session_state['trials_df']
+                        if 'actual_visits_df' in st.session_state:
+                            del st.session_state['actual_visits_df']
+                        
                         st.session_state.data_refresh_needed = True
-                        st.success("Data refresh triggered!")
+                        st.success("Data refresh triggered! Clearing cache...")
                         st.rerun()
             
             # 1. CALENDAR (moved to top)
