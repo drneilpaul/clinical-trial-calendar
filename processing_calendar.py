@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import timedelta
 from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
-                    get_financial_year_start_year, is_financial_year_end)
+                    get_financial_year_start_year, is_financial_year_end, log_activity)
 
 # Import from our new modules
 from visit_processor import process_study_events, detect_screen_failures
@@ -69,6 +69,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     visits_df = pd.DataFrame(visit_records)
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
+    
+    # Check for duplicate indices in visits DataFrame
+    if not visits_df.index.is_unique:
+        log_activity(f"Warning: Found duplicate indices in visits DataFrame. Resetting index...", level='warning')
+        visits_df = visits_df.reset_index(drop=True)
 
     # Build processing messages
     processing_messages = build_processing_messages(processing_stats, unmatched_visits)

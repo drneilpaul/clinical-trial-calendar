@@ -249,13 +249,23 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         level2_df = pd.DataFrame([header_rows['level2_study_patient']])  # Study_Patient
         level3_df = pd.DataFrame([header_rows['level3_origin']])  # Origin sites
         
+        # Check for duplicate indices before concatenation
+        if not display_df_for_view.index.is_unique:
+            st.warning(f"Found duplicate indices in calendar data. Resetting index...")
+            display_df_for_view = display_df_for_view.reset_index(drop=True)
+        
         # Combine all headers with data
-        display_with_headers = pd.concat([
-            level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
-            level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
-            level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
-            display_df_for_view  # Actual visit data
-        ], ignore_index=True)
+        try:
+            display_with_headers = pd.concat([
+                level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
+                level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
+                level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
+                display_df_for_view  # Actual visit data
+            ], ignore_index=True)
+        except Exception as concat_error:
+            st.error(f"Error concatenating calendar data: {concat_error}")
+            # Fallback: just show the calendar data without headers
+            display_with_headers = display_df_for_view
 
         # Apply styling for three header rows
         try:

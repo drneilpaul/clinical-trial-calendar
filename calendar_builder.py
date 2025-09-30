@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import timedelta
-from helpers import safe_string_conversion, format_site_events
+from helpers import safe_string_conversion, format_site_events, log_activity
 
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
@@ -207,5 +207,10 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 calendar_df.at[i, events_col] = format_site_events(events)
 
         calendar_df.at[i, "Daily Total"] = daily_total
+    
+    # Check for duplicate indices before returning
+    if not calendar_df.index.is_unique:
+        log_activity(f"Warning: Found duplicate indices in calendar DataFrame. Resetting index...", level='warning')
+        calendar_df = calendar_df.reset_index(drop=True)
     
     return calendar_df
