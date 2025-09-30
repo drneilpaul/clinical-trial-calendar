@@ -434,6 +434,9 @@ def main():
                     if patients_db is not None and not patients_db.empty:
                         st.write("**Sample Patients from DB:**")
                         st.dataframe(patients_db.head())
+                        st.write(f"**Total patients in DB: {len(patients_db)}**")
+                    else:
+                        st.write("**No patients found in database**")
             
             # 1. CALENDAR (moved to top)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)

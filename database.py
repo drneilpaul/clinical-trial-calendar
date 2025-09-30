@@ -125,23 +125,39 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
         
         records = []
         for _, row in patients_df.iterrows():
+            # Handle date parsing more robustly
+            start_date = None
+            if pd.notna(row['StartDate']):
+                try:
+                    if isinstance(row['StartDate'], str):
+                        # Try parsing string date
+                        from datetime import datetime
+                        start_date = datetime.strptime(row['StartDate'], '%d/%m/%Y').date()
+                    else:
+                        # Already a datetime/date object
+                        start_date = row['StartDate'].date() if hasattr(row['StartDate'], 'date') else row['StartDate']
+                except Exception as date_error:
+                    log_activity(f"Date parsing error for patient {row['PatientID']}: {date_error}", level='warning')
+                    start_date = None
+            
             record = {
                 'patient_id': str(row['PatientID']),
                 'study': str(row['Study']),
-                'start_date': str(row['StartDate'].date()) if pd.notna(row['StartDate']) else None,
+                'start_date': str(start_date) if start_date else None,
                 'site': str(row.get('Site', '')),
                 'patient_practice': str(row.get('PatientPractice', '')),
                 'origin_site': str(row.get('OriginSite', ''))
             }
             records.append(record)
         
-        # Upsert (insert or update) - specify conflict resolution
-        response = client.table('patients').upsert(records, on_conflict='patient_id,study').execute()
-        log_activity(f"Saved {len(records)} patient records to database", level='info')
+        # Use insert instead of upsert for fresh data
+        response = client.table('patients').insert(records).execute()
+        log_activity(f"Inserted {len(records)} patient records to database", level='info')
         return True
         
     except Exception as e:
         st.error(f"Error saving patients to database: {e}")
+        log_activity(f"Error saving patients to database: {e}", level='error')
         return False
 
 def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
@@ -394,6 +410,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             log_activity(f"Cannot overwrite {table_name}: No data provided", level='error')
             return False
         
+        log_activity(f"Starting overwrite of {table_name} with {len(df)} records", level='info')
+        
         # Create backup first
         backup_df = None
         if table_name == 'patients':
@@ -403,7 +421,7 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
         elif table_name == 'actual_visits':
             backup_df = fetch_all_actual_visits()
         
-        log_activity(f"Created backup of {table_name} before overwrite", level='info')
+        log_activity(f"Created backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
         
         # Clear table
         clear_function = None
@@ -417,6 +435,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
         if not clear_function():
             log_activity(f"Failed to clear {table_name} table", level='error')
             return False
+        
+        log_activity(f"Successfully cleared {table_name} table", level='info')
         
         # Save new data
         if not save_function(df):
@@ -432,7 +452,7 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
                 log_activity(f"Restored backup for {table_name}", level='info')
             return False
         
-        log_activity(f"Successfully overwrote {table_name} table", level='success')
+        log_activity(f"Successfully overwrote {table_name} table with {len(df)} records", level='success')
         return True
         
     except Exception as e:
