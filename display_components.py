@@ -4,6 +4,7 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
+from helpers import log_activity
 
 # Import only from modules that don't import back to us
 from calculations import (
