@@ -423,7 +423,8 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         
         # Calculate monthly breakdown
         monthly_data = []
-        for month in sorted(fy_visits['MonthYear'].unique()):
+        month_values = fy_visits['MonthYear'].dropna().unique()
+        for month in sorted(month_values):
             month_visits = fy_visits[fy_visits['MonthYear'] == month]
             
             completed = month_visits[month_visits.get('IsActual', False) == True]

@@ -90,8 +90,9 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
 
 def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_failures):
     """Display enhanced statistics for a single visit site including quarterly and financial year analysis"""
-    # Filter data for this visit site (where work is actually done)
-    site_visits = visits_df[visits_df['SiteofVisit'] == site]
+    try:
+        # Filter data for this visit site (where work is actually done)
+        site_visits = visits_df[visits_df['SiteofVisit'] == site]
     
     # Find patients who have visits at this site (regardless of their origin)
     patients_with_visits_here = site_visits['PatientID'].unique()
@@ -376,3 +377,7 @@ def display_monthly_analysis_by_site(visits_df):
         
         st.write("**Monthly Income Trends:**")
         st.line_chart(monthly_income)
+        
+    except Exception as e:
+        st.error(f"Error displaying site statistics: {e}")
+        st.exception(e)

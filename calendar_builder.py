@@ -14,8 +14,9 @@ def build_calendar_dataframe(visits_df, patients_df):
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
     
-    # Get unique visit sites
-    unique_visit_sites = sorted(visits_df["SiteofVisit"].unique())
+    # Get unique visit sites (filter out None values)
+    site_values = visits_df["SiteofVisit"].dropna().unique()
+    unique_visit_sites = sorted(site_values)
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
