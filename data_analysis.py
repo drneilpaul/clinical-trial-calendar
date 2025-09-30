@@ -246,11 +246,23 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
     
     all_quarters = set()
     if not financial_site_visits.empty:
-        all_quarters.update(financial_site_visits['QuarterYear'].unique())
+        # Filter out None values from QuarterYear
+        quarter_values = financial_site_visits['QuarterYear'].dropna().unique()
+        all_quarters.update(quarter_values)
     if not quarterly_recruitment.empty:
-        all_quarters.update(quarterly_recruitment.index)
+        # Filter out None values from index
+        quarter_index_values = quarterly_recruitment.index.dropna()
+        all_quarters.update(quarter_index_values)
     
-    for quarter in sorted(all_quarters):
+    # Filter out any remaining None values and sort safely
+    all_quarters = [quarter for quarter in all_quarters if quarter is not None and pd.notna(quarter)]
+    try:
+        sorted_quarters = sorted(all_quarters)
+    except TypeError:
+        # If sorting fails due to mixed types, convert all to strings
+        sorted_quarters = sorted([str(quarter) for quarter in all_quarters])
+    
+    for quarter in sorted_quarters:
         quarter_visits = quarterly_stats.loc[quarter, 'Visit Count'] if quarter in quarterly_stats.index else 0
         quarter_income = quarterly_stats.loc[quarter, 'Income'] if quarter in quarterly_stats.index else 0
         quarter_patients = quarterly_recruitment.loc[quarter] if quarter in quarterly_recruitment.index else 0
@@ -274,11 +286,23 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
     
     all_fys = set()
     if not financial_site_visits.empty:
-        all_fys.update(financial_site_visits['FinancialYear'].unique())
+        # Filter out None values from FinancialYear
+        fy_values = financial_site_visits['FinancialYear'].dropna().unique()
+        all_fys.update(fy_values)
     if not fy_recruitment.empty:
-        all_fys.update(fy_recruitment.index)
+        # Filter out None values from index
+        fy_index_values = fy_recruitment.index.dropna()
+        all_fys.update(fy_index_values)
     
-    for fy in sorted(all_fys):
+    # Filter out any remaining None values and sort safely
+    all_fys = [fy for fy in all_fys if fy is not None and pd.notna(fy)]
+    try:
+        sorted_fys = sorted(all_fys)
+    except TypeError:
+        # If sorting fails due to mixed types, convert all to strings
+        sorted_fys = sorted([str(fy) for fy in all_fys])
+    
+    for fy in sorted_fys:
         fy_visits = fy_stats.loc[fy, 'Visit Count'] if fy in fy_stats.index else 0
         fy_income = fy_stats.loc[fy, 'Income'] if fy in fy_stats.index else 0
         fy_patients = fy_recruitment.loc[fy] if fy in fy_recruitment.index else 0
