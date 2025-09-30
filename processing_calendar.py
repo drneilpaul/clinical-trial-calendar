@@ -303,6 +303,10 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             patient, patient_visits, screen_failures, actual_visits_df
         )
         
+        # Debug: Log actual visits used for this patient
+        if actual_visits_used > 0:
+            log_activity(f"DEBUG: Patient {patient_id} used {actual_visits_used} actual visits", level='info')
+        
         if not visit_records and len(patient_visits[patient_visits["Study"] == study]) == 0:
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
             continue

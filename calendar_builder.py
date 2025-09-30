@@ -164,6 +164,13 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     # DEBUG: Check visits data
     log_activity(f"Filling calendar with {len(visits_df)} visits", level='info')
     
+    # Debug: Check for actual visits
+    if 'IsActual' in visits_df.columns:
+        actual_count = len(visits_df[visits_df['IsActual'] == True])
+        log_activity(f"DEBUG: Found {actual_count} actual visits in visits_df", level='info')
+    else:
+        log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
+    
     # Create income tracking columns
     for study in trials_df["Study"].unique():
         income_col = f"{study} Income"
