@@ -106,38 +106,10 @@ def build_calendar_dataframe(visits_df, patients_df):
                         'origin_site': origin_site
                     })
         else:
-            # Site has no visits - get patients recruited by this site
-            log_activity(f"Site {visit_site} has no visits, checking for recruited patients", level='info')
-            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-                if candidate in patients_df.columns:
-                    recruited_patients = patients_df[patients_df[candidate] == visit_site]
-                    if not recruited_patients.empty:
-                        log_activity(f"Found {len(recruited_patients)} patients recruited by {visit_site} via {candidate} column", level='info')
-                        for _, patient in recruited_patients.iterrows():
-                            patient_id = patient['PatientID']
-                            study = patient['Study']
-                            
-                            # Try to get origin site from various possible columns
-                            origin_site = ""
-                            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-                                if candidate in patient.index and not pd.isna(patient[candidate]):
-                                    origin_site = str(patient[candidate]).strip()
-                                    if origin_site and origin_site != 'nan':
-                                        break
-                            
-                            # If still empty, use a default
-                            if not origin_site:
-                                origin_site = "Unknown Origin"
-                            
-                            col_id = f"{study}_{patient_id}"
-                            
-                            site_patients_info.append({
-                                'col_id': col_id,
-                                'study': study,
-                                'patient_id': patient_id,
-                                'origin_site': origin_site
-                            })
-                        break  # Found the right column, stop looking
+            # Site has no visits - only track recruitment income, don't create visit columns
+            log_activity(f"Site {visit_site} has no visits, will only track recruitment income", level='info')
+            # Don't add any patient columns for sites with no visits
+            site_columns = []
         
         # Sort by study then patient ID for consistent ordering
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
@@ -148,7 +120,6 @@ def build_calendar_dataframe(visits_df, patients_df):
             log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
         # Add patient columns for this visit site (handle duplicates with suffixes)
-        site_columns = []
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
             final_col_id = col_id
@@ -166,7 +137,7 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Update the patient info with the final column ID
             patient_info['col_id'] = final_col_id
         
-        # Add site events column (avoid duplicates)
+        # Add site events column (avoid duplicates) - ALL sites get events column
         events_col = f"{visit_site}_Events"
         if events_col not in global_seen_columns:
             ordered_columns.append(events_col)
