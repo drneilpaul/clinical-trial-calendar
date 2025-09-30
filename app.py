@@ -90,13 +90,6 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
 
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
-    # TEMPORARY - Remove this after testing
-    if st.sidebar.button("🧪 Test DB Connection"):
-        if database.test_database_connection():
-            st.sidebar.success("✅ Database connected and tables found")
-        else:
-            st.sidebar.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
-    # END TEMPORARY
 
     
     st.sidebar.header("Data Source")
@@ -281,6 +274,76 @@ def setup_file_uploaders():
     st.session_state.trials_file = trials_file
     st.session_state.actual_visits_file = actual_visits_file
     
+    # Database Operations and Debug Section
+    if st.session_state.get('database_available', False):
+        st.sidebar.divider()
+        with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
+            st.caption("Database management and debugging tools")
+            
+            # Test DB Connection
+            if st.button("🧪 Test DB Connection", use_container_width=True):
+                if database.test_database_connection():
+                    st.success("✅ Database connected and tables found")
+                else:
+                    st.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+            
+            st.divider()
+            
+            # Database Contents Check
+            if st.button("🔍 Check Database Contents", use_container_width=True):
+                patients_db = database.fetch_all_patients()
+                trials_db = database.fetch_all_trial_schedules()
+                visits_db = database.fetch_all_actual_visits()
+                
+                st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
+                st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
+                st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
+                
+                if patients_db is not None and not patients_db.empty:
+                    st.write("**Sample Patients:**")
+                    st.dataframe(patients_db.head(3))
+                    st.write(f"**Total: {len(patients_db)} patients**")
+                else:
+                    st.write("**No patients found**")
+            
+            st.divider()
+            
+            # Refresh App Data
+            if st.button("🔄 Refresh App Data", use_container_width=True):
+                # Clear any cached data
+                if 'patients_df' in st.session_state:
+                    del st.session_state['patients_df']
+                if 'trials_df' in st.session_state:
+                    del st.session_state['trials_df']
+                if 'actual_visits_df' in st.session_state:
+                    del st.session_state['actual_visits_df']
+                
+                st.session_state.data_refresh_needed = True
+                st.success("Data refresh triggered!")
+                st.rerun()
+            
+            st.divider()
+            
+            # Debug Toggle
+            st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
+            
+            st.divider()
+            
+            # Database Backup
+            if st.button("📦 Download DB Backup", use_container_width=True):
+                backup_zip = database.create_backup_zip()
+                if backup_zip:
+                    st.download_button(
+                        "💾 Download Database Backup (ZIP)",
+                        data=backup_zip.getvalue(),
+                        file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
+                    log_activity("Database backup created successfully", level='success')
+                else:
+                    log_activity("Failed to create database backup", level='error')
+    
     # Display activity log at bottom of sidebar
     st.sidebar.divider()
     display_activity_log_sidebar()
@@ -400,95 +463,36 @@ def main():
 
             display_processing_messages(messages)
 
-            # Database operations section
+            # Database operations section - moved to sidebar
             if st.session_state.get('database_available', False):
                 st.divider()
                 st.subheader("Database Operations")
                 
-                # Always show backup button when database is available
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    if st.button("📦 Download DB Backup"):
-                        backup_zip = database.create_backup_zip()
-                        if backup_zip:
-                            st.download_button(
-                                "💾 Download Database Backup (ZIP)",
-                                data=backup_zip.getvalue(),
-                                file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                                mime="application/zip"
-                            )
-                            log_activity("Database backup created successfully", level='success')
-                        else:
-                            log_activity("Failed to create database backup", level='error')
-                
                 # Only show save buttons when not using database data
                 if not st.session_state.get('use_database', False):
-                    with col2:
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
                         if st.button("💾 Save Patients to DB"):
                             if database.save_patients_to_database(patients_df):
                                 log_activity("Patients saved to database!", level='success')
                             else:
                                 log_activity("Failed to save patients to database", level='error')
                     
-                    with col3:
+                    with col2:
                         if st.button("💾 Save Trials to DB"):
                             if database.save_trial_schedules_to_database(trials_df):
                                 log_activity("Trial schedules saved!", level='success')
                             else:
                                 log_activity("Failed to save trial schedules to database", level='error')
                     
-                    with col4:
+                    with col3:
                         if actual_visits_df is not None and not actual_visits_df.empty:
                             if st.button("💾 Save Visits to DB"):
                                 if database.save_actual_visits_to_database(actual_visits_df):
                                     log_activity("Actual visits saved!", level='success')
                                 else:
                                     log_activity("Failed to save actual visits to database", level='error')
-            
-            # Debug section for database contents
-            if st.session_state.get('database_available', False):
-                st.divider()
-                st.subheader("Database Debug")
-                
-                # Debug toggle
-                st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("🔍 Check Database Contents"):
-                        patients_db = database.fetch_all_patients()
-                        trials_db = database.fetch_all_trial_schedules()
-                        visits_db = database.fetch_all_actual_visits()
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
-                        with col2:
-                            st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
-                        with col3:
-                            st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
-                        
-                        if patients_db is not None and not patients_db.empty:
-                            st.write("**Sample Patients from DB:**")
-                            st.dataframe(patients_db.head())
-                            st.write(f"**Total patients in DB: {len(patients_db)}**")
-                        else:
-                            st.write("**No patients found in database**")
-                
-                with col2:
-                    if st.button("🔄 Refresh App Data"):
-                        # Clear any cached data
-                        if 'patients_df' in st.session_state:
-                            del st.session_state['patients_df']
-                        if 'trials_df' in st.session_state:
-                            del st.session_state['trials_df']
-                        if 'actual_visits_df' in st.session_state:
-                            del st.session_state['actual_visits_df']
-                        
-                        st.session_state.data_refresh_needed = True
-                        st.success("Data refresh triggered! Clearing cache...")
-                        st.rerun()
             
             # 1. CALENDAR (moved to top)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
