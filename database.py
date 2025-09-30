@@ -177,8 +177,19 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         # Clean the data before processing
         trials_df_clean = trials_df.copy()
         
-        # Clean Payment column - convert empty strings and invalid values to 0
+        # Handle different column names for payment/income
+        payment_column = None
         if 'Payment' in trials_df_clean.columns:
+            payment_column = 'Payment'
+        elif 'Income' in trials_df_clean.columns:
+            payment_column = 'Income'
+            # Rename Income to Payment for consistency
+            trials_df_clean = trials_df_clean.rename(columns={'Income': 'Payment'})
+        
+        # Clean Payment column - convert empty strings and invalid values to 0
+        if payment_column or 'Payment' in trials_df_clean.columns:
+            # Remove currency symbols, spaces, and commas
+            trials_df_clean['Payment'] = trials_df_clean['Payment'].astype(str).str.replace('£', '').str.replace(',', '').str.strip()
             trials_df_clean['Payment'] = trials_df_clean['Payment'].replace('', 0)
             trials_df_clean['Payment'] = pd.to_numeric(trials_df_clean['Payment'], errors='coerce').fillna(0)
         
@@ -205,7 +216,12 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
-        client.table('trial_schedules').upsert(records).execute()
+        # Debug: Log sample records
+        log_activity(f"Sample trial records: {records[:3]}", level='info')
+        log_activity(f"Payment values in records: {[r['payment'] for r in records[:5]]}", level='info')
+        log_activity(f"Cleaned Payment column sample: {trials_df_clean['Payment'].head().tolist()}", level='info')
+        
+        client.table('trial_schedules').insert(records).execute()
         log_activity(f"Successfully saved {len(records)} trial schedules to database", level='info')
         return True
         
