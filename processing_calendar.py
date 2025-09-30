@@ -70,6 +70,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
     
+    # Check for duplicate visits (same patient, study, date, visit)
+    if 'PatientID' in visits_df.columns and 'Study' in visits_df.columns and 'Date' in visits_df.columns and 'Visit' in visits_df.columns:
+        duplicate_mask = visits_df.duplicated(subset=['PatientID', 'Study', 'Date', 'Visit'], keep='first')
+        if duplicate_mask.any():
+            duplicate_count = duplicate_mask.sum()
+            log_activity(f"Warning: Found {duplicate_count} duplicate visits. Removing duplicates...", level='warning')
+            visits_df = visits_df[~duplicate_mask].reset_index(drop=True)
+    
     # Check for duplicate indices in visits DataFrame
     if not visits_df.index.is_unique:
         log_activity(f"Warning: Found duplicate indices in visits DataFrame. Resetting index...", level='warning')

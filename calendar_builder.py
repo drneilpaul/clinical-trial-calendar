@@ -30,6 +30,7 @@ def build_calendar_dataframe(visits_df, patients_df):
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
     site_column_mapping = {}
+    global_seen_columns = {"Date", "Day"}  # Track all columns across all sites
     
     for visit_site in unique_visit_sites:
         site_visits = visits_df[visits_df["SiteofVisit"] == visit_site]
@@ -89,26 +90,30 @@ def build_calendar_dataframe(visits_df, patients_df):
         # Sort by study then patient ID for consistent ordering
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
         
-        # Add patient columns for this visit site (avoid duplicates)
+        # Debug: Log patient info for this site
+        log_activity(f"Site {visit_site}: Processing {len(site_patients_info)} patients", level='info')
+        for patient_info in site_patients_info:
+            log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
+        
+        # Add patient columns for this visit site (avoid duplicates across all sites)
         site_columns = []
-        seen_columns = set()
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
-            if col_id not in seen_columns:
+            if col_id not in global_seen_columns:
                 ordered_columns.append(col_id)
                 site_columns.append(col_id)
                 calendar_df[col_id] = ""
-                seen_columns.add(col_id)
+                global_seen_columns.add(col_id)
             else:
-                log_activity(f"Warning: Duplicate column {col_id} found for site {visit_site}. Skipping duplicate.", level='warning')
+                log_activity(f"Warning: Duplicate column {col_id} found across sites. Patient may be in multiple sites. Skipping duplicate.", level='warning')
         
         # Add site events column (avoid duplicates)
         events_col = f"{visit_site}_Events"
-        if events_col not in seen_columns:
+        if events_col not in global_seen_columns:
             ordered_columns.append(events_col)
             site_columns.append(events_col)
             calendar_df[events_col] = ""
-            seen_columns.add(events_col)
+            global_seen_columns.add(events_col)
         else:
             log_activity(f"Warning: Duplicate events column {events_col} found. Skipping duplicate.", level='warning')
         
@@ -232,5 +237,11 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         log_activity(f"Warning: Found duplicate column names in calendar DataFrame. Removing duplicates...", level='warning')
         # Keep first occurrence of each column name
         calendar_df = calendar_df.loc[:, ~calendar_df.columns.duplicated()]
+    
+    # Final validation: ensure no duplicate columns
+    if not calendar_df.columns.is_unique:
+        log_activity(f"Error: Still have duplicate columns after cleanup: {calendar_df.columns[calendar_df.columns.duplicated()].tolist()}", level='error')
+        # Force unique column names by adding suffixes
+        calendar_df.columns = pd.io.common.dedup_names(calendar_df.columns, is_potential_multiindex=False)
     
     return calendar_df
