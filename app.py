@@ -156,41 +156,57 @@ def main():
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-    if patients_file and trials_file:
-        display_action_buttons()
+if patients_file and trials_file:
+    display_action_buttons()
 
-        # NEW - Option to load from database instead
-        if st.session_state.get('use_database', False):
-            st.info("Loading data from database...")
-            patients_df = database.fetch_all_patients()
-            trials_df = database.fetch_all_trial_schedules()
-            actual_visits_df = database.fetch_all_actual_visits()
-            
-            if patients_df is None or trials_df is None:
-                st.error("Failed to load from database. Please upload files instead.")
-                st.session_state.use_database = False
-                st.stop()
-            
-            # Skip file processing, go straight to calendar generation
-        else:
-            # EXISTING FILE PROCESSING CODE
-            try:
-                init_error_system()  # Initialize error logging
-                patients_df = normalize_columns(load_file(patients_file))
-                trials_df = normalize_columns(load_file(trials_file))
-                actual_visits_df = None
-                if actual_visits_file:
-                    actual_visits_df = normalize_columns(load_file_with_defaults(
-                        actual_visits_file,
-                        {'VisitType': 'patient', 'Status': 'completed'}
-                    ))
+    # NEW - Option to load from database instead
+    if st.session_state.get('use_database', False):
+        st.info("Loading data from database...")
+        patients_df = database.fetch_all_patients()
+        trials_df = database.fetch_all_trial_schedules()
+        actual_visits_df = database.fetch_all_actual_visits()
+        
+        if patients_df is None or trials_df is None:
+            st.error("Failed to load from database. Please upload files instead.")
+            st.session_state.use_database = False
+            st.stop()
+        
+        if patients_df.empty or trials_df.empty:
+            st.warning("Database tables are empty. Please upload and save files first.")
+            st.session_state.use_database = False
+            st.stop()
+        
+        # Process the database data (normalize and validate)
+        patients_df.columns = patients_df.columns.str.strip()
+        trials_df.columns = trials_df.columns.str.strip()
+        
+        if actual_visits_df is not None and not actual_visits_df.empty:
+            actual_visits_df.columns = actual_visits_df.columns.str.strip()
+        
+        # Parse dates and validate
+        patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+            patients_df, trials_df, actual_visits_df
+        )
+        
+    else:
+        # EXISTING FILE PROCESSING CODE
+        try:
+            init_error_system()  # Initialize error logging
+            patients_df = normalize_columns(load_file(patients_file))
+            trials_df = normalize_columns(load_file(trials_file))
+            actual_visits_df = None
+            if actual_visits_file:
+                actual_visits_df = normalize_columns(load_file_with_defaults(
+                    actual_visits_file,
+                    {'VisitType': 'patient', 'Status': 'completed'}
+                ))
 
-                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                    patients_df, trials_df, actual_visits_df
-                )
-            except Exception as e:
-                st.error(f"Error processing files: {str(e)}")
-                st.stop()
+            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                patients_df, trials_df, actual_visits_df
+            )
+        except Exception as e:
+            st.error(f"Error processing files: {str(e)}")
+            st.stop()
         
         handle_patient_modal()
         handle_visit_modal()
