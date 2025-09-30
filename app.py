@@ -595,10 +595,43 @@ def main():
                     st.write("Sample visits:")
                     sample_cols = ['Date', 'PatientID', 'Visit', 'IsActual'] if all(col in visits_df.columns for col in ['Date', 'PatientID', 'Visit', 'IsActual']) else visits_df.columns[:4]
                     st.dataframe(visits_df[sample_cols].head(10))
+                    
+                    # Test date matching manually
+                    st.write("**Date Matching Test:**")
+                    if not calendar_df.empty:
+                        test_calendar_date = calendar_df['Date'].iloc[0]
+                        test_visits_date = visits_df['Date'].iloc[0]
+                        st.write(f"Calendar date type: {type(test_calendar_date)}, value: {test_calendar_date}")
+                        st.write(f"Visits date type: {type(test_visits_date)}, value: {test_visits_date}")
+                        
+                        # Test the comparison
+                        calendar_date_normalized = pd.Timestamp(test_calendar_date.date())
+                        st.write(f"Normalized calendar date: {calendar_date_normalized}")
+                        st.write(f"Are they equal? {test_visits_date == calendar_date_normalized}")
+                        
+                        # Test with first few visits
+                        matches = visits_df[visits_df['Date'] == calendar_date_normalized]
+                        st.write(f"Matches for first calendar date: {len(matches)}")
 
                 if not calendar_df.empty:
                     st.write(f"Calendar date type: {calendar_df['Date'].dtype}")
                     st.write(f"Calendar date range: {calendar_df['Date'].min()} to {calendar_df['Date'].max()}")
+                    
+                    # Check if calendar has any visit data
+                    st.write("**Calendar Content Check:**")
+                    patient_cols = [col for col in calendar_df.columns if any(study in col for study in ['BaxDuo', 'Maritime']) and '_' in col]
+                    st.write(f"Patient columns found: {patient_cols[:5]}...")  # Show first 5
+                    
+                    # Check first few rows for any non-empty visit data
+                    sample_data = calendar_df[patient_cols[:3]].head(10) if patient_cols else pd.DataFrame()
+                    st.write("Sample calendar data (first 3 patient columns, first 10 rows):")
+                    st.dataframe(sample_data)
+                    
+                    # Count non-empty cells
+                    non_empty_count = 0
+                    for col in patient_cols:
+                        non_empty_count += (calendar_df[col] != "").sum()
+                    st.write(f"Total non-empty visit cells: {non_empty_count}")
             
             # Debug: Check financial data after calendar build
             if st.session_state.get('show_debug_info', False):
