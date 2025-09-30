@@ -331,29 +331,21 @@ def setup_file_uploaders():
             
             # Test DB Connection
             if st.button("🧪 Test DB Connection", use_container_width=True):
-                if database.test_database_connection():
-                    st.success("✅ Database connected and tables found")
-                else:
-                    st.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+                try:
+                    if database.test_database_connection():
+                        st.success("✅ Database connected and tables found")
+                    else:
+                        st.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+                except Exception as e:
+                    st.error(f"❌ Database test failed: {e}")
             
             st.divider()
             
             # Database Contents Check
-            if st.button("🔍 Check Database Contents", use_container_width=True):
-                patients_db = database.fetch_all_patients()
-                trials_db = database.fetch_all_trial_schedules()
-                visits_db = database.fetch_all_actual_visits()
-                
-                st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
-                st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
-                st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
-                
-                if patients_db is not None and not patients_db.empty:
-                    st.write("**Sample Patients:**")
-                    st.dataframe(patients_db.head(3))
-                    st.write(f"**Total: {len(patients_db)} patients**")
-                else:
-                    st.write("**No patients found**")
+            if st.button("🔍 Check All Database Tables", use_container_width=True):
+                st.session_state.show_database_contents = True
+                st.success("Loading database contents...")
+                st.rerun()
             
             st.divider()
             
@@ -442,6 +434,52 @@ def main():
     # NEW - Check database availability
     if 'database_available' not in st.session_state:
         st.session_state.database_available = database.test_database_connection()
+    
+    # Database Contents Display (if requested)
+    if st.session_state.get('show_database_contents', False):
+        st.markdown("---")
+        st.subheader("📊 Database Contents")
+        
+        try:
+            st.write("Fetching data from database...")
+            patients_db = database.fetch_all_patients()
+            trials_db = database.fetch_all_trial_schedules()
+            visits_db = database.fetch_all_actual_visits()
+            
+            st.write(f"Fetched: Patients={patients_db is not None}, Trials={trials_db is not None}, Visits={visits_db is not None}")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Patients", len(patients_db) if patients_db is not None else 0)
+                if patients_db is not None and not patients_db.empty:
+                    st.dataframe(patients_db[['PatientID', 'Study', 'StartDate']].head(5), use_container_width=True)
+                else:
+                    st.info("No patients found")
+            
+            with col2:
+                st.metric("Trials", len(trials_db) if trials_db is not None else 0)
+                if trials_db is not None and not trials_db.empty:
+                    st.dataframe(trials_db[['Study', 'VisitName', 'Day', 'Payment']].head(5), use_container_width=True)
+                else:
+                    st.info("No trials found")
+            
+            with col3:
+                st.metric("Actual Visits", len(visits_db) if visits_db is not None else 0)
+                if visits_db is not None and not visits_db.empty:
+                    st.dataframe(visits_db[['PatientID', 'Study', 'VisitName', 'ActualDate']].head(5), use_container_width=True)
+                else:
+                    st.info("No actual visits found")
+            
+            # Close button
+            if st.button("❌ Close Database View", use_container_width=True):
+                st.session_state.show_database_contents = False
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Error fetching database contents: {e}")
+        
+        st.markdown("---")
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
@@ -583,121 +621,9 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
             
-            # DEBUG: Calendar & Visits Check
+            # Minimal debug info
             if st.session_state.get('show_debug_info', False):
-                st.write("**DEBUG: Calendar & Visits Check**")
-                st.write(f"Visits DataFrame: {len(visits_df)} records")
-                st.write(f"Calendar DataFrame: {len(calendar_df)} records")
-                
-                # Direct debug to bypass logging
-                st.write("**Direct Debug - Date Range Analysis:**")
-                if not visits_df.empty:
-                    st.write(f"✅ Visits exist: {len(visits_df)} records")
-                    st.write(f"✅ Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
-                else:
-                    st.write("❌ Visits DataFrame is EMPTY!")
-                
-                if not calendar_df.empty:
-                    st.write(f"✅ Calendar exists: {len(calendar_df)} records")
-                    st.write(f"✅ Calendar date range: {calendar_df['Date'].min()} to {calendar_df['Date'].max()}")
-                else:
-                    st.write("❌ Calendar DataFrame is EMPTY!")
-
-                if not visits_df.empty:
-                    st.write(f"Visits date type: {visits_df['Date'].dtype}")
-                    st.write(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
-                    st.write("Sample visits:")
-                    sample_cols = ['Date', 'PatientID', 'Visit', 'IsActual'] if all(col in visits_df.columns for col in ['Date', 'PatientID', 'Visit', 'IsActual']) else visits_df.columns[:4]
-                    st.dataframe(visits_df[sample_cols].head(10))
-                    
-                    # Test date matching manually
-                    st.write("**Date Matching Test:**")
-                    if not calendar_df.empty:
-                        test_calendar_date = calendar_df['Date'].iloc[0]
-                        test_visits_date = visits_df['Date'].iloc[0]
-                        st.write(f"Calendar date type: {type(test_calendar_date)}, value: {test_calendar_date}")
-                        st.write(f"Visits date type: {type(test_visits_date)}, value: {test_visits_date}")
-                        
-                        # Test the comparison
-                        calendar_date_normalized = pd.Timestamp(test_calendar_date.date())
-                        st.write(f"Normalized calendar date: {calendar_date_normalized}")
-                        st.write(f"Are they equal? {test_visits_date == calendar_date_normalized}")
-                        
-                        # Test with first few visits
-                        matches = visits_df[visits_df['Date'] == calendar_date_normalized]
-                        st.write(f"Matches for first calendar date: {len(matches)}")
-                        
-                        # Check if there are any visits in the calendar date range
-                        st.write("**Calendar Range Analysis:**")
-                        st.write(f"Calendar starts: {calendar_df['Date'].min()}")
-                        st.write(f"Calendar ends: {calendar_df['Date'].max()}")
-                        st.write(f"Visits start: {visits_df['Date'].min()}")
-                        st.write(f"Visits end: {visits_df['Date'].max()}")
-                        
-                        # Check for visits in the first week of calendar
-                        first_week = calendar_df['Date'].head(7)
-                        st.write(f"First week of calendar: {first_week.tolist()}")
-                        
-                        # Check if any visits fall in this range
-                        visits_in_first_week = visits_df[visits_df['Date'].isin(first_week)]
-                        st.write(f"Visits in first week: {len(visits_in_first_week)}")
-                        
-                        if len(visits_in_first_week) > 0:
-                            st.write("Sample visits in first week:")
-                            st.dataframe(visits_in_first_week[['Date', 'PatientID', 'Visit']].head())
-                            
-                            # Test specific date matching for April 3rd
-                            april_3rd = pd.Timestamp('2025-04-03')
-                            st.write(f"**Testing April 3rd matching:**")
-                            st.write(f"April 3rd visits: {len(visits_df[visits_df['Date'] == april_3rd])}")
-                            
-                            # Test the exact comparison used in fill_calendar_with_visits
-                            calendar_date_normalized = pd.Timestamp(april_3rd.date())
-                            st.write(f"Calendar date normalized: {calendar_date_normalized}")
-                            st.write(f"Visit date: {visits_in_first_week['Date'].iloc[0]}")
-                            st.write(f"Are they equal? {visits_in_first_week['Date'].iloc[0] == calendar_date_normalized}")
-                            
-                            # Test the exact filter used in the function
-                            test_matches = visits_df[visits_df['Date'] == calendar_date_normalized]
-                            st.write(f"Test matches for April 3rd: {len(test_matches)}")
-
-                if not calendar_df.empty:
-                    st.write(f"Calendar date type: {calendar_df['Date'].dtype}")
-                    st.write(f"Calendar date range: {calendar_df['Date'].min()} to {calendar_df['Date'].max()}")
-                    
-                    # Check if calendar has any visit data
-                    st.write("**Calendar Content Check:**")
-                    patient_cols = [col for col in calendar_df.columns if any(study in col for study in ['BaxDuo', 'Maritime']) and '_' in col]
-                    st.write(f"Patient columns found: {patient_cols[:5]}...")  # Show first 5
-                    
-                    # Check first few rows for any non-empty visit data
-                    sample_data = calendar_df[patient_cols[:3]].head(10) if patient_cols else pd.DataFrame()
-                    st.write("Sample calendar data (first 3 patient columns, first 10 rows):")
-                    st.dataframe(sample_data)
-                    
-                    # Count non-empty cells
-                    non_empty_count = 0
-                    for col in patient_cols:
-                        non_empty_count += (calendar_df[col] != "").sum()
-                    st.write(f"Total non-empty visit cells: {non_empty_count}")
-            
-            # Debug: Check financial data after calendar build
-            if st.session_state.get('show_debug_info', False):
-                predicted_count = len(visits_df[visits_df['IsActual'] == False]) if not visits_df.empty else 0
-                actual_count = len(visits_df[visits_df['IsActual'] == True]) if not visits_df.empty else 0
-                st.write(f"Generated Visits: {len(visits_df)} (Predicted: {predicted_count}, Actual: {actual_count})")
-                
-                if not visits_df.empty:
-                    st.write(f"Visit range: {visits_df['Date'].min().strftime('%Y-%m-%d')} to {visits_df['Date'].max().strftime('%Y-%m-%d')}")
-                
-                st.write(f"Calendar: {len(calendar_df)} days from {calendar_df['Date'].min().strftime('%Y-%m-%d')} to {calendar_df['Date'].max().strftime('%Y-%m-%d')}")
-                
-                if 'Daily Total' in calendar_df.columns:
-                    daily_income_days = (calendar_df['Daily Total'] > 0).sum()
-                    max_daily = calendar_df['Daily Total'].max()
-                    st.write(f"Financial: {daily_income_days} days with income, max: £{max_daily:.2f}")
-                
-                st.write(f"Sites: {', '.join(site_column_mapping.keys()) if site_column_mapping else 'None'}")
+                st.write(f"**Status:** {len(visits_df)} visits | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 
