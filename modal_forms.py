@@ -8,7 +8,25 @@ import pandas as pd
 from datetime import datetime, date
 from typing import Optional, Dict, Any
 from helpers import add_error, add_warning, add_info, safe_string_conversion, clean_patient_id
-from config import VALIDATION_RULES, REQUIRED_COLUMNS
+
+# Inline validation rules (not dependent on config.py)
+VALIDATION_RULES = {
+    'patient_id': {'max_length': 50, 'allow_empty': False},
+    'study_name': {'max_length': 100, 'allow_empty': False},
+    'visit_name': {'max_length': 100, 'allow_empty': False},
+    'date_range': {'min_year': 2020, 'max_years_future': 5}
+}
+
+REQUIRED_COLUMNS = {
+    'patients': {
+        'required': ['PatientID', 'Study', 'StartDate'],
+        'optional': ['Site', 'Notes']
+    },
+    'actual_visits': {
+        'required': ['PatientID', 'Study', 'VisitName', 'ActualDate'],
+        'optional': ['Notes', 'Status', 'Site']
+    }
+}
 
 # =============================================================================
 # MODAL FORM FUNCTIONS
