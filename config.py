@@ -3,6 +3,8 @@ import pandas as pd
 
 def initialize_session_state():
     """Initialize all session state variables"""
+    from helpers import init_activity_log, init_error_system
+    
     if 'show_patient_form' not in st.session_state:
         st.session_state.show_patient_form = False
     if 'show_visit_form' not in st.session_state:
