@@ -55,7 +55,9 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'patient_id': 'PatientID',
                 'study': 'Study',
                 'start_date': 'StartDate',
-                'site': 'Site'
+                'site': 'Site',
+                'patient_practice': 'PatientPractice',
+                'origin_site': 'OriginSite'
             })
             
             # Convert StartDate to datetime format for calendar processing
@@ -172,24 +174,44 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         if client is None:
             return False
         
+        # Clean the data before processing
+        trials_df_clean = trials_df.copy()
+        
+        # Clean Payment column - convert empty strings and invalid values to 0
+        if 'Payment' in trials_df_clean.columns:
+            trials_df_clean['Payment'] = trials_df_clean['Payment'].replace('', 0)
+            trials_df_clean['Payment'] = pd.to_numeric(trials_df_clean['Payment'], errors='coerce').fillna(0)
+        
+        # Clean ToleranceBefore column
+        if 'ToleranceBefore' in trials_df_clean.columns:
+            trials_df_clean['ToleranceBefore'] = trials_df_clean['ToleranceBefore'].replace('', 0)
+            trials_df_clean['ToleranceBefore'] = pd.to_numeric(trials_df_clean['ToleranceBefore'], errors='coerce').fillna(0)
+        
+        # Clean ToleranceAfter column
+        if 'ToleranceAfter' in trials_df_clean.columns:
+            trials_df_clean['ToleranceAfter'] = trials_df_clean['ToleranceAfter'].replace('', 0)
+            trials_df_clean['ToleranceAfter'] = pd.to_numeric(trials_df_clean['ToleranceAfter'], errors='coerce').fillna(0)
+        
         records = []
-        for _, row in trials_df.iterrows():
+        for _, row in trials_df_clean.iterrows():
             record = {
                 'study': str(row['Study']),
                 'day': int(row['Day']),
                 'visit_name': str(row['VisitName']),
                 'site_for_visit': str(row.get('SiteforVisit', '')),
-                'payment': float(row.get('Payment', 0)) if pd.notna(row.get('Payment')) else 0,
-                'tolerance_before': int(row.get('ToleranceBefore', 0)) if pd.notna(row.get('ToleranceBefore')) else 0,
-                'tolerance_after': int(row.get('ToleranceAfter', 0)) if pd.notna(row.get('ToleranceAfter')) else 0
+                'payment': float(row.get('Payment', 0)),
+                'tolerance_before': int(row.get('ToleranceBefore', 0)),
+                'tolerance_after': int(row.get('ToleranceAfter', 0))
             }
             records.append(record)
         
         client.table('trial_schedules').upsert(records).execute()
+        log_activity(f"Successfully saved {len(records)} trial schedules to database", level='info')
         return True
         
     except Exception as e:
         st.error(f"Error saving trial schedules to database: {e}")
+        log_activity(f"Error saving trial schedules to database: {e}", level='error')
         return False
 
 def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
