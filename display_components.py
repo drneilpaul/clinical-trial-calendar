@@ -228,14 +228,16 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
     st.subheader("Generated Visit Calendar")
 
     try:
-        # Prepare display columns
+        # Prepare display columns (avoid duplicates)
         final_ordered_columns = ["Date", "Day"]
+        seen_columns = {"Date", "Day"}
         for visit_site in unique_visit_sites:
             site_data = site_column_mapping.get(visit_site, {})
             site_columns = site_data.get('columns', [])
             for col in site_columns:
-                if col in calendar_df.columns:
+                if col in calendar_df.columns and col not in seen_columns:
                     final_ordered_columns.append(col)
+                    seen_columns.add(col)
 
         display_df = calendar_df[final_ordered_columns].copy()
         display_df_for_view = display_df.copy()

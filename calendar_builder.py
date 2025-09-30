@@ -38,7 +38,10 @@ def build_calendar_dataframe(visits_df, patients_df):
         # Get unique patient-study combinations at this visit site (exclude study events)
         if not site_visits.empty:
             # Site has visits - get patients from visits
-            for patient_study in site_visits[['PatientID', 'Study']].drop_duplicates().itertuples():
+            unique_patient_studies = site_visits[['PatientID', 'Study']].drop_duplicates()
+            log_activity(f"Processing {len(unique_patient_studies)} unique patient-study combinations for site {visit_site}", level='info')
+            
+            for patient_study in unique_patient_studies.itertuples():
                 patient_id = patient_study.PatientID
                 study = patient_study.Study
                 
@@ -63,10 +66,12 @@ def build_calendar_dataframe(visits_df, patients_df):
                     })
         else:
             # Site has no visits - get patients recruited by this site
+            log_activity(f"Site {visit_site} has no visits, checking for recruited patients", level='info')
             for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
                 if candidate in patients_df.columns:
                     recruited_patients = patients_df[patients_df[candidate] == visit_site]
                     if not recruited_patients.empty:
+                        log_activity(f"Found {len(recruited_patients)} patients recruited by {visit_site} via {candidate} column", level='info')
                         for _, patient in recruited_patients.iterrows():
                             patient_id = patient['PatientID']
                             study = patient['Study']
@@ -84,19 +89,28 @@ def build_calendar_dataframe(visits_df, patients_df):
         # Sort by study then patient ID for consistent ordering
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
         
-        # Add patient columns for this visit site
+        # Add patient columns for this visit site (avoid duplicates)
         site_columns = []
+        seen_columns = set()
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
-            ordered_columns.append(col_id)
-            site_columns.append(col_id)
-            calendar_df[col_id] = ""
+            if col_id not in seen_columns:
+                ordered_columns.append(col_id)
+                site_columns.append(col_id)
+                calendar_df[col_id] = ""
+                seen_columns.add(col_id)
+            else:
+                log_activity(f"Warning: Duplicate column {col_id} found for site {visit_site}. Skipping duplicate.", level='warning')
         
-        # Add site events column
+        # Add site events column (avoid duplicates)
         events_col = f"{visit_site}_Events"
-        ordered_columns.append(events_col)
-        site_columns.append(events_col)
-        calendar_df[events_col] = ""
+        if events_col not in seen_columns:
+            ordered_columns.append(events_col)
+            site_columns.append(events_col)
+            calendar_df[events_col] = ""
+            seen_columns.add(events_col)
+        else:
+            log_activity(f"Warning: Duplicate events column {events_col} found. Skipping duplicate.", level='warning')
         
         site_column_mapping[visit_site] = {
             'columns': site_columns,
@@ -212,5 +226,11 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     if not calendar_df.index.is_unique:
         log_activity(f"Warning: Found duplicate indices in calendar DataFrame. Resetting index...", level='warning')
         calendar_df = calendar_df.reset_index(drop=True)
+    
+    # Check for duplicate column names
+    if not calendar_df.columns.is_unique:
+        log_activity(f"Warning: Found duplicate column names in calendar DataFrame. Removing duplicates...", level='warning')
+        # Keep first occurrence of each column name
+        calendar_df = calendar_df.loc[:, ~calendar_df.columns.duplicated()]
     
     return calendar_df

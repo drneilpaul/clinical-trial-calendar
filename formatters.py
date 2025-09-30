@@ -73,10 +73,14 @@ def create_site_header_row(columns, site_column_mapping):
 
 def style_calendar_row(row, today_date):
     """Apply styling to calendar rows - updated for three-level headers"""
-    if row.name < 3:  # First three rows are headers
-        return create_enhanced_header_styles(row, row.name)
-    else:
-        return create_data_row_styles(row, today_date)
+    try:
+        if row.name < 3:  # First three rows are headers
+            return create_enhanced_header_styles(row, row.name)
+        else:
+            return create_data_row_styles(row, today_date)
+    except Exception as e:
+        # Fallback to basic styling if there are issues
+        return [''] * len(row)
 
 def create_enhanced_header_styles(row, header_level):
     """Create styles for three-level headers"""
@@ -113,7 +117,7 @@ def create_data_row_styles(row, today_date):
     date_str = row.get("Date", "")
     date_obj = None
     try:
-        if date_str:
+        if date_str and str(date_str) != "":
             date_obj = pd.to_datetime(date_str)
     except:
         pass
@@ -121,13 +125,17 @@ def create_data_row_styles(row, today_date):
     for col_name, cell_value in row.items():
         style = ""
         
-        # Apply date-based styling first
-        if date_obj is not None and not pd.isna(date_obj):
-            style = get_date_based_style(date_obj, today_date)
-        
-        # Apply visit-specific styling if no date styling
-        if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
-            style = get_visit_based_style(str(cell_value))
+        try:
+            # Apply date-based styling first
+            if date_obj is not None and not pd.isna(date_obj):
+                style = get_date_based_style(date_obj, today_date)
+            
+            # Apply visit-specific styling if no date styling
+            if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
+                style = get_visit_based_style(str(cell_value))
+        except Exception as e:
+            # If there's any error with styling, just use empty style
+            style = ""
         
         styles.append(style)
     
