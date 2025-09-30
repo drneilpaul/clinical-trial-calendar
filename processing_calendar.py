@@ -19,6 +19,25 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if actual_visits_df is not None:
         actual_visits_df.columns = [str(col).strip() for col in actual_visits_df.columns]
 
+    # Add missing columns with defaults before validation
+    # Patients: Add optional columns if missing
+    if 'Site' not in patients_df.columns:
+        patients_df['Site'] = ''
+    if 'PatientPractice' not in patients_df.columns:
+        patients_df['PatientPractice'] = ''
+    if 'OriginSite' not in patients_df.columns:
+        patients_df['OriginSite'] = ''
+    
+    # Trials: Add optional columns if missing
+    if 'SiteforVisit' not in trials_df.columns:
+        trials_df['SiteforVisit'] = 'Default Site'
+    if 'Payment' not in trials_df.columns:
+        trials_df['Payment'] = 0
+    if 'ToleranceBefore' not in trials_df.columns:
+        trials_df['ToleranceBefore'] = 0
+    if 'ToleranceAfter' not in trials_df.columns:
+        trials_df['ToleranceAfter'] = 0
+    
     # Validate required columns
     validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
     validate_required_columns(trials_df, {"Study", "Day", "VisitName"}, "Trials file")
@@ -26,6 +45,14 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     # Standardize visit columns
     trials_df = standardize_visit_columns(trials_df)
     if actual_visits_df is not None:
+        # Add missing columns with defaults before validation
+        if 'VisitType' not in actual_visits_df.columns:
+            actual_visits_df['VisitType'] = 'patient'
+        if 'Status' not in actual_visits_df.columns:
+            actual_visits_df['Status'] = 'completed'
+        if 'Notes' not in actual_visits_df.columns:
+            actual_visits_df['Notes'] = ''
+        
         validate_required_columns(actual_visits_df, {"PatientID", "Study", "VisitName", "ActualDate"}, "Actual visits file")
         actual_visits_df = standardize_visit_columns(actual_visits_df)
 
