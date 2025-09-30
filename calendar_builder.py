@@ -174,6 +174,10 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         for idx, actual in actual_visits.iterrows():
             log_activity(f"  Actual visit to place: {actual['Study']}_{actual['PatientID']} - {actual['Visit']} on {actual['Date'].strftime('%Y-%m-%d')}", level='info')
         
+        # Debug: Show available patient columns
+        patient_columns = [col for col in calendar_df.columns if '_' in col and not col.endswith('_Events') and not col.endswith('_Income')]
+        log_activity(f"  Available patient columns: {patient_columns}", level='info')
+        
     else:
         log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
     
@@ -261,6 +265,10 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                         if col.startswith(base_col_id + "_"):
                             col_id = col
                             break
+                
+                # Debug: Check if column was found for actual visits
+                if not col_id and is_actual:
+                    log_activity(f"  WARNING: Could not find column for actual visit {base_col_id}. Available columns: {[c for c in calendar_df.columns if study in c]}", level='error')
                 
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
