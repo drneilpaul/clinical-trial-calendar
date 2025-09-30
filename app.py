@@ -625,9 +625,18 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
             
-            # Minimal debug info
-            if st.session_state.get('show_debug_info', False):
-                st.write(f"**Status:** {len(visits_df)} visits | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
+            # Debug: Show visit breakdown
+            actual_visits_count = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
+            predicted_visits_count = len(visits_df[visits_df.get('IsActual', False) == False]) if 'IsActual' in visits_df.columns else len(visits_df)
+            
+            st.write(f"**Status:** {len(visits_df)} visits ({actual_visits_count} actual, {predicted_visits_count} predicted) | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
+            
+            # Debug: Show sample actual visits if any
+            if actual_visits_count > 0:
+                actual_visits_sample = visits_df[visits_df.get('IsActual', False) == True].head(3)
+                st.write(f"**Sample Actual Visits:** {len(actual_visits_sample)} shown")
+                for _, visit in actual_visits_sample.iterrows():
+                    st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {visit['Date'].strftime('%Y-%m-%d')}")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 
