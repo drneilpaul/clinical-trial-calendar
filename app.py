@@ -155,6 +155,8 @@ def setup_file_uploaders():
                                         st.success("✅ Patients table overwritten successfully!")
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_patients_confirmed = False
+                                        # Force refresh of data
+                                        st.session_state.data_refresh_needed = True
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite patients table")
@@ -195,6 +197,8 @@ def setup_file_uploaders():
                                         st.success("✅ Trials table overwritten successfully!")
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_trials_confirmed = False
+                                        # Force refresh of data
+                                        st.session_state.data_refresh_needed = True
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite trials table")
@@ -235,6 +239,8 @@ def setup_file_uploaders():
                                         st.success("✅ Visits table overwritten successfully!")
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_visits_confirmed = False
+                                        # Force refresh of data
+                                        st.session_state.data_refresh_needed = True
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite visits table")
@@ -418,25 +424,34 @@ def main():
             if st.session_state.get('database_available', False):
                 st.divider()
                 st.subheader("Database Debug")
-                if st.button("🔍 Check Database Contents"):
-                    patients_db = database.fetch_all_patients()
-                    trials_db = database.fetch_all_trial_schedules()
-                    visits_db = database.fetch_all_actual_visits()
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
-                    with col2:
-                        st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
-                    with col3:
-                        st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
-                    
-                    if patients_db is not None and not patients_db.empty:
-                        st.write("**Sample Patients from DB:**")
-                        st.dataframe(patients_db.head())
-                        st.write(f"**Total patients in DB: {len(patients_db)}**")
-                    else:
-                        st.write("**No patients found in database**")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔍 Check Database Contents"):
+                        patients_db = database.fetch_all_patients()
+                        trials_db = database.fetch_all_trial_schedules()
+                        visits_db = database.fetch_all_actual_visits()
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
+                        with col2:
+                            st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
+                        with col3:
+                            st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
+                        
+                        if patients_db is not None and not patients_db.empty:
+                            st.write("**Sample Patients from DB:**")
+                            st.dataframe(patients_db.head())
+                            st.write(f"**Total patients in DB: {len(patients_db)}**")
+                        else:
+                            st.write("**No patients found in database**")
+                
+                with col2:
+                    if st.button("🔄 Refresh App Data"):
+                        st.session_state.data_refresh_needed = True
+                        st.success("Data refresh triggered!")
+                        st.rerun()
             
             # 1. CALENDAR (moved to top)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
