@@ -374,3 +374,68 @@ def validate_database_schema(df: pd.DataFrame, required_columns: List[str]) -> t
         return False, missing, error_msg
     
     return True, [], ""
+
+# =============================================================================
+# ACTIVITY LOG SYSTEM
+# =============================================================================
+from datetime import datetime
+
+def init_activity_log():
+    """Initialize activity log in session state"""
+    if 'activity_log' not in st.session_state:
+        st.session_state.activity_log = []
+
+def log_activity(message: str, level: str = 'info', details: str = None):
+    """
+    Log activity with timestamp
+    
+    Args:
+        message: Main activity message
+        level: 'info', 'success', 'error', or 'warning'
+        details: Optional additional details
+    """
+    if 'activity_log' not in st.session_state:
+        init_activity_log()
+    
+    log_entry = {
+        'timestamp': datetime.now(),
+        'message': message,
+        'level': level,
+        'details': details
+    }
+    
+    st.session_state.activity_log.append(log_entry)
+    
+    # Keep only last 100 entries to prevent memory issues
+    if len(st.session_state.activity_log) > 100:
+        st.session_state.activity_log = st.session_state.activity_log[-100:]
+
+def display_activity_log_sidebar():
+    """Display activity log in sidebar expander"""
+    if 'activity_log' not in st.session_state or not st.session_state.activity_log:
+        return
+    
+    log_count = len(st.session_state.activity_log)
+    
+    with st.sidebar.expander(f"📋 Activity Log ({log_count})", expanded=False):
+        # Display in reverse chronological order (newest first)
+        for entry in reversed(st.session_state.activity_log[-50:]):  # Show last 50
+            timestamp_str = entry['timestamp'].strftime('%H:%M:%S')
+            level = entry['level']
+            message = entry['message']
+            
+            # Choose icon based on level
+            if level == 'success':
+                icon = '✅'
+            elif level == 'error':
+                icon = '❌'
+            elif level == 'warning':
+                icon = '⚠️'
+            else:
+                icon = 'ℹ️'
+            
+            st.text(f"{icon} {timestamp_str} - {message}")
+            
+            # Show details if present
+            if entry.get('details'):
+                st.caption(f"   {entry['details']}")
