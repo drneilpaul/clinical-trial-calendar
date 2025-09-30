@@ -116,7 +116,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date):
+def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, has_actual_visit=False):
     """Process a single scheduled (predicted) visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -134,11 +134,19 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
     
+    # Style the visit name based on whether there's an actual visit
+    if has_actual_visit:
+        # This visit has an actual visit - show as planned (grayed out)
+        visit_display = f"📅 {visit_name} (Planned)"
+    else:
+        # This visit has no actual visit - show as predicted
+        visit_display = f"📋 {visit_name} (Predicted)"
+    
     # Create main scheduled visit record
     main_record = {
         "Date": scheduled_date,
         "PatientID": patient_id,
-        "Visit": visit_name,
+        "Visit": visit_display,
         "Study": study,
         "Payment": payment,
         "SiteofVisit": site,
@@ -221,12 +229,14 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             )
             visit_records.append(visit_record)
             visit_records.extend(tolerance_records)
-        else:
-            # Process scheduled visit
-            scheduled_records, exclusions = process_scheduled_visit(
-                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date
-            )
-            visit_records.extend(scheduled_records)
-            screen_fail_exclusions += exclusions
+        
+        # ALWAYS process scheduled visit (predicted) - show what was planned
+        # This ensures we see the full visit schedule even when some visits have happened
+        scheduled_records, exclusions = process_scheduled_visit(
+            patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
+            has_actual_visit=(actual_visit_data is not None)
+        )
+        visit_records.extend(scheduled_records)
+        screen_fail_exclusions += exclusions
     
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc

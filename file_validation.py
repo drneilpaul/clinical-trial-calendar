@@ -70,9 +70,9 @@ def clean_date_value(value, expected_format='%d/%m/%Y') -> Optional[str]:
         except ValueError:
             continue
     
-    # If no format matches, try pandas parsing
+    # If no format matches, try pandas parsing with UK format preference
     try:
-        parsed_date = pd.to_datetime(value_str)
+        parsed_date = pd.to_datetime(value_str, dayfirst=True)
         return parsed_date.strftime(expected_format)
     except:
         log_activity(f"Could not parse date '{value}', using None", level='warning')

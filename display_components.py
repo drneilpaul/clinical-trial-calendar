@@ -186,8 +186,9 @@ def show_legend(actual_visits_df):
     - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
 
-    **Scheduled Visits:**
-    - VisitName (Gray background) = Scheduled/Planned Visit
+    **Predicted Visits:**
+    - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
+    - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
     - \\- (Light blue-gray, italic) = Before tolerance period
     - \\+ (Light blue-gray, italic) = After tolerance period
 
