@@ -284,9 +284,9 @@ def main():
                         record_count = len(patients_df)
                         st.toast(f"Saved {record_count} patients to database!", icon="✅")
                         log_activity(f"Saved {record_count} patients to database", level='success')
-            else:
-                st.toast("Failed to save patients", icon="❌")
-                log_activity("Failed to save patients to database", level='error')
+                    else:
+                        st.toast("Failed to save patients", icon="❌")
+                        log_activity("Failed to save patients to database", level='error')
     
             with col2:
                 if st.button("💾 Save Trials to DB"):
