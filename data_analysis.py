@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from helpers import get_financial_year
+from helpers import get_financial_year, log_activity
 
 def extract_screen_failures(actual_visits_df):
     """Extract screen failure information from actual visits"""
@@ -44,18 +44,20 @@ def prepare_financial_data(visits_df):
     return financial_df
 
 def display_processing_messages(messages):
-    """Display processing messages in a clean format"""
+    """Log processing messages to sidebar activity log instead of displaying in main UI"""
     if messages:
-        st.subheader("Processing Summary")
+        # Log all processing messages to sidebar activity log
         for message in messages:
             if message.startswith("✅"):
-                st.success(message)
+                log_activity(message, level='success')
             elif message.startswith("⚠"):
-                st.warning(message)
+                log_activity(message, level='warning')
+            elif message.startswith("🔴"):
+                log_activity(message, level='error')
             elif message.startswith("⌛"):
-                st.error(message)
+                log_activity(message, level='error')
             else:
-                st.info(message)
+                log_activity(message, level='info')
 
 def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures):
     """Display detailed statistics for each visit site with quarterly and financial year analysis"""
