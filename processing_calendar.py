@@ -163,9 +163,23 @@ def prepare_actual_visits_data(actual_visits_df):
     log_activity(f"ActualDate before conversion - sample: {actual_visits_df['ActualDate'].head().tolist()}", level='info')
     log_activity(f"ActualDate types before conversion: {actual_visits_df['ActualDate'].apply(type).value_counts().to_dict()}", level='info')
     
+    # Check if dates are already parsed (from database) or need parsing (from file upload)
     if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
         log_activity(f"Converting ActualDate to datetime with dayfirst=True", level='info')
+        # Try dayfirst=True first, but if that fails, try without dayfirst
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
+        
+        # Check if we got NaT values and try alternative parsing
+        nat_count = actual_visits_df["ActualDate"].isna().sum()
+        if nat_count > 0:
+            log_activity(f"First attempt created {nat_count} NaT values, trying alternative parsing", level='warning')
+            # Try without dayfirst for the NaT values
+            nat_mask = actual_visits_df["ActualDate"].isna()
+            actual_visits_df.loc[nat_mask, "ActualDate"] = pd.to_datetime(
+                actual_visits_df.loc[nat_mask, "ActualDate"], 
+                dayfirst=False, 
+                errors="coerce"
+            )
         
         # Debug: Check dates after conversion
         nat_count = actual_visits_df["ActualDate"].isna().sum()
@@ -178,6 +192,8 @@ def prepare_actual_visits_data(actual_visits_df):
             # Show the original values that failed
             original_failed = actual_visits_df.loc[failed_dates.index, 'ActualDate']
             log_activity(f"Original values that failed: {original_failed.head().tolist()}", level='warning')
+    else:
+        log_activity(f"ActualDate already parsed as datetime - {len(actual_visits_df)} records", level='info')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""

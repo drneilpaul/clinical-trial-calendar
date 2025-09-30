@@ -131,13 +131,20 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
             log_activity(f"After column renaming: {df.columns.tolist()}", level='info')
             log_activity(f"ActualDate sample values: {df['ActualDate'].head().tolist()}", level='info')
             
-            # Debug: Check for NaT values after renaming
-            nat_count = df['ActualDate'].isna().sum()
-            if nat_count > 0:
-                log_activity(f"⚠️ Found {nat_count} NaT values in ActualDate after column renaming", level='warning')
-                nat_samples = df[df['ActualDate'].isna()].head(3)
-                for _, row in nat_samples.iterrows():
-                    log_activity(f"  NaT sample: {row['PatientID']} | {row['Study']} | {row['VisitName']} | {row['ActualDate']}", level='warning')
+            # ADD THIS: Parse ActualDate to datetime objects
+            if 'ActualDate' in df.columns:
+                log_activity(f"Converting ActualDate from strings to datetime objects", level='info')
+                df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
+                
+                # Log any parsing failures
+                nat_count = df['ActualDate'].isna().sum()
+                if nat_count > 0:
+                    log_activity(f"⚠️ {nat_count} dates failed to parse in actual_visits", level='warning')
+                    nat_samples = df[df['ActualDate'].isna()].head(3)
+                    for _, row in nat_samples.iterrows():
+                        log_activity(f"  Failed to parse: {row['PatientID']} | {row['Study']} | {row['VisitName']} | {row['ActualDate']}", level='warning')
+                else:
+                    log_activity(f"✅ All {len(df)} dates parsed successfully", level='info')
             
             return df
         # Return empty DataFrame with proper column structure
@@ -341,8 +348,8 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
             df['Notes'] = ''
         
         # Format dates as DD/MM/YYYY
-        if 'ActualDate' in df.columns:
-            df['ActualDate'] = pd.to_datetime(df['ActualDate']).dt.strftime('%d/%m/%Y')
+            if 'ActualDate' in df.columns:
+                df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
         
         # Select and order columns to match upload format
         export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes']
