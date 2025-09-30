@@ -12,12 +12,10 @@ def get_supabase_client() -> Optional[Client]:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
         
-        # Updated for supabase-py v2.x - no proxy parameter
-        client = create_client(url, key)
-        return client
-    except KeyError as e:
-        st.session_state.database_status = f"Missing configuration: {e}"
-        return None
+        # Use the correct initialization for supabase-py v2.x
+        from supabase import create_client, Client
+        return create_client(url, key)
+        
     except Exception as e:
         st.session_state.database_status = f"Connection failed: {str(e)}"
         return None
