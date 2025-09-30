@@ -175,9 +175,22 @@ def main():
         else:
             # EXISTING FILE PROCESSING CODE
             try:
-                init_error_system()
+                init_error_system()  # Initialize error logging
                 patients_df = normalize_columns(load_file(patients_file))
-        
+                trials_df = normalize_columns(load_file(trials_file))
+                actual_visits_df = None
+                if actual_visits_file:
+                    actual_visits_df = normalize_columns(load_file_with_defaults(
+                        actual_visits_file,
+                        {'VisitType': 'patient', 'Status': 'completed'}
+                    ))
+
+                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                    patients_df, trials_df, actual_visits_df
+                )
+            except Exception as e:
+                st.error(f"Error processing files: {str(e)}")
+                st.stop()
         
         handle_patient_modal()
         handle_visit_modal()
@@ -185,19 +198,6 @@ def main():
         show_download_sections()
 
         try:
-            init_error_system()  # Initialize error logging
-            patients_df = normalize_columns(load_file(patients_file))
-            trials_df = normalize_columns(load_file(trials_file))
-            actual_visits_df = None
-            if actual_visits_file:
-                actual_visits_df = normalize_columns(load_file_with_defaults(
-                    actual_visits_file,
-                    {'VisitType': 'patient', 'Status': 'completed'}
-                ))
-
-            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                patients_df, trials_df, actual_visits_df
-            )
 
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
@@ -331,3 +331,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
