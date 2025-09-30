@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 from helpers import (
     load_file, normalize_columns, parse_dates_column, 
     standardize_visit_columns, safe_string_conversion_series, 
     load_file_with_defaults, init_error_system, display_error_log_section,
-    log_activity, display_activity_log_sidebar  # ADD THESE
+    log_activity, display_activity_log_sidebar
 )
 import database  # NEW - Supabase integration
 from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
-    display_verification_figures
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
@@ -26,6 +24,7 @@ def extract_site_summary(patients_df, screen_failures=None):
     """Extract site summary statistics from patients dataframe with robust site detection"""
     if patients_df.empty:
         return pd.DataFrame()
+
     df = patients_df.copy()
     site_col = None
     for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
@@ -35,11 +34,14 @@ def extract_site_summary(patients_df, screen_failures=None):
     if site_col is None:
         df['__Site'] = 'Unknown Site'
         site_col = '__Site'
+
     df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
+
     site_summary = df.groupby(site_col).agg({
         'PatientID': 'count',
         'Study': lambda x: ', '.join(sorted(map(str, x.unique())))
     }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
+
     site_summary = site_summary.reset_index()
     site_summary = site_summary.rename(columns={site_col: 'Site'})
     return site_summary
@@ -49,10 +51,12 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
     patients_df, failed_patients = parse_dates_column(patients_df, "StartDate")
     if failed_patients:
         st.error(f"Unparseable StartDate values: {failed_patients}")
+
     if actual_visits_df is not None:
         actual_visits_df, failed_actuals = parse_dates_column(actual_visits_df, "ActualDate")
         if failed_actuals:
             st.error(f"Unparseable ActualDate values: {failed_actuals}")
+
     patients_df["PatientID"] = safe_string_conversion_series(patients_df["PatientID"])
     patients_df["Study"] = safe_string_conversion_series(patients_df["Study"])
     
@@ -63,10 +67,12 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
         actual_visits_df = standardize_visit_columns(actual_visits_df)
         actual_visits_df["PatientID"] = safe_string_conversion_series(actual_visits_df["PatientID"])
         actual_visits_df["Study"] = safe_string_conversion_series(actual_visits_df["Study"])
+
     missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
     if missing_studies:
         st.error(f"Missing Study Definitions: {missing_studies}")
         st.stop()
+
     for study in patients_df["Study"].unique():
         study_visits = trials_df[trials_df["Study"] == study]
         day_1_visits = study_visits[study_visits["Day"] == 1]
@@ -78,54 +84,28 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
             visit_names = day_1_visits["VisitName"].tolist()
             st.error(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
             st.stop()
+
     return patients_df, trials_df, actual_visits_df
 
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
-    st.sidebar.header("Upload Data Files")
+    # TEMPORARY - Remove this after testing
+    if st.sidebar.button("🧪 Test DB Connection"):
+        if database.test_database_connection():
+            st.sidebar.success("✅ Database connected and tables found")
+        else:
+            st.sidebar.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+    # END TEMPORARY
+
     
-    # Database toggle and backup section
+    st.sidebar.header("Data Source")
+    
+    # NEW - Database toggle
     if st.session_state.get('database_available', False):
         st.sidebar.success("Database Connected")
-        
-        # Database backup section
-        st.sidebar.subheader("Database Backup")
-        if st.sidebar.button("Download Complete Database Backup (ZIP)", use_container_width=True):
-            with st.spinner("Creating backup..."):
-                backup_zip = database.create_backup_zip()
-                if backup_zip:
-                    today = datetime.now().strftime('%Y-%m-%d')
-                    
-                    # Count records for logging
-                    patients_df = database.fetch_all_patients()
-                    trials_df = database.fetch_all_trial_schedules()
-                    visits_df = database.fetch_all_actual_visits()
-                    total_records = len(patients_df) + len(trials_df) + len(visits_df)
-                    
-                    st.sidebar.download_button(
-                        label="Download ZIP File",
-                        data=backup_zip,
-                        file_name=f"clinical_trial_backup_{today}.zip",
-                        mime="application/zip",
-                        use_container_width=True
-                    )
-                    
-                    st.toast("Backup created successfully!", icon="✅")
-                    log_activity(
-                        f"Created database backup",
-                        level='success',
-                        details=f"3 tables, {total_records} total records"
-                    )
-                else:
-                    st.toast("Failed to create backup", icon="❌")
-                    log_activity("Backup creation failed", level='error')
-        
-        st.sidebar.divider()
-        
-        # Database load toggle
         use_database = st.sidebar.checkbox(
             "Load from Database", 
-            value=False,
+            value=True,  # Default to True when database is available
             help="Load existing data from database instead of files"
         )
         st.session_state.use_database = use_database
@@ -136,9 +116,21 @@ def setup_file_uploaders():
     
     st.sidebar.divider()
     
-    trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-    patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-    actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+    # File uploaders - show expanded if database not available, collapsed if database available
+    if st.session_state.get('database_available', False):
+        with st.sidebar.expander("📁 File Upload Options", expanded=False):
+            st.caption("Use these if you want to upload new files instead of using database")
+            
+            trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+            patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+            actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+    else:
+        # Database not available - show file uploaders directly
+        st.sidebar.caption("Upload your data files to get started")
+        
+        trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+        patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+        actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
     
     # Log file uploads
     if trials_file and 'last_trials_file' not in st.session_state:
@@ -187,62 +179,41 @@ def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
     st.title(APP_TITLE)
     st.caption(f"{APP_VERSION} | {APP_SUBTITLE}")
+
     initialize_session_state()
-    
     # NEW - Check database availability
     if 'database_available' not in st.session_state:
         st.session_state.database_available = database.test_database_connection()
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
+
+    # Show action buttons if we have either database mode OR file uploads
+    use_database = st.session_state.get('use_database', False)
+    has_files = patients_file and trials_file
     
-    # Check if we can proceed - either with files OR with database
-    can_proceed = (patients_file and trials_file) or st.session_state.get('use_database', False)
+    # Debug info (temporary)
+    st.sidebar.caption(f"Debug: use_database={use_database}, has_files={has_files}")
     
-    if can_proceed:
-        # Only show action buttons if files are uploaded (needed for adding patients/visits)
-        if patients_file and trials_file:
-            display_action_buttons()
-        
-        # Load data - either from database or files
+    if use_database or has_files:
+        display_action_buttons()
+
+        # NEW - Option to load from database instead
         if st.session_state.get('use_database', False):
-            st.info("Loading data from database...")
-            try:
-                patients_df = database.fetch_all_patients()
-                trials_df = database.fetch_all_trial_schedules()
-                actual_visits_df = database.fetch_all_actual_visits()
-                
-                if patients_df is None or trials_df is None:
-                    st.toast("Failed to load from database", icon="❌")
-                    log_activity("Database load failed - check connection and table structure", level='error')
-                    st.error("Failed to load from database. Check your database connection and table structure.")
-                    st.stop()
-                
-                if patients_df.empty or trials_df.empty:
-                    st.warning("Database tables are empty. Please upload files and save to database first.")
-                    st.session_state.use_database = False
-                    st.stop()
-                
-                st.toast(f"Loaded from database: {len(patients_df)} patients, {len(trials_df)} trials", icon="✅")
-                log_activity(
-                    "Loaded data from database",
-                    level='success',
-                    details=f"{len(patients_df)} patients, {len(trials_df)} trials, {len(actual_visits_df) if actual_visits_df is not None else 0} visits"
-                )
-                
-                # Process the database data
-                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                    patients_df, trials_df, actual_visits_df
-                )
-                
-            except Exception as e:
-                st.error(f"Error loading from database: {str(e)}")
-                st.exception(e)
+            log_activity("Loading data from database...", level='info')
+            patients_df = database.fetch_all_patients()
+            trials_df = database.fetch_all_trial_schedules()
+            actual_visits_df = database.fetch_all_actual_visits()
+            
+            if patients_df is None or trials_df is None:
+                st.error("Failed to load from database. Please upload files instead.")
+                st.session_state.use_database = False
                 st.stop()
-                
+            
+            # Skip file processing, go straight to calendar generation
         else:
-            # Load from uploaded files
+            # EXISTING FILE PROCESSING CODE
             try:
-                init_error_system()
+                init_error_system()  # Initialize error logging
                 patients_df = normalize_columns(load_file(patients_file))
                 trials_df = normalize_columns(load_file(trials_file))
                 actual_visits_df = None
@@ -251,6 +222,7 @@ def main():
                         actual_visits_file,
                         {'VisitType': 'patient', 'Status': 'completed'}
                     ))
+
                 patients_df, trials_df, actual_visits_df = process_dates_and_validation(
                     patients_df, trials_df, actual_visits_df
                 )
@@ -258,83 +230,79 @@ def main():
                 st.error(f"Error processing files: {str(e)}")
                 st.stop()
         
-        # Process modals and generate calendar
         handle_patient_modal()
         handle_visit_modal()
         handle_study_event_modal()
         show_download_sections()
-        
+
         try:
+
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
             screen_failures = extract_screen_failures(actual_visits_df)
+
             display_processing_messages(messages)
-            
-            # Offer to save to database
+
+            # NEW - Offer to save to database
             if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
                 st.divider()
                 st.subheader("Save to Database")
                 col1, col2, col3 = st.columns(3)
-
+                
                 with col1:
                     if st.button("💾 Save Patients to DB"):
                         if database.save_patients_to_database(patients_df):
-                            record_count = len(patients_df)
-                            st.toast(f"Saved {record_count} patients to database!", icon="✅")
-                            log_activity(f"Saved {record_count} patients to database", level='success')
+                            log_activity("Patients saved to database!", level='success')
                         else:
-                            st.toast("Failed to save patients", icon="❌")
                             log_activity("Failed to save patients to database", level='error')
-
+                
                 with col2:
                     if st.button("💾 Save Trials to DB"):
                         if database.save_trial_schedules_to_database(trials_df):
-                            record_count = len(trials_df)
-                            st.toast(f"Saved {record_count} trial schedules to database!", icon="✅")
-                            log_activity(f"Saved {record_count} trial schedules to database", level='success')
+                            log_activity("Trial schedules saved!", level='success')
                         else:
-                            st.toast("Failed to save trials", icon="❌")
                             log_activity("Failed to save trial schedules to database", level='error')
-
+                
                 with col3:
-                   if actual_visits_df is not None and not actual_visits_df.empty:
+                    if actual_visits_df is not None and not actual_visits_df.empty:
                         if st.button("💾 Save Visits to DB"):
                             if database.save_actual_visits_to_database(actual_visits_df):
-                                record_count = len(actual_visits_df)
-                                st.toast(f"Saved {record_count} actual visits to database!", icon="✅")
-                                log_activity(f"Saved {record_count} actual visits to database", level='success')
+                                log_activity("Actual visits saved!", level='success')
                             else:
-                                st.toast("Failed to save visits", icon="❌")
                                 log_activity("Failed to save actual visits to database", level='error')
-
             
+            # 1. CALENDAR (moved to top)
+            display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
+            
+            # 2. LEGEND (right after calendar)
+            show_legend(actual_visits_df)
+            
+            # 3. SITE SUMMARY (after legend)
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
-            
-            show_legend(actual_visits_df)
-            display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
             
             display_monthly_income_tables(visits_df)
             
             financial_df = prepare_financial_data(visits_df)
             if not financial_df.empty:
                 display_quarterly_profit_sharing_tables(financial_df, patients_df)
-            
+
             display_income_realization_analysis(visits_df, trials_df, patients_df)
+
             display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
+
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
-            display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
-            
+
             # Show error log if any issues occurred
             display_error_log_section()
-            
+
         except Exception as e:
             st.error(f"Error processing files: {e}")
             st.exception(e)
-    
+
     else:
         st.info("Please upload both Patients and Trials files to get started.")
         
