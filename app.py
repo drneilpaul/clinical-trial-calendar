@@ -1,354 +1,248 @@
 import streamlit as st
 import pandas as pd
-from typing import Optional, Dict, Any, Tuple
-import logging
-from datetime import datetime
-
-# Import our modules with error handling
-try:
-    from processing_calendar import build_calendar, validate_calendar_data
-    from helpers import (
-        load_file_safe, display_messages_section, clear_messages, 
-        has_critical_errors, add_error, add_warning, add_info,
-        init_error_system, safe_string_conversion
-    )
-    from modal_forms import show_manual_entry_modal
-    from config import get_file_structure_info
-except ImportError as e:
-    st.error(f"Failed to import required modules: {e}")
-    st.stop()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Page configuration
-st.set_page_config(
-    page_title="Clinical Trial Calendar Generator",
-    page_icon="📅",
-    layout="wide",
-    initial_sidebar_state="expanded"
+from helpers import load_file, normalize_columns, parse_dates_column, standardize_visit_columns, safe_string_conversion_series, load_file_with_defaults
+from processing_calendar import build_calendar
+from display_components import (
+    show_legend, display_calendar, display_site_statistics,
+    display_download_buttons, display_monthly_income_tables,
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
+    display_verification_figures
 )
+from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
+from data_analysis import (
+    extract_screen_failures, display_site_wise_statistics, display_processing_messages
+)
+from calculations import prepare_financial_data
+from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
-def init_session_state():
-    """Initialize session state with proper error handling system"""
-    try:
-        init_error_system()
-        
-        # File upload state
-        if 'patients_file' not in st.session_state:
-            st.session_state.patients_file = None
-        if 'trials_file' not in st.session_state:
-            st.session_state.trials_file = None
-        if 'actual_visits_file' not in st.session_state:
-            st.session_state.actual_visits_file = None
-        
-        # Processing state
-        if 'calendar_generated' not in st.session_state:
-            st.session_state.calendar_generated = False
-        if 'last_result' not in st.session_state:
-            st.session_state.last_result = None
-        if 'data_validated' not in st.session_state:
-            st.session_state.data_validated = False
-            
-    except Exception as e:
-        st.error(f"Failed to initialize session state: {e}")
-        logger.error(f"Session state initialization failed: {e}")
+def extract_site_summary(patients_df, screen_failures=None):
+    """Extract site summary statistics from patients dataframe with robust site detection"""
+    if patients_df.empty:
+        return pd.DataFrame()
 
-def validate_uploaded_file(uploaded_file, file_type: str, required_columns: list) -> Tuple[bool, Optional[pd.DataFrame]]:
-    """
-    Validate uploaded file and return success status and DataFrame
-    
-    Args:
-        uploaded_file: Streamlit uploaded file object
-        file_type: Description of file type for error messages
-        required_columns: List of required column names
-        
-    Returns:
-        Tuple of (success: bool, dataframe: Optional[pd.DataFrame])
-    """
-    if uploaded_file is None:
-        add_error(f"{file_type} file is required")
-        return False, None
-    
-    try:
-        # Load file with error handling
-        df = load_file_safe(uploaded_file)
-        if df is None:
-            add_error(f"Failed to load {file_type} file")
-            return False, None
-            
-        if df.empty:
-            add_error(f"{file_type} file is empty")
-            return False, None
-        
-        # Check required columns
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            add_error(f"{file_type} file missing required columns: {', '.join(missing_columns)}")
-            add_info(f"Available columns: {', '.join(df.columns.tolist())}")
-            return False, None
-        
-        # Log successful validation
-        add_info(f"{file_type} file validated successfully ({len(df)} rows)")
-        return True, df
-        
-    except Exception as e:
-        add_error(f"Error validating {file_type} file: {str(e)}")
-        logger.error(f"File validation error for {file_type}: {e}")
-        return False, None
+    df = patients_df.copy()
+    site_col = None
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in df.columns:
+            site_col = candidate
+            break
+    if site_col is None:
+        df['__Site'] = 'Unknown Site'
+        site_col = '__Site'
 
-def setup_file_uploaders() -> Dict[str, Any]:
-    """
-    Setup file uploaders with comprehensive validation
-    
-    Returns:
-        Dictionary with validation results and DataFrames
-    """
-    st.sidebar.header("📁 Upload Files")
-    
-    # Clear previous validation state when new files uploaded
-    if st.sidebar.button("🔄 Clear All Files"):
-        for key in ['patients_file', 'trials_file', 'actual_visits_file']:
-            if key in st.session_state:
-                st.session_state[key] = None
-        st.session_state.data_validated = False
-        clear_messages()
-        st.rerun()
-    
-    result = {
-        'files_valid': False,
-        'patients_df': None,
-        'trials_df': None, 
-        'actual_visits_df': None
-    }
-    
-    # Patients file uploader
-    patients_file = st.sidebar.file_uploader(
-        "Upload Patients File",
-        type=['csv', 'xlsx'],
-        help="Required columns: PatientID, Study, StartDate",
-        key="patients_uploader"
-    )
-    
-    # Trials file uploader
-    trials_file = st.sidebar.file_uploader(
-        "Upload Trials File", 
-        type=['csv', 'xlsx'],
-        help="Required columns: Study, Day, VisitName",
-        key="trials_uploader"
-    )
-    
-    # Actual visits file uploader (optional)
-    actual_visits_file = st.sidebar.file_uploader(
-        "Upload Actual Visits File (Optional)",
-        type=['csv', 'xlsx'],
-        help="Required columns: PatientID, Study, VisitName, ActualDate",
-        key="actual_visits_uploader"
-    )
-    
-    # Validate required files
-    patients_valid, patients_df = validate_uploaded_file(
-        patients_file, "Patients", ['PatientID', 'Study', 'StartDate']
-    )
-    
-    trials_valid, trials_df = validate_uploaded_file(
-        trials_file, "Trials", ['Study', 'Day', 'VisitName']
-    )
-    
-    # Validate optional actual visits file
-    actual_visits_df = None
-    if actual_visits_file is not None:
-        actual_visits_valid, actual_visits_df = validate_uploaded_file(
-            actual_visits_file, "Actual Visits", ['PatientID', 'Study', 'VisitName', 'ActualDate']
-        )
-        if not actual_visits_valid:
-            add_warning("Actual visits file has validation issues - proceeding without it")
-            actual_visits_df = None
-    
-    # Update result
-    result.update({
-        'files_valid': patients_valid and trials_valid,
-        'patients_df': patients_df,
-        'trials_df': trials_df,
-        'actual_visits_df': actual_visits_df
-    })
-    
-    return result
+    df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
 
-def process_calendar_with_error_collection(patients_df: pd.DataFrame, 
-                                         trials_df: pd.DataFrame, 
-                                         actual_visits_df: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
-    """
-    Process calendar generation with comprehensive error collection
-    
-    Args:
-        patients_df: Validated patients DataFrame
-        trials_df: Validated trials DataFrame  
-        actual_visits_df: Optional actual visits DataFrame
-        
-    Returns:
-        Generated calendar DataFrame or None if critical errors occurred
-    """
-    try:
-        add_info("Starting calendar generation...")
-        
-        # Pre-processing validation
-        if not validate_calendar_data(patients_df, trials_df):
-            add_error("Data validation failed - cannot proceed with calendar generation")
-            return None
-        
-        # Generate calendar with error handling
-        calendar_result = build_calendar(
-            patients_df=patients_df,
-            trials_df=trials_df,
-            actual_visits_df=actual_visits_df
-        )
-        
-        if calendar_result is None:
-            add_error("Calendar generation failed - check error messages above")
-            return None
-            
-        if calendar_result.empty:
-            add_warning("Calendar generation produced empty result")
-            return None
-            
-        add_info(f"Calendar generated successfully with {len(calendar_result)} visit records")
-        return calendar_result
-        
-    except Exception as e:
-        add_error(f"Unexpected error during calendar generation: {str(e)}")
-        logger.error(f"Calendar processing error: {e}")
-        return None
+    site_summary = df.groupby(site_col).agg({
+        'PatientID': 'count',
+        'Study': lambda x: ', '.join(sorted(map(str, x.unique())))
+    }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
 
-def display_calendar_results(calendar_df: pd.DataFrame):
-    """
-    Display calendar results with interactive features
+    site_summary = site_summary.reset_index()
+    site_summary = site_summary.rename(columns={site_col: 'Site'})
+    return site_summary
+
+def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
+    """Handle date parsing and basic validation"""
+    patients_df, failed_patients = parse_dates_column(patients_df, "StartDate")
+    if failed_patients:
+        st.error(f"Unparseable StartDate values: {failed_patients}")
+
+    if actual_visits_df is not None:
+        actual_visits_df, failed_actuals = parse_dates_column(actual_visits_df, "ActualDate")
+        if failed_actuals:
+            st.error(f"Unparseable ActualDate values: {failed_actuals}")
+
+    patients_df["PatientID"] = safe_string_conversion_series(patients_df["PatientID"])
+    patients_df["Study"] = safe_string_conversion_series(patients_df["Study"])
     
-    Args:
-        calendar_df: Generated calendar DataFrame
-    """
-    try:
-        st.header("📅 Generated Calendar")
+    trials_df = standardize_visit_columns(trials_df)
+    trials_df["Study"] = safe_string_conversion_series(trials_df["Study"])
+    
+    if actual_visits_df is not None:
+        actual_visits_df = standardize_visit_columns(actual_visits_df)
+        actual_visits_df["PatientID"] = safe_string_conversion_series(actual_visits_df["PatientID"])
+        actual_visits_df["Study"] = safe_string_conversion_series(actual_visits_df["Study"])
+
+    missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
+    if missing_studies:
+        st.error(f"Missing Study Definitions: {missing_studies}")
+        st.stop()
+
+    for study in patients_df["Study"].unique():
+        study_visits = trials_df[trials_df["Study"] == study]
+        day_1_visits = study_visits[study_visits["Day"] == 1]
         
-        # Summary statistics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Visits", len(calendar_df))
-        
-        with col2:
-            unique_patients = calendar_df['PatientID'].nunique() if 'PatientID' in calendar_df.columns else 0
-            st.metric("Patients", unique_patients)
-        
-        with col3:
-            unique_studies = calendar_df['Study'].nunique() if 'Study' in calendar_df.columns else 0
-            st.metric("Studies", unique_studies)
-            
-        with col4:
-            # Count overdue visits if ActualDate column exists
-            if 'ActualDate' in calendar_df.columns and 'PlannedDate' in calendar_df.columns:
-                today = datetime.now().date()
-                overdue = len(calendar_df[
-                    (calendar_df['ActualDate'].isna()) & 
-                    (pd.to_datetime(calendar_df['PlannedDate']).dt.date < today)
-                ])
-                st.metric("Overdue Visits", overdue)
-        
-        # Display options
-        st.subheader("Display Options")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            show_all = st.checkbox("Show all visits", value=True)
-            if not show_all:
-                max_rows = st.number_input("Max rows to display", min_value=10, max_value=1000, value=100)
-                calendar_display = calendar_df.head(max_rows)
+        if len(day_1_visits) == 0:
+            st.error(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+            st.stop()
+        elif len(day_1_visits) > 1:
+            visit_names = day_1_visits["VisitName"].tolist()
+            st.error(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
+            st.stop()
+
+    return patients_df, trials_df, actual_visits_df
+
+def setup_file_uploaders():
+    """Setup file uploaders and store in session state"""
+    st.sidebar.header("Upload Data Files")
+    trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+    patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+    actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+    
+    st.session_state.patients_file = patients_file
+    st.session_state.trials_file = trials_file
+    st.session_state.actual_visits_file = actual_visits_file
+    
+    return patients_file, trials_file, actual_visits_file
+
+def display_action_buttons():
+    """Enhanced action buttons with study events"""
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        if st.button("Add New Patient", use_container_width=True):
+            st.session_state.show_patient_form = True
+    
+    with col2:
+        if st.button("Record Patient Visit", use_container_width=True):
+            actual_visits_file = st.session_state.get('actual_visits_file')
+            if actual_visits_file:
+                st.session_state.show_visit_form = True
             else:
-                calendar_display = calendar_df
-                
-        with col2:
-            if st.button("📥 Download Calendar CSV"):
-                csv = calendar_display.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV file",
-                    data=csv,
-                    file_name=f"clinical_trial_calendar_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime='text/csv'
-                )
-        
-        # Display the calendar
-        st.dataframe(
-            calendar_display,
-            use_container_width=True,
-            height=400
-        )
-        
-    except Exception as e:
-        add_error(f"Error displaying calendar results: {str(e)}")
-        logger.error(f"Display error: {e}")
+                st.error("Please upload an Actual Visits file before recording visits")
+    
+    with col3:
+        if st.button("Manage Study Events", use_container_width=True):
+            st.session_state.show_study_event_form = True
 
 def main():
-    """Main application function with comprehensive error handling"""
-    try:
-        # Initialize session state
-        init_session_state()
+    st.set_page_config(page_title=APP_TITLE, layout="wide")
+    st.title(APP_TITLE)
+    st.caption(f"{APP_VERSION} | {APP_SUBTITLE}")
+
+    initialize_session_state()
+    patients_file, trials_file, actual_visits_file = setup_file_uploaders()
+
+    if patients_file and trials_file:
+        display_action_buttons()
         
-        # App header
-        st.title("🏥 Clinical Trial Calendar Generator")
-        st.markdown("Generate comprehensive visit calendars for clinical trials with advanced error handling")
-        
-        # Setup file uploads and validation
-        upload_result = setup_file_uploaders()
-        
-        # Always show processing messages section
-        st.header("📊 Processing Messages")
-        display_messages_section()
-        
-        # Process files if valid
-        if upload_result['files_valid']:
-            st.success("✅ All required files validated successfully")
+        handle_patient_modal()
+        handle_visit_modal()
+        handle_study_event_modal()
+        show_download_sections()
+
+        try:
+            patients_df = normalize_columns(load_file(patients_file))
+            trials_df = normalize_columns(load_file(trials_file))
+            actual_visits_df = None
+            if actual_visits_file:
+                actual_visits_df = normalize_columns(load_file_with_defaults(
+                    actual_visits_file,
+                    {'VisitType': 'patient', 'Status': 'completed'}
+                ))
+
+            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                patients_df, trials_df, actual_visits_df
+            )
+
+            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
+                patients_df, trials_df, actual_visits_df
+            )
             
-            # Show process button
-            if st.button("🚀 Generate Calendar", type="primary"):
-                clear_messages()  # Clear previous messages
-                
-                # Process with error collection
-                calendar_result = process_calendar_with_error_collection(
-                    upload_result['patients_df'],
-                    upload_result['trials_df'], 
-                    upload_result['actual_visits_df']
-                )
-                
-                # Store result in session state
-                st.session_state.last_result = calendar_result
-                st.session_state.calendar_generated = True
-                
-                # Refresh to show new messages
-                st.rerun()
-        
-        # Display results if available
-        if st.session_state.get('calendar_generated') and st.session_state.get('last_result') is not None:
-            if not has_critical_errors():
-                display_calendar_results(st.session_state.last_result)
-            else:
-                st.warning("⚠️ Calendar generated with errors - please review messages above")
-                if st.checkbox("Show calendar despite errors"):
-                    display_calendar_results(st.session_state.last_result)
-        
-        # Show manual entry option
-        st.sidebar.markdown("---")
-        if st.sidebar.button("✏️ Manual Entry"):
-            show_manual_entry_modal()
-        
-        # Show file structure help
-        with st.expander("📋 File Structure Requirements"):
-            st.markdown(get_file_structure_info())
+            screen_failures = extract_screen_failures(actual_visits_df)
+
+            display_processing_messages(messages)
+
+            site_summary_df = extract_site_summary(patients_df, screen_failures)
+            if not site_summary_df.empty:
+                display_site_statistics(site_summary_df)
+
+            show_legend(actual_visits_df)
+            display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
             
-    except Exception as e:
-        st.error(f"Critical application error: {str(e)}")
-        logger.critical(f"Main application error: {e}")
-        st.stop()
+            display_monthly_income_tables(visits_df)
+            
+            financial_df = prepare_financial_data(visits_df)
+            if not financial_df.empty:
+                display_quarterly_profit_sharing_tables(financial_df, patients_df)
+
+            display_income_realization_analysis(visits_df, trials_df, patients_df)
+
+            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
+
+            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
+            
+            display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
+
+        except Exception as e:
+            st.error(f"Error processing files: {e}")
+            st.exception(e)
+
+    else:
+        st.info("Please upload both Patients and Trials files to get started.")
+        
+        st.subheader("Required File Structure")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            **Patients File**
+            
+            Required columns:
+            - **PatientID** - Unique patient identifier
+            - **Study** - Study name/code
+            - **StartDate** - Patient enrollment date (DD/MM/YYYY)
+            
+            Optional columns:
+            - **Site** / **PatientPractice** - Patient's home practice
+            - **PatientSite** / **OriginSite** - Alternative site columns
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Trials File**
+            
+            Required columns:
+            - **Study** - Study name/code (must match Patients file)
+            - **Day** - Visit day number (Day 1 = baseline)
+            - **VisitName** - Visit identifier
+            - **SiteforVisit** - Where visit takes place
+            
+            Optional columns:
+            - **Payment** / **Income** - Visit payment amount
+            - **ToleranceBefore** - Days before visit allowed
+            - **ToleranceAfter** - Days after visit allowed
+            - **VisitType** - patient/siv/monitor for study events
+            """)
+        
+        with col3:
+            st.markdown("""
+            **Actual Visits File** *(Optional)*
+            
+            Required columns:
+            - **PatientID** - Must match Patients file
+            - **Study** - Must match Study files
+            - **VisitName** - Must match Trials file
+            - **ActualDate** - When visit actually occurred
+            
+            Optional columns:
+            - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
+            - **VisitType** - patient/siv/monitor (defaults to patient)
+            - **Status** - completed/proposed/cancelled (defaults to completed)
+            """)
+        
+        st.markdown("---")
+        
+        st.markdown("""
+        **Tips:**
+        - Use CSV or Excel (.xlsx) files
+        - Dates should be in UK format: DD/MM/YYYY (e.g., 31/12/2024)
+        - PatientID, Study, and VisitName columns must match exactly between files
+        - Each study must have exactly one Day 1 visit (baseline reference point)
+        - Use 'ScreenFail' in the Notes column to automatically exclude future visits
+        - For study events (SIV/Monitor): use empty Day field in Trials file, manage via Actual Visits
+        """)
 
 if __name__ == "__main__":
     main()

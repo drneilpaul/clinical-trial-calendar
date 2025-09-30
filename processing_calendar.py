@@ -1,455 +1,311 @@
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple
-import logging
-from helpers import (
-    add_error, add_warning, add_info, safe_string_conversion,
-    parse_dates_column, calculate_financial_year, clean_patient_id,
-    validate_required_columns
-)
+import streamlit as st
+from datetime import timedelta
+from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
+                    get_financial_year_start_year, is_financial_year_end)
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Import from our new modules
+from visit_processor import process_study_events, detect_screen_failures
+from patient_processor import process_single_patient
+from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
 
-# =============================================================================
-# DATA VALIDATION FUNCTIONS
-# =============================================================================
-
-def validate_calendar_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -> bool:
-    """
-    Comprehensive validation of input data for calendar generation
+def build_calendar(patients_df, trials_df, actual_visits_df=None):
+    """Enhanced calendar builder with study events support - Main orchestrator function"""
     
-    Args:
-        patients_df: Patients DataFrame
-        trials_df: Trials DataFrame
-        
-    Returns:
-        True if validation passes, False otherwise
-    """
-    validation_passed = True
+    # Clean columns
+    patients_df.columns = patients_df.columns.str.strip()
+    trials_df.columns = trials_df.columns.str.strip()
+    if actual_visits_df is not None:
+        actual_visits_df.columns = actual_visits_df.columns.str.strip()
+
+    # Validate required columns
+    validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
+    validate_required_columns(trials_df, {"Study", "Day", "VisitName"}, "Trials file")
+
+    # Standardize visit columns
+    trials_df = standardize_visit_columns(trials_df)
+    if actual_visits_df is not None:
+        validate_required_columns(actual_visits_df, {"PatientID", "Study", "VisitName", "ActualDate"}, "Actual visits file")
+        actual_visits_df = standardize_visit_columns(actual_visits_df)
+
+    # Check for SiteforVisit column
+    if "SiteforVisit" not in trials_df.columns:
+        trials_df["SiteforVisit"] = "Default Site"
+
+    # Prepare actual visits data
+    unmatched_visits = []
+    screen_failures = {}
+    
+    if actual_visits_df is not None:
+        actual_visits_df = prepare_actual_visits_data(actual_visits_df)
+        screen_failures, screen_fail_unmatched = detect_screen_failures(actual_visits_df, trials_df)
+        unmatched_visits.extend(screen_fail_unmatched)
+
+    # Prepare other data
+    trials_df = prepare_trials_data(trials_df)
+    patients_df = prepare_patients_data(patients_df, trials_df)
+    
+    # Validate studies
+    validate_study_structure(patients_df, trials_df)
+
+    # Separate visit types
+    patient_visits, study_event_templates = separate_visit_types(trials_df)
+
+    # Process all visits
+    visit_records = []
+    
+    # Process study events first
+    if not study_event_templates.empty:
+        visit_records.extend(process_study_events(study_event_templates, actual_visits_df))
+    
+    # Process patient visits
+    processing_stats = process_all_patients(
+        patients_df, patient_visits, screen_failures, actual_visits_df
+    )
+    
+    visit_records.extend(processing_stats['visit_records'])
+    
+    # Create visits DataFrame
+    visits_df = pd.DataFrame(visit_records)
+    if visits_df.empty:
+        raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
+
+    # Build processing messages
+    processing_messages = build_processing_messages(processing_stats, unmatched_visits)
+
+    # Build calendar dataframe
+    calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df)
+    
+    # Fill calendar with visits
+    calendar_df = fill_calendar_with_visits(calendar_df, visits_df, trials_df)
+
+    # Calculate financial totals
+    calendar_df = calculate_financial_totals(calendar_df)
+
+    # Build stats
+    stats = {
+        "total_visits": len([v for v in visit_records if not v.get('IsActual', False) and v['Visit'] not in ['-', '+'] and not v.get('IsStudyEvent', False)]),
+        "total_income": visits_df["Payment"].sum(),
+        "messages": processing_messages,
+        "out_of_window_visits": processing_stats['out_of_window_visits']
+    }
+
+    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
+
+def prepare_actual_visits_data(actual_visits_df):
+    """Prepare actual visits data with proper data types"""
+    actual_visits_df["PatientID"] = safe_string_conversion(actual_visits_df["PatientID"])
+    actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
+    actual_visits_df["VisitName"] = safe_string_conversion(actual_visits_df["VisitName"])
+    
+    if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
+        actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
+    
+    if "Notes" not in actual_visits_df.columns:
+        actual_visits_df["Notes"] = ""
+    else:
+        actual_visits_df["Notes"] = safe_string_conversion(actual_visits_df["Notes"], "")
+    
+    if "VisitType" not in actual_visits_df.columns:
+        actual_visits_df["VisitType"] = "patient"
+    
+    if "Status" not in actual_visits_df.columns:
+        actual_visits_df["Status"] = "completed"
+
+    actual_visits_df["VisitKey"] = (
+        safe_string_conversion(actual_visits_df["PatientID"]) + "_" +
+        safe_string_conversion(actual_visits_df["Study"]) + "_" +
+        safe_string_conversion(actual_visits_df["VisitName"])
+    )
+    
+    return actual_visits_df
+
+def prepare_trials_data(trials_df):
+    """Prepare trials data with proper data types and column mapping"""
+    # Normalize column names
+    column_mapping = {
+        'Income': 'Payment',
+        'Tolerance Before': 'ToleranceBefore',
+        'Tolerance After': 'ToleranceAfter'
+    }
+    trials_df = trials_df.rename(columns=column_mapping)
+
+    # Process data types
+    trials_df["Study"] = safe_string_conversion(trials_df["Study"])
+    trials_df["VisitName"] = safe_string_conversion(trials_df["VisitName"])
+    trials_df["SiteforVisit"] = safe_string_conversion(trials_df["SiteforVisit"])
     
     try:
-        # Validate patients data
-        if not validate_required_columns(patients_df, ['PatientID', 'Study', 'StartDate'], "Patients file"):
-            validation_passed = False
-        
-        # Validate trials data
-        if not validate_required_columns(trials_df, ['Study', 'Day', 'VisitName'], "Trials file"):
-            validation_passed = False
-        
-        if not validation_passed:
-            return False
-        
-        # Check for empty data
-        if patients_df.empty:
-            add_error("Patients file contains no data")
-            return False
-            
-        if trials_df.empty:
-            add_error("Trials file contains no data")
-            return False
-        
-        # Validate data content
-        if not _validate_patients_content(patients_df):
-            validation_passed = False
-            
-        if not _validate_trials_content(trials_df):
-            validation_passed = False
-        
-        # Cross-validate studies between files
-        if not _validate_study_consistency(patients_df, trials_df):
-            validation_passed = False
-        
-        return validation_passed
-        
-    except Exception as e:
-        add_error(f"Validation failed with unexpected error: {str(e)}")
-        logger.error(f"Validation error: {e}")
-        return False
-
-def _validate_patients_content(patients_df: pd.DataFrame) -> bool:
-    """Validate patients data content"""
-    validation_passed = True
+        trials_df["Day"] = pd.to_numeric(trials_df["Day"], errors='coerce').fillna(1).astype(int)
+    except:
+        st.error("Invalid 'Day' values in trials file. Days must be numeric.")
+        raise ValueError("Invalid Day column in trials file")
     
-    try:
-        # Check for missing patient IDs
-        missing_patient_ids = patients_df['PatientID'].isna().sum()
-        if missing_patient_ids > 0:
-            add_warning(f"{missing_patient_ids} rows have missing PatientID")
-            validation_passed = False
-        
-        # Check for duplicate patient-study combinations
-        duplicates = patients_df.duplicated(subset=['PatientID', 'Study']).sum()
-        if duplicates > 0:
-            add_warning(f"{duplicates} duplicate PatientID-Study combinations found")
-            
-        # Validate start dates
-        start_date_issues = patients_df['StartDate'].isna().sum()
-        if start_date_issues > 0:
-            add_warning(f"{start_date_issues} rows have missing StartDate")
-            validation_passed = False
-        
-        # Check for reasonable date ranges
-        try:
-            start_dates = pd.to_datetime(patients_df['StartDate'], errors='coerce')
-            current_year = datetime.now().year
-            
-            # Check for dates too far in past or future
-            old_dates = start_dates < datetime(current_year - 10, 1, 1)
-            future_dates = start_dates > datetime(current_year + 5, 12, 31)
-            
-            if old_dates.sum() > 0:
-                add_warning(f"{old_dates.sum()} start dates are more than 10 years old")
-                
-            if future_dates.sum() > 0:
-                add_warning(f"{future_dates.sum()} start dates are more than 5 years in the future")
-                
-        except Exception as e:
-            add_warning(f"Could not validate start date ranges: {str(e)}")
-        
-        return validation_passed
-        
-    except Exception as e:
-        add_error(f"Error validating patients content: {str(e)}")
-        return False
+    return trials_df
 
-def _validate_trials_content(trials_df: pd.DataFrame) -> bool:
-    """Validate trials data content"""
-    validation_passed = True
+def prepare_patients_data(patients_df, trials_df):
+    """Prepare patients data with proper data types and site mapping"""
+    # Process data types
+    patients_df["PatientID"] = safe_string_conversion(patients_df["PatientID"])
+    patients_df["Study"] = safe_string_conversion(patients_df["Study"])
     
-    try:
-        # Check for missing studies
-        missing_studies = trials_df['Study'].isna().sum()
-        if missing_studies > 0:
-            add_warning(f"{missing_studies} rows have missing Study")
-            validation_passed = False
-        
-        # Check for missing visit names
-        missing_visits = trials_df['VisitName'].isna().sum()
-        if missing_visits > 0:
-            add_warning(f"{missing_visits} rows have missing VisitName")
-            validation_passed = False
-        
-        # Validate day values
-        try:
-            day_values = pd.to_numeric(trials_df['Day'], errors='coerce')
-            invalid_days = day_values.isna().sum()
-            
-            if invalid_days > 0:
-                add_warning(f"{invalid_days} rows have invalid Day values")
-                validation_passed = False
-            
-            # Check for reasonable day ranges
-            negative_days = (day_values < 0).sum()
-            large_days = (day_values > 3650).sum()  # 10 years
-            
-            if negative_days > 0:
-                add_warning(f"{negative_days} visits have negative day values")
-                
-            if large_days > 0:
-                add_warning(f"{large_days} visits have day values > 10 years")
-                
-        except Exception as e:
-            add_warning(f"Could not validate day values: {str(e)}")
-            validation_passed = False
-        
-        return validation_passed
-        
-    except Exception as e:
-        add_error(f"Error validating trials content: {str(e)}")
-        return False
+    if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
+        patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
 
-def _validate_study_consistency(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -> bool:
-    """Validate that studies are consistent between files"""
-    try:
-        patient_studies = set(patients_df['Study'].dropna().unique())
-        trial_studies = set(trials_df['Study'].dropna().unique())
-        
-        # Studies in patients but not in trials
-        missing_trial_studies = patient_studies - trial_studies
-        if missing_trial_studies:
-            add_warning(f"Studies in patients file but not in trials file: {', '.join(missing_trial_studies)}")
-        
-        # Studies in trials but not in patients
-        missing_patient_studies = trial_studies - patient_studies
-        if missing_patient_studies:
-            add_info(f"Studies in trials file but not in patients file: {', '.join(missing_patient_studies)}")
-        
-        # At least some overlap is required
-        common_studies = patient_studies & trial_studies
-        if not common_studies:
-            add_error("No common studies found between patients and trials files")
-            return False
-        
-        add_info(f"Found {len(common_studies)} common studies: {', '.join(sorted(common_studies))}")
-        return True
-        
-    except Exception as e:
-        add_error(f"Error validating study consistency: {str(e)}")
-        return False
-
-# =============================================================================
-# MAIN CALENDAR GENERATION FUNCTION
-# =============================================================================
-
-def build_calendar(patients_df: pd.DataFrame, 
-                  trials_df: pd.DataFrame, 
-                  actual_visits_df: Optional[pd.DataFrame] = None) -> Optional[pd.DataFrame]:
-    """
-    Build comprehensive visit calendar with enhanced error handling
+    # Check for patient origin site column
+    patient_origin_col = None
+    possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
+    for col in possible_origin_cols:
+        if col in patients_df.columns:
+            patient_origin_col = col
+            break
     
-    Args:
-        patients_df: Patient data with PatientID, Study, StartDate
-        trials_df: Trial schedule with Study, Day, VisitName
-        actual_visits_df: Optional actual visit data
-        
-    Returns:
-        Generated calendar DataFrame or None if failed
-    """
-    try:
-        add_info("Starting calendar generation process...")
-        
-        # Prepare data with error handling
-        patients_clean = _prepare_patients_data(patients_df)
-        if patients_clean is None:
-            add_error("Failed to prepare patients data")
-            return None
-        
-        trials_clean = _prepare_trials_data(trials_df)
-        if trials_clean is None:
-            add_error("Failed to prepare trials data")
-            return None
-        
-        # Generate base calendar
-        calendar_df = _generate_base_calendar(patients_clean, trials_clean)
-        if calendar_df is None or calendar_df.empty:
-            add_error("Failed to generate base calendar")
-            return None
-        
-        # Merge actual visits if provided
-        if actual_visits_df is not None and not actual_visits_df.empty:
-            calendar_df = _merge_actual_visits(calendar_df, actual_visits_df)
-        
-        # Add calculated fields
-        calendar_df = _add_calculated_fields(calendar_df)
-        
-        # Final validation and cleanup
-        calendar_df = _finalize_calendar(calendar_df)
-        
-        if calendar_df is not None and not calendar_df.empty:
-            add_info(f"Calendar generation completed successfully: {len(calendar_df)} visit records created")
-        else:
-            add_error("Calendar generation completed but result is empty")
+    if patient_origin_col:
+        patients_df['OriginSite'] = safe_string_conversion(patients_df[patient_origin_col], "Unknown Origin")
+    else:
+        patients_df['OriginSite'] = "Unknown Origin"
+
+    # Create patient-site mapping
+    if patient_origin_col:
+        patients_df['Site'] = patients_df['OriginSite']
+    else:
+        patient_site_mapping = {}
+        for _, patient in patients_df.iterrows():
+            study = patient["Study"]
+            patient_id = patient["PatientID"]
             
-        return calendar_df
+            study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
+            if len(study_sites) > 0:
+                patient_site_mapping[patient_id] = study_sites[0]
+            else:
+                patient_site_mapping[patient_id] = f"{study}_Site"
         
-    except Exception as e:
-        add_error(f"Unexpected error in calendar generation: {str(e)}")
-        logger.error(f"Calendar generation error: {e}")
-        return None
+        patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping).fillna("Unknown Site")
+    
+    return patients_df
 
-# =============================================================================
-# DATA PREPARATION FUNCTIONS
-# =============================================================================
+def validate_study_structure(patients_df, trials_df):
+    """Validate that each study has proper Day 1 baseline"""
+    for study in patients_df["Study"].unique():
+        study_visits = trials_df[trials_df["Study"] == study]
+        day_1_visits = study_visits[study_visits["Day"] == 1]
+        
+        if len(day_1_visits) == 0:
+            raise ValueError(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+        elif len(day_1_visits) > 1:
+            visit_names = day_1_visits["VisitName"].tolist()
+            raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
 
-def _prepare_patients_data(patients_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Prepare and clean patients data"""
-    try:
-        df = patients_df.copy()
-        initial_count = len(df)
-        
-        # Clean patient IDs
-        df['PatientID'] = df['PatientID'].apply(clean_patient_id)
-        
-        # Remove rows with empty patient IDs
-        df = df[df['PatientID'] != '']
-        empty_id_removed = initial_count - len(df)
-        if empty_id_removed > 0:
-            add_warning(f"Removed {empty_id_removed} rows with empty PatientID")
-        
-        # Parse start dates
-        df = parse_dates_column(df, 'StartDate')
-        
-        # Remove rows with invalid start dates
-        df = df[df['StartDate'].notna()]
-        invalid_date_removed = len(df) - (initial_count - empty_id_removed)
-        if invalid_date_removed > 0:
-            add_warning(f"Removed {abs(invalid_date_removed)} rows with invalid StartDate")
-        
-        # Clean study names
-        df['Study'] = df['Study'].astype(str).str.strip()
-        df = df[df['Study'] != '']
-        
-        add_info(f"Prepared patients data: {len(df)} valid records from {initial_count} input records")
-        return df
-        
-    except Exception as e:
-        add_error(f"Error preparing patients data: {str(e)}")
-        return None
-
-def _prepare_trials_data(trials_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Prepare and clean trials data"""
-    try:
-        df = trials_df.copy()
-        initial_count = len(df)
-        
-        # Clean study names
-        df['Study'] = df['Study'].astype(str).str.strip()
-        df = df[df['Study'] != '']
-        
-        # Clean visit names
-        df['VisitName'] = df['VisitName'].astype(str).str.strip()
-        df = df[df['VisitName'] != '']
-        
-        # Convert and validate day values
-        df['Day'] = pd.to_numeric(df['Day'], errors='coerce')
-        df = df[df['Day'].notna()]
-        
-        # Remove duplicate entries
-        df = df.drop_duplicates(subset=['Study', 'Day', 'VisitName'])
-        
-        final_count = len(df)
-        removed_count = initial_count - final_count
-        if removed_count > 0:
-            add_warning(f"Removed {removed_count} invalid/duplicate trial records")
-        
-        add_info(f"Prepared trials data: {final_count} valid records from {initial_count} input records")
-        return df
-        
-    except Exception as e:
-        add_error(f"Error preparing trials data: {str(e)}")
-        return None
-
-# =============================================================================
-# CALENDAR GENERATION CORE FUNCTIONS
-# =============================================================================
-
-def _generate_base_calendar(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Generate base calendar by merging patients and trials"""
-    try:
-        # Merge patients with trials on Study
-        calendar_df = patients_df.merge(trials_df, on='Study', how='inner')
-        
-        if calendar_df.empty:
-            add_error("No matching studies found between patients and trials - check study names")
-            return None
-        
-        # Calculate planned visit dates
-        calendar_df['PlannedDate'] = calendar_df['StartDate'] + pd.to_timedelta(calendar_df['Day'], unit='days')
-        
-        # Create visit key for matching
-        calendar_df['VisitKey'] = (
-            calendar_df['PatientID'].astype(str) + '|' + 
-            calendar_df['Study'].astype(str) + '|' + 
-            calendar_df['VisitName'].astype(str)
-        )
-        
-        # Sort by patient and planned date
-        calendar_df = calendar_df.sort_values(['PatientID', 'PlannedDate'])
-        
-        add_info(f"Generated base calendar with {len(calendar_df)} planned visits")
-        return calendar_df
-        
-    except Exception as e:
-        add_error(f"Error generating base calendar: {str(e)}")
-        return None
-
-def _merge_actual_visits(calendar_df: pd.DataFrame, actual_visits_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge actual visit data with planned calendar"""
-    try:
-        actual_df = actual_visits_df.copy()
-        
-        # Prepare actual visits data
-        actual_df['PatientID'] = actual_df['PatientID'].apply(clean_patient_id)
-        actual_df['Study'] = actual_df['Study'].astype(str).str.strip()
-        actual_df['VisitName'] = actual_df['VisitName'].astype(str).str.strip()
-        
-        # Parse actual dates
-        actual_df = parse_dates_column(actual_df, 'ActualDate')
-        
-        # Create visit key
-        actual_df['VisitKey'] = (
-            actual_df['PatientID'].astype(str) + '|' + 
-            actual_df['Study'].astype(str) + '|' + 
-            actual_df['VisitName'].astype(str)
-        )
-        
-        # Remove duplicates, keeping the latest actual date
-        actual_df = actual_df.sort_values('ActualDate').drop_duplicates(subset=['VisitKey'], keep='last')
-        
-        # Merge with calendar
-        calendar_df = calendar_df.merge(
-            actual_df[['VisitKey', 'ActualDate']], 
-            on='VisitKey', 
-            how='left'
-        )
-        
-        actual_visits_count = calendar_df['ActualDate'].notna().sum()
-        add_info(f"Merged {actual_visits_count} actual visit records")
-        
-        return calendar_df
-        
-    except Exception as e:
-        add_warning(f"Error merging actual visits: {str(e)}")
-        return calendar_df  # Return original calendar if merge fails
-
-def _add_calculated_fields(calendar_df: pd.DataFrame) -> pd.DataFrame:
-    """Add calculated fields to calendar"""
-    try:
-        # Add financial year
-        calendar_df['FinancialYear'] = calendar_df['PlannedDate'].apply(calculate_financial_year)
-        
-        # Add visit status
-        calendar_df['VisitStatus'] = 'Planned'
-        calendar_df.loc[calendar_df['ActualDate'].notna(), 'VisitStatus'] = 'Completed'
-        
-        # Add days variance for completed visits
-        if 'ActualDate' in calendar_df.columns:
-            calendar_df['DaysVariance'] = (
-                calendar_df['ActualDate'] - calendar_df['PlannedDate']
-            ).dt.days
-            
-            # Only show variance for completed visits
-            calendar_df.loc[calendar_df['ActualDate'].isna(), 'DaysVariance'] = None
-        
-        # Add overdue flag
-        today = datetime.now().date()
-        calendar_df['IsOverdue'] = (
-            (calendar_df['ActualDate'].isna()) & 
-            (calendar_df['PlannedDate'].dt.date < today)
-        )
-        
-        add_info("Added calculated fields to calendar")
-        return calendar_df
-        
-    except Exception as e:
-        add_warning(f"Error adding calculated fields: {str(e)}")
-        return calendar_df
-
-def _finalize_calendar(calendar_df: pd.DataFrame) -> pd.DataFrame:
-    """Final cleanup and organization of calendar"""
-    try:
-        # Select and order columns
-        output_columns = [
-            'PatientID', 'Study', 'VisitName', 'Day', 
-            'PlannedDate', 'ActualDate', 'VisitStatus',
-            'DaysVariance', 'IsOverdue', 'FinancialYear'
+def separate_visit_types(trials_df):
+    """Separate patient visits from study events"""
+    if 'VisitType' in trials_df.columns:
+        patient_visits = trials_df[
+            (trials_df['VisitType'] == 'patient') |
+            (pd.isna(trials_df['VisitType']))
         ]
         
-        # Only include columns that exist
-        available_columns = [col for col in output_columns if col in calendar_df.columns]
-        calendar_df = calendar_df[available_columns]
+        study_event_templates = trials_df[
+            trials_df['VisitType'].isin(['siv', 'monitor'])
+        ]
+    else:
+        patient_visits = trials_df.copy()
+        study_event_templates = pd.DataFrame()
+    
+    return patient_visits, study_event_templates
+
+def process_all_patients(patients_df, patient_visits, screen_failures, actual_visits_df):
+    """Process visits for all patients"""
+    all_visit_records = []
+    total_actual_visits_used = 0
+    all_unmatched_visits = []
+    total_screen_fail_exclusions = 0
+    all_out_of_window_visits = []
+    all_processing_messages = []
+    recalculated_patients = []
+    patients_with_no_visits = []
+    
+    for _, patient in patients_df.iterrows():
+        patient_id = str(patient["PatientID"])
+        study = str(patient["Study"])
         
-        # Sort final output
-        calendar_df = calendar_df.sort_values(['PatientID', 'PlannedDate'])
+        visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(
+            patient, patient_visits, screen_failures, actual_visits_df
+        )
         
-        # Reset index
-        calendar_df = calendar_df.reset_index(drop=True)
+        if not visit_records and len(patient_visits[patient_visits["Study"] == study]) == 0:
+            patients_with_no_visits.append(f"{patient_id} (Study: {study})")
+            continue
         
-        add_info("Calendar finalization completed")
-        return calendar_df
+        all_visit_records.extend(visit_records)
+        total_actual_visits_used += actual_visits_used
+        all_unmatched_visits.extend(unmatched_visits)
+        total_screen_fail_exclusions += screen_fail_exclusions
+        all_out_of_window_visits.extend(out_of_window_visits)
+        all_processing_messages.extend(processing_messages)
         
-    except Exception as e:
-        add_warning(f"Error finalizing calendar: {str(e)}")
-        return calendar_df
+        if patient_needs_recalc:
+            recalculated_patients.append(f"{patient_id} ({study})")
+    
+    return {
+        'visit_records': all_visit_records,
+        'actual_visits_used': total_actual_visits_used,
+        'unmatched_visits': all_unmatched_visits,
+        'screen_fail_exclusions': total_screen_fail_exclusions,
+        'out_of_window_visits': all_out_of_window_visits,
+        'processing_messages': all_processing_messages,
+        'recalculated_patients': recalculated_patients,
+        'patients_with_no_visits': patients_with_no_visits
+    }
+
+def build_processing_messages(processing_stats, unmatched_visits):
+    """Build the final processing messages"""
+    processing_messages = []
+    
+    # Add unmatched visits from screen failure detection
+    for unmatched in unmatched_visits:
+        processing_messages.append(f"⚠️ {unmatched}")
+    
+    # Add unmatched visits from patient processing
+    for unmatched in processing_stats['unmatched_visits']:
+        processing_messages.append(f"⚠️ {unmatched}")
+
+    # Add patient processing messages
+    processing_messages.extend(processing_stats['processing_messages'])
+    
+    # Add summary statistics
+    if processing_stats['patients_with_no_visits']:
+        processing_messages.append(f"⚠️ {len(processing_stats['patients_with_no_visits'])} patient(s) skipped due to missing study definitions: {', '.join(processing_stats['patients_with_no_visits'])}")
+        
+    if processing_stats['recalculated_patients']:
+        processing_messages.append(f"📅 Recalculated visit schedules for {len(processing_stats['recalculated_patients'])} patient(s) based on actual Day 1 baseline: {', '.join(processing_stats['recalculated_patients'])}")
+
+    if processing_stats['out_of_window_visits']:
+        processing_messages.append(f"🔴 {len(processing_stats['out_of_window_visits'])} visit(s) occurred outside tolerance windows (marked as OUT OF PROTOCOL)")
+
+    if processing_stats['actual_visits_used'] > 0:
+        processing_messages.append(f"✅ {processing_stats['actual_visits_used']} actual visits matched and used in calendar")
+
+    if processing_stats['screen_fail_exclusions'] > 0:
+        processing_messages.append(f"⚠️ {processing_stats['screen_fail_exclusions']} visits were excluded because they occur after screen failure dates")
+    
+    return processing_messages
+
+def calculate_financial_totals(calendar_df):
+    """Calculate monthly and financial year totals"""
+    # Calculate monthly totals
+    calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
+    monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
+    calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
+    calendar_df["Monthly Total"] = calendar_df.apply(
+        lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA, axis=1
+    )
+
+    # Calculate financial year totals
+    calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start_year)
+    fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
+    calendar_df["IsFYE"] = calendar_df["Date"].apply(is_financial_year_end)
+    calendar_df["FY Total"] = calendar_df.apply(
+        lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
+    )
+    
+    return calendar_df
