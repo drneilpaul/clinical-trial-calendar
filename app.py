@@ -354,7 +354,15 @@ def main():
                 st.write(f"Trials: {len(trials_df)} records")
                 if actual_visits_df is not None:
                     st.write(f"Visits: {len(actual_visits_df)} records")
+                
+                st.write("**Patient Data Sample:**")
                 st.dataframe(patients_df.head())
+                
+                st.write("**Patient Data Types:**")
+                st.write(patients_df.dtypes)
+                
+                st.write("**Patient StartDate Sample:**")
+                st.write(patients_df['StartDate'].head())
             
             # Skip file processing, go straight to calendar generation
         else:

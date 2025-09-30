@@ -57,6 +57,11 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'start_date': 'StartDate',
                 'site': 'Site'
             })
+            
+            # Convert StartDate to datetime format for calendar processing
+            if 'StartDate' in df.columns:
+                df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
+            
             log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
         log_activity("No patients found in database", level='info')
