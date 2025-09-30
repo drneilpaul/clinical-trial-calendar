@@ -263,19 +263,44 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
                     else:
-                        # Handle multiple visits on same day
+                        # Handle multiple visits on same day - IMPROVED LOGIC
+                        
+                        # If this is a tolerance marker
                         if visit_info in ["-", "+"]:
-                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                            # Only add if there's no actual visit already there
+                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "📋"]):
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
                                 else:
                                     calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
+                        # If this is a planned visit (📅)
+                        elif "📅" in visit_info and "(Planned)" in visit_info:
+                            # Only add if there's no actual visit on this date
+                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                if current_value in ["-", "+", ""]:
+                                    calendar_df.at[i, col_id] = visit_info
+                                else:
+                                    calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                        # If this is a predicted visit (📋) 
+                        elif "📋" in visit_info and "(Predicted)" in visit_info:
+                            # Only add if cell is empty or has tolerance markers
+                            if current_value in ["-", "+", ""]:
+                                calendar_df.at[i, col_id] = visit_info
+                            elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅"]):
+                                calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                        # If this is an actual visit (✅, 🔴, ⚠️)
                         else:
-                            # This is a main visit
+                            # Actual visits take priority - always add them
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                             else:
-                                calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
+                                # Check if there's already an actual visit
+                                if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                    # Multiple actual visits on same day
+                                    calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                                else:
+                                    # Replace predicted/planned with actual
+                                    calendar_df.at[i, col_id] = visit_info
 
                 # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
@@ -314,5 +339,15 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         total_actual = len(visits_df[visits_df['IsActual'] == True])
         total_predicted = len(visits_df[visits_df['IsActual'] == False])
         log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
+        
+        # Debug: Check how many actual visits ended up in the calendar
+        actual_visits_in_calendar = 0
+        for col in calendar_df.columns:
+            if col not in ["Date", "Day"] and not col.endswith("_Events") and not col.endswith(" Income") and not col in ["Daily Total", "MonthPeriod", "Monthly Total", "FYStart", "FY Total"]:
+                for val in calendar_df[col]:
+                    if "✅" in str(val):
+                        actual_visits_in_calendar += 1
+        
+        log_activity(f"DEBUG: {actual_visits_in_calendar} actual visit markers placed in calendar", level='info')
     
     return calendar_df
