@@ -5,6 +5,7 @@ from helpers import (
     standardize_visit_columns, safe_string_conversion_series, 
     load_file_with_defaults, init_error_system, display_error_log_section
 )
+import database  # NEW - Supabase integration
 from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
@@ -88,7 +89,31 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
 
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
+    # TEMPORARY - Remove this after testing
+    if st.sidebar.button("🧪 Test DB Connection"):
+        if database.test_database_connection():
+            st.sidebar.success("✅ Database connected and tables found")
+        else:
+            st.sidebar.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+    # END TEMPORARY
+
+    
     st.sidebar.header("Upload Data Files")
+    
+    # NEW - Database toggle
+    if st.session_state.get('database_available', False):
+        st.sidebar.success("Database Connected")
+        use_database = st.sidebar.checkbox(
+            "Load from Database", 
+            value=False,
+            help="Load existing data from database instead of files"
+        )
+        st.session_state.use_database = use_database
+    else:
+        st.session_state.use_database = False
+        if st.session_state.get('database_status'):
+            st.sidebar.info(f"Database: {st.session_state.database_status}")
+    
     trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
     patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
     actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
@@ -125,10 +150,34 @@ def main():
     st.caption(f"{APP_VERSION} | {APP_SUBTITLE}")
 
     initialize_session_state()
+    # NEW - Check database availability
+    if 'database_available' not in st.session_state:
+        st.session_state.database_available = database.test_database_connection()
+        
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
     if patients_file and trials_file:
         display_action_buttons()
+
+        # NEW - Option to load from database instead
+        if st.session_state.get('use_database', False):
+            st.info("Loading data from database...")
+            patients_df = database.fetch_all_patients()
+            trials_df = database.fetch_all_trial_schedules()
+            actual_visits_df = database.fetch_all_actual_visits()
+            
+            if patients_df is None or trials_df is None:
+                st.error("Failed to load from database. Please upload files instead.")
+                st.session_state.use_database = False
+                st.stop()
+            
+            # Skip file processing, go straight to calendar generation
+        else:
+            # EXISTING FILE PROCESSING CODE
+            try:
+                init_error_system()
+                patients_df = normalize_columns(load_file(patients_file))
+        
         
         handle_patient_modal()
         handle_visit_modal()
@@ -158,6 +207,34 @@ def main():
 
             display_processing_messages(messages)
 
+            # NEW - Offer to save to database
+            if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
+                st.divider()
+                st.subheader("Save to Database")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("💾 Save Patients to DB"):
+                        if database.save_patients_to_database(patients_df):
+                            st.success("Patients saved to database!")
+                        else:
+                            st.error("Failed to save patients")
+                
+                with col2:
+                    if st.button("💾 Save Trials to DB"):
+                        if database.save_trial_schedules_to_database(trials_df):
+                            st.success("Trial schedules saved!")
+                        else:
+                            st.error("Failed to save trials")
+                
+                with col3:
+                    if actual_visits_df is not None and not actual_visits_df.empty:
+                        if st.button("💾 Save Visits to DB"):
+                            if database.save_actual_visits_to_database(actual_visits_df):
+                                st.success("Actual visits saved!")
+                            else:
+                                st.error("Failed to save visits")
+            
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
