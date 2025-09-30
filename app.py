@@ -125,6 +125,41 @@ def setup_file_uploaders():
             trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
             patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
             actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+            
+            # Overwrite database buttons when files are uploaded
+            if patients_file and trials_file:
+                st.divider()
+                st.caption("⚠️ **Overwrite Database** - This will replace ALL data in the database")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Overwrite DB", help="Replace database with uploaded files"):
+                        if st.session_state.get('overwrite_confirmed', False):
+                            # Process files first
+                            try:
+                                patients_df = load_file_with_defaults(patients_file, ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+                                trials_df = load_file_with_defaults(trials_file, ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+                                actual_visits_df = None
+                                if actual_visits_file:
+                                    actual_visits_df = load_file_with_defaults(actual_visits_file, ['PatientID', 'Study', 'VisitName', 'VisitDate', 'SiteofVisit'])
+                                
+                                # Overwrite database
+                                if database.overwrite_database_with_files(patients_df, trials_df, actual_visits_df):
+                                    st.success("✅ Database overwritten successfully!")
+                                    st.session_state.use_database = True  # Switch to database mode
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to overwrite database")
+                            except Exception as e:
+                                st.error(f"Error processing files: {e}")
+                        else:
+                            st.session_state.overwrite_confirmed = True
+                            st.warning("⚠️ Click again to confirm overwrite")
+                
+                with col2:
+                    if st.button("❌ Cancel", help="Cancel overwrite operation"):
+                        st.session_state.overwrite_confirmed = False
+                        st.rerun()
     else:
         # Database not available - show file uploaders directly
         st.sidebar.caption("Upload your data files to get started")

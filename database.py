@@ -307,3 +307,81 @@ def create_backup_zip() -> Optional[io.BytesIO]:
     except Exception as e:
         st.error(f"Error creating backup ZIP: {e}")
         return None
+
+# DATABASE OVERWRITE FUNCTIONS
+def clear_patients_table() -> bool:
+    """Clear all patients from database"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        client.table('patients').delete().neq('id', 0).execute()
+        log_activity("Cleared all patients from database", level='info')
+        return True
+        
+    except Exception as e:
+        st.error(f"Error clearing patients table: {e}")
+        log_activity(f"Error clearing patients table: {e}", level='error')
+        return False
+
+def clear_trial_schedules_table() -> bool:
+    """Clear all trial schedules from database"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        client.table('trial_schedules').delete().neq('id', 0).execute()
+        log_activity("Cleared all trial schedules from database", level='info')
+        return True
+        
+    except Exception as e:
+        st.error(f"Error clearing trial schedules table: {e}")
+        log_activity(f"Error clearing trial schedules table: {e}", level='error')
+        return False
+
+def clear_actual_visits_table() -> bool:
+    """Clear all actual visits from database"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        client.table('actual_visits').delete().neq('id', 0).execute()
+        log_activity("Cleared all actual visits from database", level='info')
+        return True
+        
+    except Exception as e:
+        st.error(f"Error clearing actual visits table: {e}")
+        log_activity(f"Error clearing actual visits table: {e}", level='error')
+        return False
+
+def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataFrame, actual_visits_df: pd.DataFrame = None) -> bool:
+    """Completely replace database content with uploaded files"""
+    try:
+        # Clear all tables first
+        if not clear_patients_table():
+            return False
+        if not clear_trial_schedules_table():
+            return False
+        if actual_visits_df is not None and not actual_visits_df.empty:
+            if not clear_actual_visits_table():
+                return False
+        
+        # Save new data
+        if not save_patients_to_database(patients_df):
+            return False
+        if not save_trial_schedules_to_database(trials_df):
+            return False
+        if actual_visits_df is not None and not actual_visits_df.empty:
+            if not save_actual_visits_to_database(actual_visits_df):
+                return False
+        
+        log_activity("Successfully overwrote database with uploaded files", level='success')
+        return True
+        
+    except Exception as e:
+        st.error(f"Error overwriting database: {e}")
+        log_activity(f"Error overwriting database: {e}", level='error')
+        return False
