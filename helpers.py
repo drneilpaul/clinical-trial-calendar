@@ -247,3 +247,95 @@ def get_trial_payment_for_visit(trials_lookup, study, visit_name):
     
     key = f"{study}_{visit_name}"
     return trials_lookup.get(key, 0)
+
+# =============================================================================
+# ERROR COLLECTION SYSTEM (ADD TO END OF EXISTING helpers.py)
+# =============================================================================
+
+def init_error_system():
+    """Initialize error tracking in session state"""
+    if 'error_messages' not in st.session_state:
+        st.session_state.error_messages = []
+    if 'warning_messages' not in st.session_state:
+        st.session_state.warning_messages = []
+    if 'info_messages' not in st.session_state:
+        st.session_state.info_messages = []
+
+def add_error(message: str):
+    """Add error message to collection"""
+    if 'error_messages' not in st.session_state:
+        init_error_system()
+    st.session_state.error_messages.append({
+        'message': message,
+        'timestamp': datetime.now()
+    })
+
+def add_warning(message: str):
+    """Add warning message to collection"""
+    if 'warning_messages' not in st.session_state:
+        init_error_system()
+    st.session_state.warning_messages.append({
+        'message': message,
+        'timestamp': datetime.now()
+    })
+
+def add_info(message: str):
+    """Add info message to collection"""
+    if 'info_messages' not in st.session_state:
+        init_error_system()
+    st.session_state.info_messages.append({
+        'message': message,
+        'timestamp': datetime.now()
+    })
+
+def clear_messages():
+    """Clear all error messages"""
+    if 'error_messages' in st.session_state:
+        st.session_state.error_messages = []
+    if 'warning_messages' in st.session_state:
+        st.session_state.warning_messages = []
+    if 'info_messages' in st.session_state:
+        st.session_state.info_messages = []
+
+def has_critical_errors() -> bool:
+    """Check if there are any critical error messages"""
+    return len(st.session_state.get('error_messages', [])) > 0
+
+def display_enhanced_messages_section():
+    """Display all collected messages in organized sections"""
+    try:
+        # Error messages
+        if st.session_state.get('error_messages'):
+            st.error("❌ Errors encountered:")
+            for msg in st.session_state.error_messages:
+                timestamp = msg['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"🔸 **{timestamp}**: {msg['message']}")
+        
+        # Warning messages  
+        if st.session_state.get('warning_messages'):
+            st.warning("⚠️ Warnings:")
+            for msg in st.session_state.warning_messages:
+                timestamp = msg['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"🔸 **{timestamp}**: {msg['message']}")
+        
+        # Info messages
+        if st.session_state.get('info_messages'):
+            st.info("ℹ️ Processing Information:")
+            for msg in st.session_state.info_messages:
+                timestamp = msg['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"🔸 **{timestamp}**: {msg['message']}")
+        
+        # Show clear button if there are any messages
+        total_messages = (
+            len(st.session_state.get('error_messages', [])) +
+            len(st.session_state.get('warning_messages', [])) +
+            len(st.session_state.get('info_messages', []))
+        )
+        
+        if total_messages > 0:
+            if st.button("🗑️ Clear Messages"):
+                clear_messages()
+                st.rerun()
+    
+    except Exception as e:
+        st.error(f"Error displaying messages: {str(e)}")
