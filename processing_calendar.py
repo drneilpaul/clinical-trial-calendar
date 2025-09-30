@@ -45,6 +45,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     # Standardize visit columns
     trials_df = standardize_visit_columns(trials_df)
     if actual_visits_df is not None:
+        # Debug: Log actual columns before processing
+        log_activity(f"Actual visits columns before processing: {list(actual_visits_df.columns)}", level='info')
+        log_activity(f"Actual visits shape: {actual_visits_df.shape}", level='info')
+        
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
             actual_visits_df['VisitType'] = 'patient'
@@ -53,7 +57,17 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if 'Notes' not in actual_visits_df.columns:
             actual_visits_df['Notes'] = ''
         
-        validate_required_columns(actual_visits_df, {"PatientID", "Study", "VisitName", "ActualDate"}, "Actual visits file")
+        # Debug: Log columns after adding defaults
+        log_activity(f"Actual visits columns after adding defaults: {list(actual_visits_df.columns)}", level='info')
+        
+        # Check for required columns with more detailed error message
+        required_columns = {"PatientID", "Study", "VisitName", "ActualDate"}
+        missing_columns = required_columns - set(actual_visits_df.columns)
+        if missing_columns:
+            log_activity(f"Missing required columns: {missing_columns}", level='error')
+            log_activity(f"Available columns: {list(actual_visits_df.columns)}", level='error')
+            raise ValueError(f"Actual visits file missing required columns: {', '.join(missing_columns)}")
+        
         actual_visits_df = standardize_visit_columns(actual_visits_df)
 
     # Check for SiteforVisit column

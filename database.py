@@ -68,7 +68,8 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
             log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
         log_activity("No patients found in database", level='info')
-        return pd.DataFrame()
+        # Return empty DataFrame with proper column structure
+        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
     except Exception as e:
         st.error(f"Error fetching patients: {e}")
         return None
@@ -94,7 +95,8 @@ def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
                 'tolerance_after': 'ToleranceAfter'
             })
             return df
-        return pd.DataFrame()
+        # Return empty DataFrame with proper column structure
+        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
     except Exception as e:
         st.error(f"Error fetching trial schedules: {e}")
         return None
@@ -118,7 +120,8 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'notes': 'Notes'
             })
             return df
-        return pd.DataFrame()
+        # Return empty DataFrame with proper column structure
+        return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
     except Exception as e:
         st.error(f"Error fetching actual visits: {e}")
         return None
