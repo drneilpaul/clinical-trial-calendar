@@ -266,10 +266,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             col_id = col
                             break
                 
-                # Debug: Check if column was found for actual visits
-                if not col_id and is_actual:
-                    log_activity(f"  WARNING: Could not find column for actual visit {base_col_id}. Available columns: {[c for c in calendar_df.columns if study in c]}", level='error')
-                
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
                     
@@ -326,6 +322,11 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                                     calendar_df.at[i, col_id] = visit_info
                                     if is_actual:
                                         log_activity(f"    -> Replaced predicted/planned with actual", level='info')
+                else:
+                    # NEW: Log when column not found
+                    if is_actual:
+                        available_cols = [c for c in calendar_df.columns if study in c or pid in c]
+                        log_activity(f"  ERROR: Could not find column for actual visit {base_col_id}. Available similar columns: {available_cols}", level='error')
 
                 # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
