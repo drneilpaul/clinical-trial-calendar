@@ -33,7 +33,7 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     return patient_actual_visits, actual_visits_used, unmatched_visits
 
 def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_data, 
-                        baseline_date, screen_fail_date, processing_messages, out_of_window_visits):
+                        baseline_date, screen_fail_date, processing_messages, out_of_window_visits, skipped_counter=None):
     """Process a single actual visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -47,6 +47,8 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     if pd.isna(visit_date):
         from helpers import log_activity
         log_activity(f"⚠️ Skipping visit '{visit_name}' for patient {patient_id} - invalid date: {actual_visit_data['ActualDate']}", level='warning')
+        if skipped_counter is not None:
+            skipped_counter[0] += 1
         return None, []
     
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
@@ -196,6 +198,9 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     """Process all visits for a single patient"""
     from helpers import log_activity
     
+    # Debug: Track skipped visits due to invalid dates
+    skipped_invalid_dates = 0
+    
     patient_id = str(patient["PatientID"])
     study = str(patient["Study"])
     start_date = patient["StartDate"]
@@ -253,7 +258,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, visit, actual_visit_data,
-                baseline_date, screen_fail_date, processing_messages, out_of_window_visits
+                baseline_date, screen_fail_date, processing_messages, out_of_window_visits, [skipped_invalid_dates]
             )
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
@@ -285,4 +290,6 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             screen_fail_exclusions += exclusions
     
     log_activity(f"Patient {patient_id} generated {len(visit_records)} visit records", level='info')
+    if skipped_invalid_dates > 0:
+        log_activity(f"Patient {patient_id} had {skipped_invalid_dates} actual visits skipped due to invalid dates", level='warning')
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
