@@ -6,6 +6,7 @@ import io
 from datetime import datetime
 import zipfile
 from helpers import log_activity
+from payment_handler import normalize_payment_column, validate_payment_data
 
 def get_supabase_client() -> Optional[Client]:
     """
@@ -174,24 +175,14 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         if client is None:
             return False
         
-        # Clean the data before processing
-        trials_df_clean = trials_df.copy()
+        # Use centralized payment column handling
+        trials_df_clean = normalize_payment_column(trials_df, 'Payment')
         
-        # Handle different column names for payment/income
-        payment_column = None
-        if 'Payment' in trials_df_clean.columns:
-            payment_column = 'Payment'
-        elif 'Income' in trials_df_clean.columns:
-            payment_column = 'Income'
-            # Rename Income to Payment for consistency
-            trials_df_clean = trials_df_clean.rename(columns={'Income': 'Payment'})
-        
-        # Clean Payment column - convert empty strings and invalid values to 0
-        if payment_column or 'Payment' in trials_df_clean.columns:
-            # Remove currency symbols, spaces, and commas
-            trials_df_clean['Payment'] = trials_df_clean['Payment'].astype(str).str.replace('£', '').str.replace(',', '').str.strip()
-            trials_df_clean['Payment'] = trials_df_clean['Payment'].replace('', 0)
-            trials_df_clean['Payment'] = pd.to_numeric(trials_df_clean['Payment'], errors='coerce').fillna(0)
+        # Validate payment data
+        payment_validation = validate_payment_data(trials_df_clean, 'Payment')
+        if not payment_validation['valid']:
+            for issue in payment_validation['issues']:
+                log_activity(f"Payment data issue: {issue}", level='warning')
         
         # Clean ToleranceBefore column
         if 'ToleranceBefore' in trials_df_clean.columns:

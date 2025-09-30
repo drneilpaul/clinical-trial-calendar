@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from helpers import log_activity
+from payment_handler import normalize_payment_column, clean_payment_values, validate_payment_data
 
 class FileValidationError(Exception):
     """Custom exception for file validation errors"""
@@ -172,21 +173,14 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     # Clean the dataframe
     df_clean = df.copy()
     
-    # Handle different payment column names
-    payment_columns = ['Payment', 'Income', 'Amount', 'Cost', 'Fee']
-    payment_column = None
+    # Use centralized payment column handling
+    df_clean = normalize_payment_column(df_clean, 'Payment')
     
-    for col in payment_columns:
-        if col in df_clean.columns:
-            payment_column = col
-            break
-    
-    if payment_column and payment_column != 'Payment':
-        df_clean = df_clean.rename(columns={payment_column: 'Payment'})
-        warnings.append(f"Renamed '{payment_column}' column to 'Payment'")
-    elif not payment_column:
-        df_clean['Payment'] = 0
-        warnings.append("No payment column found, set to 0")
+    # Validate payment data
+    payment_validation = validate_payment_data(df_clean, 'Payment')
+    if not payment_validation['valid']:
+        for issue in payment_validation['issues']:
+            warnings.append(f"Payment data issue: {issue}")
     
     # Clean Study - ensure it's a string
     if 'Study' in df_clean.columns:
@@ -200,10 +194,6 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     # Clean VisitName - ensure it's a string
     if 'VisitName' in df_clean.columns:
         df_clean['VisitName'] = df_clean['VisitName'].astype(str)
-    
-    # Clean Payment - handle currency formatting
-    if 'Payment' in df_clean.columns:
-        df_clean['Payment'] = df_clean['Payment'].apply(clean_currency_value)
     
     # Clean optional columns
     optional_columns = {

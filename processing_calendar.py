@@ -3,6 +3,7 @@ import streamlit as st
 from datetime import timedelta
 from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
                     get_financial_year_start_year, is_financial_year_end, log_activity)
+from payment_handler import normalize_payment_column, validate_payment_data
 
 # Import from our new modules
 from visit_processor import process_study_events, detect_screen_failures
@@ -135,9 +136,17 @@ def prepare_actual_visits_data(actual_visits_df):
 
 def prepare_trials_data(trials_df):
     """Prepare trials data with proper data types and column mapping"""
-    # Normalize column names
+    # Use centralized payment column handling
+    trials_df = normalize_payment_column(trials_df, 'Payment')
+    
+    # Validate payment data
+    payment_validation = validate_payment_data(trials_df, 'Payment')
+    if not payment_validation['valid']:
+        for issue in payment_validation['issues']:
+            log_activity(f"Payment data issue: {issue}", level='warning')
+    
+    # Normalize other column names
     column_mapping = {
-        'Income': 'Payment',
         'Tolerance Before': 'ToleranceBefore',
         'Tolerance After': 'ToleranceAfter'
     }

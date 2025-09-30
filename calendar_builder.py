@@ -118,17 +118,24 @@ def build_calendar_dataframe(visits_df, patients_df):
         for patient_info in site_patients_info:
             log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
-        # Add patient columns for this visit site (avoid duplicates across all sites)
+        # Add patient columns for this visit site (handle duplicates with suffixes)
         site_columns = []
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
-            if col_id not in global_seen_columns:
-                ordered_columns.append(col_id)
-                site_columns.append(col_id)
-                calendar_df[col_id] = ""
-                global_seen_columns.add(col_id)
-            else:
-                log_activity(f"Warning: Duplicate column {col_id} found across sites. Patient may be in multiple sites. Skipping duplicate.", level='warning')
+            final_col_id = col_id
+            
+            # Handle duplicates by adding site suffix
+            if col_id in global_seen_columns:
+                final_col_id = f"{col_id}_{visit_site}"
+                log_activity(f"Patient {col_id} appears in multiple sites. Using column name: {final_col_id}", level='info')
+            
+            ordered_columns.append(final_col_id)
+            site_columns.append(final_col_id)
+            calendar_df[final_col_id] = ""
+            global_seen_columns.add(final_col_id)
+            
+            # Update the patient info with the final column ID
+            patient_info['col_id'] = final_col_id
         
         # Add site events column (avoid duplicates)
         events_col = f"{visit_site}_Events"
@@ -213,9 +220,20 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
 
             else:
                 # Handle regular patient visits
-                col_id = f"{study}_{pid}"
+                base_col_id = f"{study}_{pid}"
                 
-                if col_id in calendar_df.columns:
+                # Find the actual column ID (may have site suffix)
+                col_id = None
+                if base_col_id in calendar_df.columns:
+                    col_id = base_col_id
+                else:
+                    # Look for suffixed version
+                    for col in calendar_df.columns:
+                        if col.startswith(base_col_id + "_"):
+                            col_id = col
+                            break
+                
+                if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
                     
                     if current_value == "":

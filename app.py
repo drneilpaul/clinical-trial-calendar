@@ -129,9 +129,15 @@ def setup_file_uploaders():
                 if patients_file:
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        if st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
+                        # Check if any other overwrite operation is in progress
+                        if st.session_state.get('overwrite_in_progress', False):
+                            st.button("🔄 Overwrite Patients Table", help="Another overwrite operation in progress", disabled=True)
+                        elif st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
                             if st.session_state.get('overwrite_patients_confirmed', False):
                                 try:
+                                    # Set mutex to prevent other overwrite operations
+                                    st.session_state.overwrite_in_progress = True
+                                    
                                     # Validate and clean data first
                                     patients_df, validation_messages = validate_file_upload(patients_file, 'patients')
                                     
@@ -140,6 +146,7 @@ def setup_file_uploaders():
                                         for msg in validation_messages:
                                             st.error(f"  • {msg}")
                                         st.session_state.overwrite_patients_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                         return
                                     
@@ -157,14 +164,17 @@ def setup_file_uploaders():
                                         st.session_state.overwrite_patients_confirmed = False
                                         # Force refresh of data
                                         st.session_state.data_refresh_needed = True
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite patients table")
                                         st.session_state.overwrite_patients_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                 except Exception as e:
                                     st.error(f"❌ Error processing patients file: {e}")
                                     log_activity(f"Error processing patients file: {e}", level='error')
                                     st.session_state.overwrite_patients_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
                             else:
                                 st.session_state.overwrite_patients_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
@@ -177,9 +187,15 @@ def setup_file_uploaders():
                 if trials_file:
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        if st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
+                        # Check if any other overwrite operation is in progress
+                        if st.session_state.get('overwrite_in_progress', False):
+                            st.button("🔄 Overwrite Trials Table", help="Another overwrite operation in progress", disabled=True)
+                        elif st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
                             if st.session_state.get('overwrite_trials_confirmed', False):
                                 try:
+                                    # Set mutex to prevent other overwrite operations
+                                    st.session_state.overwrite_in_progress = True
+                                    
                                     # Validate and clean data first
                                     trials_df, validation_messages = validate_file_upload(trials_file, 'trials')
                                     
@@ -188,6 +204,7 @@ def setup_file_uploaders():
                                         for msg in validation_messages:
                                             st.error(f"  • {msg}")
                                         st.session_state.overwrite_trials_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                         return
                                     
@@ -205,14 +222,17 @@ def setup_file_uploaders():
                                         st.session_state.overwrite_trials_confirmed = False
                                         # Force refresh of data
                                         st.session_state.data_refresh_needed = True
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite trials table")
                                         st.session_state.overwrite_trials_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                 except Exception as e:
                                     st.error(f"❌ Error processing trials file: {e}")
                                     log_activity(f"Error processing trials file: {e}", level='error')
                                     st.session_state.overwrite_trials_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
                             else:
                                 st.session_state.overwrite_trials_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
@@ -225,9 +245,15 @@ def setup_file_uploaders():
                 if actual_visits_file:
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        if st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
+                        # Check if any other overwrite operation is in progress
+                        if st.session_state.get('overwrite_in_progress', False):
+                            st.button("🔄 Overwrite Visits Table", help="Another overwrite operation in progress", disabled=True)
+                        elif st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
                             if st.session_state.get('overwrite_visits_confirmed', False):
                                 try:
+                                    # Set mutex to prevent other overwrite operations
+                                    st.session_state.overwrite_in_progress = True
+                                    
                                     # Validate and clean data first
                                     actual_visits_df, validation_messages = validate_file_upload(actual_visits_file, 'visits')
                                     
@@ -236,6 +262,7 @@ def setup_file_uploaders():
                                         for msg in validation_messages:
                                             st.error(f"  • {msg}")
                                         st.session_state.overwrite_visits_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                         return
                                     
@@ -253,14 +280,17 @@ def setup_file_uploaders():
                                         st.session_state.overwrite_visits_confirmed = False
                                         # Force refresh of data
                                         st.session_state.data_refresh_needed = True
+                                        st.session_state.overwrite_in_progress = False
                                         st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite visits table")
                                         st.session_state.overwrite_visits_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
                                 except Exception as e:
                                     st.error(f"❌ Error processing visits file: {e}")
                                     log_activity(f"Error processing visits file: {e}", level='error')
                                     st.session_state.overwrite_visits_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
                             else:
                                 st.session_state.overwrite_visits_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
