@@ -156,42 +156,47 @@ def main():
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-if patients_file and trials_file:
-    display_action_buttons()
+# Check if we can proceed - either with files OR with database
+can_proceed = (patients_file and trials_file) or st.session_state.get('use_database', False)
 
-    # NEW - Option to load from database instead
+if can_proceed:
+    # Only show action buttons if files are uploaded (needed for adding patients/visits)
+    if patients_file and trials_file:
+        display_action_buttons()
+
+    # Load data - either from database or files
     if st.session_state.get('use_database', False):
         st.info("Loading data from database...")
-        patients_df = database.fetch_all_patients()
-        trials_df = database.fetch_all_trial_schedules()
-        actual_visits_df = database.fetch_all_actual_visits()
-        
-        if patients_df is None or trials_df is None:
-            st.error("Failed to load from database. Please upload files instead.")
-            st.session_state.use_database = False
-            st.stop()
-        
-        if patients_df.empty or trials_df.empty:
-            st.warning("Database tables are empty. Please upload and save files first.")
-            st.session_state.use_database = False
-            st.stop()
-        
-        # Process the database data (normalize and validate)
-        patients_df.columns = patients_df.columns.str.strip()
-        trials_df.columns = trials_df.columns.str.strip()
-        
-        if actual_visits_df is not None and not actual_visits_df.empty:
-            actual_visits_df.columns = actual_visits_df.columns.str.strip()
-        
-        # Parse dates and validate
-        patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-            patients_df, trials_df, actual_visits_df
-        )
-        
-    else:
-        # EXISTING FILE PROCESSING CODE
         try:
-            init_error_system()  # Initialize error logging
+            patients_df = database.fetch_all_patients()
+            trials_df = database.fetch_all_trial_schedules()
+            actual_visits_df = database.fetch_all_actual_visits()
+            
+            if patients_df is None or trials_df is None:
+                st.error("Failed to load from database. Check your database connection and table structure.")
+                st.stop()
+            
+            if patients_df.empty or trials_df.empty:
+                st.warning("Database tables are empty. Please upload files and save to database first.")
+                st.session_state.use_database = False
+                st.stop()
+            
+            st.success(f"Loaded {len(patients_df)} patients and {len(trials_df)} trial schedules from database")
+            
+            # Process the database data
+            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                patients_df, trials_df, actual_visits_df
+            )
+            
+        except Exception as e:
+            st.error(f"Error loading from database: {str(e)}")
+            st.exception(e)
+            st.stop()
+            
+    else:
+        # Load from uploaded files
+        try:
+            init_error_system()
             patients_df = normalize_columns(load_file(patients_file))
             trials_df = normalize_columns(load_file(trials_file))
             actual_visits_df = None
@@ -207,6 +212,7 @@ if patients_file and trials_file:
         except Exception as e:
             st.error(f"Error processing files: {str(e)}")
             st.stop()
+
         
         handle_patient_modal()
         handle_visit_modal()
