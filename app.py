@@ -582,6 +582,18 @@ def main():
                         st.write(f"FY Total max: {fy_non_zero.max()}")
                 else:
                     st.write("❌ FY Total column missing!")
+                
+                # Debug calendar structure
+                st.write("**Calendar Structure Debug:**")
+                st.write(f"Calendar shape: {calendar_df.shape}")
+                st.write(f"Calendar columns: {list(calendar_df.columns)}")
+                st.write(f"Calendar has unique columns: {calendar_df.columns.is_unique}")
+                st.write(f"Site column mapping: {site_column_mapping}")
+                st.write(f"Unique visit sites: {unique_visit_sites}")
+                
+                # Show first few rows of calendar
+                st.write("**Calendar First 5 Rows:**")
+                st.dataframe(calendar_df.head(), use_container_width=True)
             
             screen_failures = extract_screen_failures(actual_visits_df)
 

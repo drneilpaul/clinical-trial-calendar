@@ -228,28 +228,53 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
     st.subheader("Generated Visit Calendar")
 
     try:
+        # Debug: Log calendar DataFrame info
+        log_activity(f"Calendar DataFrame shape: {calendar_df.shape}", level='info')
+        log_activity(f"Calendar columns: {list(calendar_df.columns)}", level='info')
+        log_activity(f"Calendar has unique columns: {calendar_df.columns.is_unique}", level='info')
+        log_activity(f"Site column mapping keys: {list(site_column_mapping.keys())}", level='info')
+        log_activity(f"Unique visit sites: {unique_visit_sites}", level='info')
         # Prepare display columns (avoid duplicates)
         final_ordered_columns = ["Date", "Day"]
         seen_columns = {"Date", "Day"}
+        log_activity(f"Building display columns for {len(unique_visit_sites)} sites", level='info')
+        
         for visit_site in unique_visit_sites:
             site_data = site_column_mapping.get(visit_site, {})
             site_columns = site_data.get('columns', [])
+            log_activity(f"Site {visit_site}: {len(site_columns)} columns - {site_columns}", level='info')
+            
             for col in site_columns:
                 if col in calendar_df.columns and col not in seen_columns:
                     final_ordered_columns.append(col)
                     seen_columns.add(col)
+                    log_activity(f"Added column: {col}", level='info')
+                elif col not in calendar_df.columns:
+                    log_activity(f"Warning: Column {col} not found in calendar DataFrame", level='warning')
+                elif col in seen_columns:
+                    log_activity(f"Warning: Duplicate column {col} skipped", level='warning')
+        
+        log_activity(f"Final ordered columns ({len(final_ordered_columns)}): {final_ordered_columns}", level='info')
 
         display_df = calendar_df[final_ordered_columns].copy()
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
         # Create three-level header rows
+        log_activity(f"Creating headers for {len(display_df_for_view.columns)} columns", level='info')
         header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
+        
+        # Debug header rows
+        log_activity(f"Level 1 headers: {header_rows['level1_site']}", level='info')
+        log_activity(f"Level 2 headers: {header_rows['level2_study_patient']}", level='info')
+        log_activity(f"Level 3 headers: {header_rows['level3_origin']}", level='info')
         
         # Create header dataframes
         level1_df = pd.DataFrame([header_rows['level1_site']])  # Visit sites
         level2_df = pd.DataFrame([header_rows['level2_study_patient']])  # Study_Patient
         level3_df = pd.DataFrame([header_rows['level3_origin']])  # Origin sites
+        
+        log_activity(f"Header DataFrames created - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}", level='info')
         
         # Check for duplicate indices before concatenation
         if not display_df_for_view.index.is_unique:
@@ -258,30 +283,50 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         
         # Combine all headers with data
         try:
+            log_activity(f"Concatenating DataFrames - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}, Data: {display_df_for_view.shape}", level='info')
+            
+            # Check for column alignment
+            all_columns = set(level1_df.columns) | set(level2_df.columns) | set(level3_df.columns) | set(display_df_for_view.columns)
+            log_activity(f"All columns in concatenation: {sorted(all_columns)}", level='info')
+            
             display_with_headers = pd.concat([
                 level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
                 level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
                 level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
                 display_df_for_view  # Actual visit data
             ], ignore_index=True)
+            
+            log_activity(f"Concatenation successful - Final shape: {display_with_headers.shape}", level='info')
+            
         except Exception as concat_error:
             st.error(f"Error concatenating calendar data: {concat_error}")
+            log_activity(f"Concatenation error details: {str(concat_error)}", level='error')
             # Fallback: just show the calendar data without headers
             display_with_headers = display_df_for_view
 
         # Apply styling for three header rows
         try:
+            log_activity(f"Applying styling to DataFrame with shape: {display_with_headers.shape}", level='info')
             today = pd.to_datetime(date.today())
+            
+            # Test styling on first few rows
+            log_activity(f"Testing styling on first row: {display_with_headers.iloc[0].to_dict()}", level='info')
+            
             styled_df = display_with_headers.style.apply(
                 lambda row: style_calendar_row(row, today), axis=1
             )
             
+            log_activity(f"Styling applied successfully", level='info')
+            
             # Generate HTML with month separators
             html_table = _generate_calendar_html_with_separators(styled_df)
+            log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
+            
             components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
             
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
+            log_activity(f"Styling error details: {str(e)}", level='error')
             st.dataframe(display_with_headers, use_container_width=True)
 
         if excluded_visits and len(excluded_visits) > 0:
@@ -290,7 +335,22 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             
     except Exception as e:
         st.error(f"Error displaying calendar: {e}")
-        st.dataframe(calendar_df, use_container_width=True)
+        log_activity(f"Calendar display error: {str(e)}", level='error')
+        
+        # Try to show basic calendar without headers
+        try:
+            st.write("**Fallback Calendar Display (Basic)**")
+            st.dataframe(calendar_df, use_container_width=True)
+        except Exception as fallback_error:
+            st.error(f"Even basic display failed: {fallback_error}")
+            log_activity(f"Basic display also failed: {str(fallback_error)}", level='error')
+            
+            # Show raw data info
+            st.write("**Raw Calendar Data Info:**")
+            st.write(f"Shape: {calendar_df.shape}")
+            st.write(f"Columns: {list(calendar_df.columns)}")
+            st.write(f"First few rows:")
+            st.dataframe(calendar_df.head(), use_container_width=True)
 
 def _generate_calendar_html_with_separators(styled_df):
     """Generate HTML calendar with month separators"""
