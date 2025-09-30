@@ -645,6 +645,21 @@ def main():
                         if len(visits_in_first_week) > 0:
                             st.write("Sample visits in first week:")
                             st.dataframe(visits_in_first_week[['Date', 'PatientID', 'Visit']].head())
+                            
+                            # Test specific date matching for April 3rd
+                            april_3rd = pd.Timestamp('2025-04-03')
+                            st.write(f"**Testing April 3rd matching:**")
+                            st.write(f"April 3rd visits: {len(visits_df[visits_df['Date'] == april_3rd])}")
+                            
+                            # Test the exact comparison used in fill_calendar_with_visits
+                            calendar_date_normalized = pd.Timestamp(april_3rd.date())
+                            st.write(f"Calendar date normalized: {calendar_date_normalized}")
+                            st.write(f"Visit date: {visits_in_first_week['Date'].iloc[0]}")
+                            st.write(f"Are they equal? {visits_in_first_week['Date'].iloc[0] == calendar_date_normalized}")
+                            
+                            # Test the exact filter used in the function
+                            test_matches = visits_df[visits_df['Date'] == calendar_date_normalized]
+                            st.write(f"Test matches for April 3rd: {len(test_matches)}")
 
                 if not calendar_df.empty:
                     st.write(f"Calendar date type: {calendar_df['Date'].dtype}")
