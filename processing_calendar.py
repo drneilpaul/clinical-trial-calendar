@@ -159,8 +159,25 @@ def prepare_actual_visits_data(actual_visits_df):
     actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
     actual_visits_df["VisitName"] = safe_string_conversion(actual_visits_df["VisitName"])
     
+    # Debug: Check dates before conversion
+    log_activity(f"ActualDate before conversion - sample: {actual_visits_df['ActualDate'].head().tolist()}", level='info')
+    log_activity(f"ActualDate types before conversion: {actual_visits_df['ActualDate'].apply(type).value_counts().to_dict()}", level='info')
+    
     if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
+        log_activity(f"Converting ActualDate to datetime with dayfirst=True", level='info')
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
+        
+        # Debug: Check dates after conversion
+        nat_count = actual_visits_df["ActualDate"].isna().sum()
+        log_activity(f"After conversion: {nat_count} NaT values out of {len(actual_visits_df)} total", level='info')
+        
+        if nat_count > 0:
+            # Show which dates failed to parse
+            failed_dates = actual_visits_df[actual_visits_df["ActualDate"].isna()]
+            log_activity(f"Failed to parse dates: {failed_dates['ActualDate'].head().tolist()}", level='warning')
+            # Show the original values that failed
+            original_failed = actual_visits_df.loc[failed_dates.index, 'ActualDate']
+            log_activity(f"Original values that failed: {original_failed.head().tolist()}", level='warning')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""

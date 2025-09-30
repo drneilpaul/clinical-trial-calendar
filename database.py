@@ -131,6 +131,14 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
             log_activity(f"After column renaming: {df.columns.tolist()}", level='info')
             log_activity(f"ActualDate sample values: {df['ActualDate'].head().tolist()}", level='info')
             
+            # Debug: Check for NaT values after renaming
+            nat_count = df['ActualDate'].isna().sum()
+            if nat_count > 0:
+                log_activity(f"⚠️ Found {nat_count} NaT values in ActualDate after column renaming", level='warning')
+                nat_samples = df[df['ActualDate'].isna()].head(3)
+                for _, row in nat_samples.iterrows():
+                    log_activity(f"  NaT sample: {row['PatientID']} | {row['Study']} | {row['VisitName']} | {row['ActualDate']}", level='warning')
+            
             return df
         # Return empty DataFrame with proper column structure
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
