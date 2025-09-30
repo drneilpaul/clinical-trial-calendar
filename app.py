@@ -243,35 +243,15 @@ def main():
 
             display_processing_messages(messages)
 
-            # NEW - Offer to save to database
-            if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
+            # Database operations section
+            if st.session_state.get('database_available', False):
                 st.divider()
-                st.subheader("Save to Database")
+                st.subheader("Database Operations")
+                
+                # Always show backup button when database is available
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    if st.button("💾 Save Patients to DB"):
-                        if database.save_patients_to_database(patients_df):
-                            log_activity("Patients saved to database!", level='success')
-                        else:
-                            log_activity("Failed to save patients to database", level='error')
-                
-                with col2:
-                    if st.button("💾 Save Trials to DB"):
-                        if database.save_trial_schedules_to_database(trials_df):
-                            log_activity("Trial schedules saved!", level='success')
-                        else:
-                            log_activity("Failed to save trial schedules to database", level='error')
-                
-                with col3:
-                    if actual_visits_df is not None and not actual_visits_df.empty:
-                        if st.button("💾 Save Visits to DB"):
-                            if database.save_actual_visits_to_database(actual_visits_df):
-                                log_activity("Actual visits saved!", level='success')
-                            else:
-                                log_activity("Failed to save actual visits to database", level='error')
-                
-                with col4:
                     if st.button("📦 Download DB Backup"):
                         backup_zip = database.create_backup_zip()
                         if backup_zip:
@@ -284,6 +264,30 @@ def main():
                             log_activity("Database backup created successfully", level='success')
                         else:
                             log_activity("Failed to create database backup", level='error')
+                
+                # Only show save buttons when not using database data
+                if not st.session_state.get('use_database', False):
+                    with col2:
+                        if st.button("💾 Save Patients to DB"):
+                            if database.save_patients_to_database(patients_df):
+                                log_activity("Patients saved to database!", level='success')
+                            else:
+                                log_activity("Failed to save patients to database", level='error')
+                    
+                    with col3:
+                        if st.button("💾 Save Trials to DB"):
+                            if database.save_trial_schedules_to_database(trials_df):
+                                log_activity("Trial schedules saved!", level='success')
+                            else:
+                                log_activity("Failed to save trial schedules to database", level='error')
+                    
+                    with col4:
+                        if actual_visits_df is not None and not actual_visits_df.empty:
+                            if st.button("💾 Save Visits to DB"):
+                                if database.save_actual_visits_to_database(actual_visits_df):
+                                    log_activity("Actual visits saved!", level='success')
+                                else:
+                                    log_activity("Failed to save actual visits to database", level='error')
             
             # Debug section for database contents
             if st.session_state.get('database_available', False):
