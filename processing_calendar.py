@@ -132,9 +132,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     processing_messages = build_processing_messages(processing_stats, unmatched_visits)
 
     # DEBUG: Check visits_df state before building calendar
-    log_activity(f"Before building calendar - visits_df shape: {visits_df.shape}, empty: {visits_df.empty}", level='info')
-    if not visits_df.empty:
-        log_activity(f"Visits date range before calendar: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+    log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
     
     # Build calendar dataframe
     calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df)

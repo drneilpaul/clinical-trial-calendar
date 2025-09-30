@@ -233,11 +233,20 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
         
         records = []
         for _, row in actual_visits_df.iterrows():
+            # Ensure ActualDate is a datetime object before calling .date()
+            actual_date = row['ActualDate']
+            if pd.notna(actual_date):
+                if isinstance(actual_date, str):
+                    actual_date = pd.to_datetime(actual_date)
+                actual_date_str = str(actual_date.date())
+            else:
+                actual_date_str = None
+                
             record = {
                 'patient_id': str(row['PatientID']),
                 'study': str(row['Study']),
                 'visit_name': str(row['VisitName']),
-                'actual_date': str(row['ActualDate'].date()) if pd.notna(row['ActualDate']) else None,
+                'actual_date': actual_date_str,
                 'notes': str(row.get('Notes', ''))
             }
             records.append(record)
