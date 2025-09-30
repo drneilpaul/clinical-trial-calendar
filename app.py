@@ -119,12 +119,16 @@ def setup_file_uploaders():
     
     # File uploaders - show expanded if database not available, collapsed if database available
     if st.session_state.get('database_available', False):
-        with st.sidebar.expander("📁 File Upload Options", expanded=False):
+        with st.sidebar.expander("📁 File Upload Options", expanded=True):
             st.caption("Use these if you want to upload new files instead of using database")
             
             trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
             patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
             actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+            
+            # Debug info
+            if patients_file or trials_file:
+                st.caption(f"Debug: patients_file={patients_file is not None}, trials_file={trials_file is not None}")
             
             # Overwrite database buttons when files are uploaded
             if patients_file and trials_file:
