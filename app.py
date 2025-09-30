@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from helpers import (
     load_file, normalize_columns, parse_dates_column, 
     standardize_visit_columns, safe_string_conversion_series, 
@@ -82,9 +83,29 @@ def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
     st.sidebar.header("Upload Data Files")
     
-    # NEW - Database toggle
+    # NEW - Database toggle and backup section
     if st.session_state.get('database_available', False):
         st.sidebar.success("Database Connected")
+        
+        # Database backup section
+        st.sidebar.subheader("Database Backup")
+        if st.sidebar.button("Download Complete Database Backup (ZIP)", use_container_width=True):
+            with st.spinner("Creating backup..."):
+                backup_zip = database.create_backup_zip()
+                if backup_zip:
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    st.sidebar.download_button(
+                        label="Download ZIP File",
+                        data=backup_zip,
+                        file_name=f"clinical_trial_backup_{today}.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
+                    st.sidebar.success("Backup ready for download!")
+        
+        st.sidebar.divider()
+        
+        # Database load toggle
         use_database = st.sidebar.checkbox(
             "Load from Database", 
             value=False,
@@ -95,6 +116,8 @@ def setup_file_uploaders():
         st.session_state.use_database = False
         if st.session_state.get('database_status'):
             st.sidebar.info(f"Database: {st.session_state.database_status}")
+    
+    st.sidebar.divider()
     
     trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
     patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
