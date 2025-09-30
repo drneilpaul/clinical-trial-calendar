@@ -159,9 +159,6 @@ def prepare_actual_visits_data(actual_visits_df):
     actual_visits_df["Study"] = safe_string_conversion(actual_visits_df["Study"])
     actual_visits_df["VisitName"] = safe_string_conversion(actual_visits_df["VisitName"])
     
-    # Debug: Check dates before conversion
-    log_activity(f"ActualDate before conversion - sample: {actual_visits_df['ActualDate'].head().tolist()}", level='info')
-    log_activity(f"ActualDate types before conversion: {actual_visits_df['ActualDate'].apply(type).value_counts().to_dict()}", level='info')
     
     # Check if dates are already parsed (from database) or need parsing (from file upload)
     if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):

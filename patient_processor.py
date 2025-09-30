@@ -51,9 +51,6 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
             skipped_counter[0] += 1
         return None, []
     
-    # Debug: Log all actual visits being processed
-    from helpers import log_activity
-    log_activity(f"🔍 Processing actual visit: {patient_id} | {visit_name} | {visit_date.strftime('%Y-%m-%d')}", level='info')
     
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     

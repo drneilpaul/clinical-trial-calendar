@@ -619,132 +619,18 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
             
-            # Debug: Check actual visits in visits_df
+            # Show visit summary
             actual_count = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
             st.write(f"**Status:** {len(visits_df)} visits ({actual_count} actual) | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
             
-            # Debug: Check what happened to actual visits from database
-            if st.session_state.get('load_from_database', False) and actual_visits_df is not None:
-                st.write(f"**Actual Visits Processing:** {len(actual_visits_df)} from DB -> {actual_count} in calendar")
-                if len(actual_visits_df) > actual_count:
-                    st.write(f"**Missing:** {len(actual_visits_df) - actual_count} actual visits not processed")
-                
-                # Show calendar date range
-                if not calendar_df.empty and 'Date' in calendar_df.columns:
-                    cal_min = calendar_df['Date'].min()
-                    cal_max = calendar_df['Date'].max()
-                    st.write(f"**Calendar Date Range:** {cal_min.strftime('%Y-%m-%d')} to {cal_max.strftime('%Y-%m-%d')} ({len(calendar_df)} days)")
-                    
-                    # Show actual visits date range
-                    if 'ActualDate' in actual_visits_df.columns:
-                        actual_min = actual_visits_df['ActualDate'].min()
-                        actual_max = actual_visits_df['ActualDate'].max()
-                        st.write(f"**Actual Visits Date Range:** {actual_min.strftime('%Y-%m-%d')} to {actual_max.strftime('%Y-%m-%d')}")
-                        
-                        # Count visits outside calendar range
-                        outside_range = actual_visits_df[
-                            (actual_visits_df['ActualDate'] < cal_min) | 
-                            (actual_visits_df['ActualDate'] > cal_max)
-                        ]
-                        st.write(f"**Visits Outside Calendar Range:** {len(outside_range)}")
-                        if len(outside_range) > 0:
-                            st.write("**Sample Outside Range:**")
-                            for _, visit in outside_range.head(3).iterrows():
-                                date_str = "Invalid Date" if pd.isna(visit['ActualDate']) else visit['ActualDate'].strftime('%Y-%m-%d')
-                                st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {date_str}")
-                        
-                        # Show if calendar was extended
-                        if len(outside_range) == 0:
-                            st.write("✅ **All actual visits are within calendar range**")
-                        else:
-                            st.write(f"⚠️ **{len(outside_range)} actual visits are outside calendar range**")
             
-            # Debug: Check database data format and content
-            if st.session_state.get('load_from_database', False):
-                st.write("**Database Data Debug:**")
-                
-                # Check actual visits from database
-                try:
-                    db_visits = database.fetch_all_actual_visits()
-                    if db_visits is not None and not db_visits.empty:
-                        st.write(f"**Database Actual Visits:** {len(db_visits)} records")
-                        st.write("**Sample Database Records:**")
-                        for _, visit in db_visits.head(5).iterrows():
-                            actual_date = visit.get('ActualDate', 'N/A')
-                            st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {actual_date} | Type: {type(actual_date)}")
-                        
-                        # Check for invalid dates in database
-                        invalid_db_dates = 0
-                        nat_dates = 0
-                        empty_dates = 0
-                        for _, visit in db_visits.iterrows():
-                            actual_date = visit.get('ActualDate')
-                            if pd.isna(actual_date):
-                                nat_dates += 1
-                            elif actual_date == '' or actual_date is None:
-                                empty_dates += 1
-                        invalid_db_dates = nat_dates + empty_dates
-                        st.write(f"**Invalid dates in database:** {invalid_db_dates} (NaT: {nat_dates}, Empty: {empty_dates})")
-                        
-                        # Show sample of invalid dates
-                        if nat_dates > 0:
-                            st.write("**Sample NaT dates:**")
-                            nat_samples = db_visits[pd.isna(db_visits['ActualDate'])].head(3)
-                            for _, visit in nat_samples.iterrows():
-                                st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {visit.get('ActualDate', 'N/A')}")
-                        
-                        # Check date format consistency
-                        valid_dates = []
-                        for _, visit in db_visits.iterrows():
-                            actual_date = visit.get('ActualDate')
-                            if pd.notna(actual_date) and actual_date != '' and actual_date is not None:
-                                try:
-                                    parsed_date = pd.to_datetime(actual_date, dayfirst=True)
-                                    valid_dates.append(parsed_date)
-                                except:
-                                    st.write(f"**Date parsing error for:** {actual_date} (type: {type(actual_date)})")
-                        st.write(f"**Successfully parsed dates:** {len(valid_dates)}")
-                    else:
-                        st.write("**No actual visits found in database**")
-                except Exception as e:
-                    st.write(f"**Database error:** {str(e)}")
-            
-            # Debug: Show sample actual visits
+            # Show sample actual visits if any
             if actual_count > 0:
                 actual_sample = visits_df[visits_df.get('IsActual', False) == True].head(3)
                 st.write("**Sample Actual Visits:**")
                 for _, visit in actual_sample.iterrows():
                     date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
                     st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {date_str}")
-                
-                # Debug: Check if actual visits have valid dates
-                valid_dates = 0
-                for _, visit in visits_df[visits_df.get('IsActual', False) == True].iterrows():
-                    if not pd.isna(visit['Date']):
-                        valid_dates += 1
-                st.write(f"**Debug:** {valid_dates} actual visits have valid dates")
-                
-                # Debug: Check what's actually in the calendar DataFrame
-                st.write("**Calendar Debug:**")
-                actual_visits_in_calendar = 0
-                for col in calendar_df.columns:
-                    if col not in ["Date", "Day"] and not col.endswith("_Events") and not col.endswith(" Income") and not col in ["Daily Total", "MonthPeriod", "Monthly Total", "FYStart", "FY Total"]:
-                        for val in calendar_df[col]:
-                            if "✅" in str(val):
-                                actual_visits_in_calendar += 1
-                st.write(f"Actual visits found in calendar: {actual_visits_in_calendar}")
-                
-                # Show sample calendar data for actual visit dates
-                st.write("**Sample Calendar Data for Actual Visit Dates:**")
-                for _, visit in actual_sample.iterrows():
-                    if not pd.isna(visit['Date']):
-                        visit_date = visit['Date'].strftime('%Y-%m-%d')
-                        col_name = f"{visit['Study']}_{visit['PatientID']}"
-                        if col_name in calendar_df.columns:
-                            calendar_row = calendar_df[calendar_df['Date'].dt.strftime('%Y-%m-%d') == visit_date]
-                            if not calendar_row.empty:
-                                cell_value = calendar_row[col_name].iloc[0]
-                                st.write(f"- {visit_date} in {col_name}: '{cell_value}'")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 

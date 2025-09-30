@@ -58,19 +58,6 @@ def build_calendar_dataframe(visits_df, patients_df):
     
     log_activity(f"Created calendar with date range: {min_date} to {max_date} ({len(calendar_dates)} days)", level='info')
     
-    # Debug: Check if actual visits are within calendar range
-    if not visits_df.empty and 'Date' in visits_df.columns:
-        actual_visits_in_range = visits_df[
-            (visits_df['Date'] >= min_date) & 
-            (visits_df['Date'] <= max_date)
-        ]
-        out_of_range = len(visits_df) - len(actual_visits_in_range)
-        if out_of_range > 0:
-            log_activity(f"⚠️ {out_of_range} actual visits are outside calendar date range", level='warning')
-            out_of_range_visits = visits_df[~((visits_df['Date'] >= min_date) & (visits_df['Date'] <= max_date))]
-            for _, visit in out_of_range_visits.head(3).iterrows():
-                date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
-                log_activity(f"  - {visit.get('Study', 'N/A')}_{visit.get('PatientID', 'N/A')} on {date_str}", level='warning')
 
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
@@ -201,15 +188,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         log_activity(f"DEBUG: Found {actual_count} actual visits in visits_df", level='info')
         
-        # NEW: Show ALL actual visits before placing them
-        actual_visits = visits_df[visits_df['IsActual'] == True].copy()
-        for idx, actual in actual_visits.iterrows():
-            date_str = "Invalid Date" if pd.isna(actual['Date']) else actual['Date'].strftime('%Y-%m-%d')
-            log_activity(f"  Actual visit to place: {actual['Study']}_{actual['PatientID']} - {actual['Visit']} on {date_str}", level='info')
-        
-        # Debug: Show available patient columns
-        patient_columns = [col for col in calendar_df.columns if '_' in col and not col.endswith('_Events') and not col.endswith('_Income')]
-        log_activity(f"  Available patient columns: {patient_columns}", level='info')
         
     else:
         log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
@@ -230,15 +208,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         visits_today = visits_df[visits_df["Date"] == calendar_date]
         
         
-        # DEBUG: Log matches (first few only to avoid spam)
-        if len(visits_today) > 0 and i < 3:
-            log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
-        
-        # DEBUG: Check if we have actual visits that should match this date
-        if 'IsActual' in visits_df.columns:
-            actual_visits_today = visits_df[(visits_df["Date"] == calendar_date) & (visits_df['IsActual'] == True)]
-            if len(actual_visits_today) > 0 and i < 3:
-                log_activity(f"  -> {len(actual_visits_today)} actual visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
@@ -308,14 +277,8 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
                     
-                    # NEW: Log when placing actual visits
-                    if is_actual:
-                        log_activity(f"  Placing actual visit in col '{col_id}' on {calendar_date.strftime('%Y-%m-%d')}: '{visit_info}' (current: '{current_value}')", level='info')
-                    
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
-                        if is_actual:
-                            log_activity(f"    -> Placed in empty cell", level='info')
                     else:
                         # Handle multiple visits on same day - IMPROVED LOGIC
                         
