@@ -588,6 +588,20 @@ def main():
                 st.write("**DEBUG: Calendar & Visits Check**")
                 st.write(f"Visits DataFrame: {len(visits_df)} records")
                 st.write(f"Calendar DataFrame: {len(calendar_df)} records")
+                
+                # Direct debug to bypass logging
+                st.write("**Direct Debug - Date Range Analysis:**")
+                if not visits_df.empty:
+                    st.write(f"✅ Visits exist: {len(visits_df)} records")
+                    st.write(f"✅ Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
+                else:
+                    st.write("❌ Visits DataFrame is EMPTY!")
+                
+                if not calendar_df.empty:
+                    st.write(f"✅ Calendar exists: {len(calendar_df)} records")
+                    st.write(f"✅ Calendar date range: {calendar_df['Date'].min()} to {calendar_df['Date'].max()}")
+                else:
+                    st.write("❌ Calendar DataFrame is EMPTY!")
 
                 if not visits_df.empty:
                     st.write(f"Visits date type: {visits_df['Date'].dtype}")
@@ -612,6 +626,25 @@ def main():
                         # Test with first few visits
                         matches = visits_df[visits_df['Date'] == calendar_date_normalized]
                         st.write(f"Matches for first calendar date: {len(matches)}")
+                        
+                        # Check if there are any visits in the calendar date range
+                        st.write("**Calendar Range Analysis:**")
+                        st.write(f"Calendar starts: {calendar_df['Date'].min()}")
+                        st.write(f"Calendar ends: {calendar_df['Date'].max()}")
+                        st.write(f"Visits start: {visits_df['Date'].min()}")
+                        st.write(f"Visits end: {visits_df['Date'].max()}")
+                        
+                        # Check for visits in the first week of calendar
+                        first_week = calendar_df['Date'].head(7)
+                        st.write(f"First week of calendar: {first_week.tolist()}")
+                        
+                        # Check if any visits fall in this range
+                        visits_in_first_week = visits_df[visits_df['Date'].isin(first_week)]
+                        st.write(f"Visits in first week: {len(visits_in_first_week)}")
+                        
+                        if len(visits_in_first_week) > 0:
+                            st.write("Sample visits in first week:")
+                            st.dataframe(visits_in_first_week[['Date', 'PatientID', 'Visit']].head())
 
                 if not calendar_df.empty:
                     st.write(f"Calendar date type: {calendar_df['Date'].dtype}")
