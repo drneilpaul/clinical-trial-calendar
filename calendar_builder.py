@@ -182,6 +182,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         # DEBUG: Log matches (first few only to avoid spam)
         if len(visits_today) > 0 and i < 3:
             log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
+            # Debug: Show which visits are being placed
+            for _, visit in visits_today.iterrows():
+                log_activity(f"  - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} (IsActual: {visit.get('IsActual', False)})", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
@@ -298,5 +301,20 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         log_activity(f"Error: Still have duplicate columns after cleanup: {calendar_df.columns[calendar_df.columns.duplicated()].tolist()}", level='error')
         # Force unique column names by adding suffixes
         calendar_df.columns = pd.io.common.dedup_names(calendar_df.columns, is_potential_multiindex=False)
+    
+    # Debug: Count actual vs predicted visits placed
+    total_actual = 0
+    total_predicted = 0
+    for col in calendar_df.columns:
+        if col not in ['Date', 'Day', 'Daily Total', 'MonthPeriod', 'Monthly Total', 'FYStart', 'FY Total'] and not col.endswith('_Events') and not col.endswith(' Income'):
+            non_empty_cells = calendar_df[col].str.contains('✅|🔴|⚠️', na=False).sum()
+            if non_empty_cells > 0:
+                # Check if this column has actual visits (look for actual visit indicators)
+                actual_visits = calendar_df[col].str.contains('✅.*\(actual\)|🔴.*\(actual\)|⚠️.*\(actual\)', na=False).sum()
+                predicted_visits = non_empty_cells - actual_visits
+                total_actual += actual_visits
+                total_predicted += predicted_visits
+    
+    log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
     
     return calendar_df
