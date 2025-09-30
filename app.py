@@ -7,6 +7,7 @@ from helpers import (
     load_file_with_defaults, init_error_system, display_error_log_section,
     log_activity, display_activity_log_sidebar
 )
+from file_validation import validate_file_upload, get_validation_summary, FileValidationError
 import database  # NEW - Supabase integration
 from processing_calendar import build_calendar
 from display_components import (
@@ -131,17 +132,23 @@ def setup_file_uploaders():
                         if st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
                             if st.session_state.get('overwrite_patients_confirmed', False):
                                 try:
-                                    # Load and validate data first
-                                    patients_df = load_file_with_defaults(patients_file, ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+                                    # Validate and clean data first
+                                    patients_df, validation_messages = validate_file_upload(patients_file, 'patients')
                                     
-                                    # Validate required columns
-                                    required_cols = ['PatientID', 'Study', 'StartDate']
-                                    missing_cols = [col for col in required_cols if col not in patients_df.columns]
-                                    if missing_cols:
-                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                    if patients_df is None:
+                                        st.error("❌ File validation failed!")
+                                        for msg in validation_messages:
+                                            st.error(f"  • {msg}")
                                         st.session_state.overwrite_patients_confirmed = False
                                         st.rerun()
                                         return
+                                    
+                                    # Show validation summary
+                                    validation_summary = get_validation_summary(
+                                        [msg for msg in validation_messages if msg.startswith('❌')],
+                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    )
+                                    st.markdown(validation_summary)
                                     
                                     # Use safe overwrite
                                     if database.safe_overwrite_table('patients', patients_df, database.save_patients_to_database):
@@ -173,17 +180,23 @@ def setup_file_uploaders():
                         if st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
                             if st.session_state.get('overwrite_trials_confirmed', False):
                                 try:
-                                    # Load and validate data first
-                                    trials_df = load_file_with_defaults(trials_file, ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+                                    # Validate and clean data first
+                                    trials_df, validation_messages = validate_file_upload(trials_file, 'trials')
                                     
-                                    # Validate required columns
-                                    required_cols = ['Study', 'Day', 'VisitName']
-                                    missing_cols = [col for col in required_cols if col not in trials_df.columns]
-                                    if missing_cols:
-                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                    if trials_df is None:
+                                        st.error("❌ File validation failed!")
+                                        for msg in validation_messages:
+                                            st.error(f"  • {msg}")
                                         st.session_state.overwrite_trials_confirmed = False
                                         st.rerun()
                                         return
+                                    
+                                    # Show validation summary
+                                    validation_summary = get_validation_summary(
+                                        [msg for msg in validation_messages if msg.startswith('❌')],
+                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    )
+                                    st.markdown(validation_summary)
                                     
                                     # Use safe overwrite
                                     if database.safe_overwrite_table('trial_schedules', trials_df, database.save_trial_schedules_to_database):
@@ -215,17 +228,23 @@ def setup_file_uploaders():
                         if st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
                             if st.session_state.get('overwrite_visits_confirmed', False):
                                 try:
-                                    # Load and validate data first
-                                    actual_visits_df = load_file_with_defaults(actual_visits_file, ['PatientID', 'Study', 'VisitName', 'VisitDate', 'SiteofVisit'])
+                                    # Validate and clean data first
+                                    actual_visits_df, validation_messages = validate_file_upload(actual_visits_file, 'visits')
                                     
-                                    # Validate required columns
-                                    required_cols = ['PatientID', 'Study', 'VisitName', 'VisitDate']
-                                    missing_cols = [col for col in required_cols if col not in actual_visits_df.columns]
-                                    if missing_cols:
-                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                    if actual_visits_df is None:
+                                        st.error("❌ File validation failed!")
+                                        for msg in validation_messages:
+                                            st.error(f"  • {msg}")
                                         st.session_state.overwrite_visits_confirmed = False
                                         st.rerun()
                                         return
+                                    
+                                    # Show validation summary
+                                    validation_summary = get_validation_summary(
+                                        [msg for msg in validation_messages if msg.startswith('❌')],
+                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    )
+                                    st.markdown(validation_summary)
                                     
                                     # Use safe overwrite
                                     if database.safe_overwrite_table('actual_visits', actual_visits_df, database.save_actual_visits_to_database):
@@ -456,18 +475,73 @@ def main():
             # EXISTING FILE PROCESSING CODE
             try:
                 init_error_system()  # Initialize error logging
-                patients_df = normalize_columns(load_file(patients_file))
-                trials_df = normalize_columns(load_file(trials_file))
+                
+                # Validate and clean patients file
+                patients_df, patients_validation = validate_file_upload(patients_file, 'patients')
+                if patients_df is None:
+                    st.error("❌ Patients file validation failed!")
+                    for msg in patients_validation:
+                        st.error(f"  • {msg}")
+                    st.stop()
+                
+                # Validate and clean trials file
+                trials_df, trials_validation = validate_file_upload(trials_file, 'trials')
+                if trials_df is None:
+                    st.error("❌ Trials file validation failed!")
+                    for msg in trials_validation:
+                        st.error(f"  • {msg}")
+                    st.stop()
+                
+                # Validate and clean visits file (if provided)
                 actual_visits_df = None
                 if actual_visits_file:
-                    actual_visits_df = normalize_columns(load_file_with_defaults(
-                        actual_visits_file,
-                        {'VisitType': 'patient', 'Status': 'completed'}
-                    ))
-
-                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                    patients_df, trials_df, actual_visits_df
+                    actual_visits_df, visits_validation = validate_file_upload(actual_visits_file, 'visits')
+                    if actual_visits_df is None:
+                        st.error("❌ Visits file validation failed!")
+                        for msg in visits_validation:
+                            st.error(f"  • {msg}")
+                        st.stop()
+                
+                # Show validation summaries
+                st.markdown("**📋 File Validation Results:**")
+                
+                patients_summary = get_validation_summary(
+                    [msg for msg in patients_validation if msg.startswith('❌')],
+                    [msg for msg in patients_validation if msg.startswith('⚠️')]
                 )
+                st.markdown(f"**Patients:** {patients_summary}")
+                
+                trials_summary = get_validation_summary(
+                    [msg for msg in trials_validation if msg.startswith('❌')],
+                    [msg for msg in trials_validation if msg.startswith('⚠️')]
+                )
+                st.markdown(f"**Trials:** {trials_summary}")
+                
+                if actual_visits_df is not None:
+                    visits_summary = get_validation_summary(
+                        [msg for msg in visits_validation if msg.startswith('❌')],
+                        [msg for msg in visits_validation if msg.startswith('⚠️')]
+                    )
+                    st.markdown(f"**Visits:** {visits_summary}")
+                
+                # Additional validation for study structure
+                missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
+                if missing_studies:
+                    st.error(f"❌ Missing Study Definitions: {missing_studies}")
+                    st.stop()
+
+                for study in patients_df["Study"].unique():
+                    study_visits = trials_df[trials_df["Study"] == study]
+                    day_1_visits = study_visits[study_visits["Day"] == 1]
+                    
+                    if len(day_1_visits) == 0:
+                        st.error(f"❌ Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+                        st.stop()
+                    elif len(day_1_visits) > 1:
+                        visit_names = day_1_visits["VisitName"].tolist()
+                        st.error(f"❌ Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
+                        st.stop()
+                
             except Exception as e:
                 st.error(f"Error processing files: {str(e)}")
                 st.stop()
