@@ -24,7 +24,6 @@ def extract_site_summary(patients_df, screen_failures=None):
     """Extract site summary statistics from patients dataframe with robust site detection"""
     if patients_df.empty:
         return pd.DataFrame()
-
     df = patients_df.copy()
     site_col = None
     for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
@@ -34,14 +33,11 @@ def extract_site_summary(patients_df, screen_failures=None):
     if site_col is None:
         df['__Site'] = 'Unknown Site'
         site_col = '__Site'
-
     df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
-
     site_summary = df.groupby(site_col).agg({
         'PatientID': 'count',
         'Study': lambda x: ', '.join(sorted(map(str, x.unique())))
     }).rename(columns={'PatientID': 'Patient_Count', 'Study': 'Studies'})
-
     site_summary = site_summary.reset_index()
     site_summary = site_summary.rename(columns={site_col: 'Site'})
     return site_summary
@@ -51,12 +47,10 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
     patients_df, failed_patients = parse_dates_column(patients_df, "StartDate")
     if failed_patients:
         st.error(f"Unparseable StartDate values: {failed_patients}")
-
     if actual_visits_df is not None:
         actual_visits_df, failed_actuals = parse_dates_column(actual_visits_df, "ActualDate")
         if failed_actuals:
             st.error(f"Unparseable ActualDate values: {failed_actuals}")
-
     patients_df["PatientID"] = safe_string_conversion_series(patients_df["PatientID"])
     patients_df["Study"] = safe_string_conversion_series(patients_df["Study"])
     
@@ -67,12 +61,10 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
         actual_visits_df = standardize_visit_columns(actual_visits_df)
         actual_visits_df["PatientID"] = safe_string_conversion_series(actual_visits_df["PatientID"])
         actual_visits_df["Study"] = safe_string_conversion_series(actual_visits_df["Study"])
-
     missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
     if missing_studies:
         st.error(f"Missing Study Definitions: {missing_studies}")
         st.stop()
-
     for study in patients_df["Study"].unique():
         study_visits = trials_df[trials_df["Study"] == study]
         day_1_visits = study_visits[study_visits["Day"] == 1]
@@ -84,20 +76,10 @@ def process_dates_and_validation(patients_df, trials_df, actual_visits_df):
             visit_names = day_1_visits["VisitName"].tolist()
             st.error(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
             st.stop()
-
     return patients_df, trials_df, actual_visits_df
 
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
-    # TEMPORARY - Remove this after testing
-    if st.sidebar.button("🧪 Test DB Connection"):
-        if database.test_database_connection():
-            st.sidebar.success("✅ Database connected and tables found")
-        else:
-            st.sidebar.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
-    # END TEMPORARY
-
-    
     st.sidebar.header("Upload Data Files")
     
     # NEW - Database toggle
@@ -148,22 +130,22 @@ def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
     st.title(APP_TITLE)
     st.caption(f"{APP_VERSION} | {APP_SUBTITLE}")
-
     initialize_session_state()
+    
     # NEW - Check database availability
     if 'database_available' not in st.session_state:
         st.session_state.database_available = database.test_database_connection()
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
-
+    
     # Check if we can proceed - either with files OR with database
     can_proceed = (patients_file and trials_file) or st.session_state.get('use_database', False)
-
+    
     if can_proceed:
         # Only show action buttons if files are uploaded (needed for adding patients/visits)
         if patients_file and trials_file:
             display_action_buttons()
-
+        
         # Load data - either from database or files
         if st.session_state.get('use_database', False):
             st.info("Loading data from database...")
@@ -205,29 +187,27 @@ def main():
                         actual_visits_file,
                         {'VisitType': 'patient', 'Status': 'completed'}
                     ))
-
                 patients_df, trials_df, actual_visits_df = process_dates_and_validation(
                     patients_df, trials_df, actual_visits_df
                 )
             except Exception as e:
                 st.error(f"Error processing files: {str(e)}")
                 st.stop()
-
-        # THESE LINES ARE NOW AT THE SAME INDENTATION LEVEL AS "if can_proceed:"
+        
+        # Process modals and generate calendar
         handle_patient_modal()
         handle_visit_modal()
         handle_study_event_modal()
         show_download_sections()
-
+        
         try:
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
             screen_failures = extract_screen_failures(actual_visits_df)
-
             display_processing_messages(messages)
-
+            
             # NEW - Offer to save to database
             if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
                 st.divider()
@@ -259,7 +239,7 @@ def main():
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
-
+            
             show_legend(actual_visits_df)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
             
@@ -268,22 +248,19 @@ def main():
             financial_df = prepare_financial_data(visits_df)
             if not financial_df.empty:
                 display_quarterly_profit_sharing_tables(financial_df, patients_df)
-
-            display_income_realization_analysis(visits_df, trials_df, patients_df)
-
-            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
-
-            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
             
+            display_income_realization_analysis(visits_df, trials_df, patients_df)
+            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
+            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
             display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
-
+            
             # Show error log if any issues occurred
             display_error_log_section()
-
+            
         except Exception as e:
             st.error(f"Error processing files: {e}")
             st.exception(e)
-
+    
     else:
         st.info("Please upload both Patients and Trials files to get started.")
         
@@ -305,9 +282,38 @@ def main():
             - **PatientSite** / **OriginSite** - Alternative site columns
             """)
         
-
-if __name__ == "__main__":
-    main()
+        with col2:
+            st.markdown("""
+            **Trials File**
+            
+            Required columns:
+            - **Study** - Study name/code (must match Patients file)
+            - **Day** - Visit day number (Day 1 = baseline)
+            - **VisitName** - Visit identifier
+            - **SiteforVisit** - Where visit takes place
+            
+            Optional columns:
+            - **Payment** / **Income** - Visit payment amount
+            - **ToleranceBefore** - Days before visit allowed
+            - **ToleranceAfter** - Days after visit allowed
+            - **VisitType** - patient/siv/monitor for study events
+            """)
+        
+        with col3:
+            st.markdown("""
+            **Actual Visits File** *(Optional)*
+            
+            Required columns:
+            - **PatientID** - Must match Patients file
+            - **Study** - Must match Study files
+            - **VisitName** - Must match Trials file
+            - **ActualDate** - When visit actually occurred
+            
+            Optional columns:
+            - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
+            - **VisitType** - patient/siv/monitor (defaults to patient)
+            - **Status** - completed/proposed/cancelled (defaults to completed)
+            """)
         
         st.markdown("---")
         
@@ -323,4 +329,3 @@ if __name__ == "__main__":
 
 if __name__ == "__main__":
     main()
-
