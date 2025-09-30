@@ -187,6 +187,12 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
         log_activity(f"Sample visit dates: {visits_df['Date'].head().tolist()}", level='info')
         log_activity(f"Date dtype: {visits_df['Date'].dtype}", level='info')
+        log_activity(f"Visits columns: {list(visits_df.columns)}", level='info')
+        log_activity(f"Sample visit data: {visits_df[['Date', 'PatientID', 'Visit', 'IsActual']].head(3).to_dict('records')}", level='info')
+    
+    # DEBUG: Check calendar structure
+    log_activity(f"Calendar columns: {list(calendar_df.columns)}", level='info')
+    log_activity(f"Calendar shape: {calendar_df.shape}", level='info')
     
     # Create income tracking columns
     for study in trials_df["Study"].unique():
@@ -199,12 +205,28 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     for i, row in calendar_df.iterrows():
         date = row["Date"]
         
-        # FIX: Compare dates properly (normalize both sides)
-        visits_today = visits_df[visits_df["Date"].dt.date == date.date()]
+        # FIX: Ensure consistent Timestamp comparison
+        calendar_date = pd.Timestamp(date.date())  # Normalize to date-only Timestamp
+        visits_today = visits_df[visits_df["Date"] == calendar_date]
         
-        # DEBUG: Log matches
-        if len(visits_today) > 0:
-            log_activity(f"Found {len(visits_today)} visits for {date.date()}", level='info')
+        # DEBUG: Log matches (first few only to avoid spam)
+        if len(visits_today) > 0 and i < 5:
+            log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
+            log_activity(f"Sample visit: {visits_today.iloc[0]['Visit']}", level='info')
+        
+        # DEBUG: Log first few dates to see if matching is working
+        if i < 5:  # Only log first 5 calendar dates
+            log_activity(f"Calendar date {i}: {calendar_date.strftime('%Y-%m-%d')} | Visits found: {len(visits_today)}", level='info')
+            if len(visits_today) > 0:
+                log_activity(f"Sample visit dates for {calendar_date.strftime('%Y-%m-%d')}: {visits_today['Date'].tolist()[:3]}", level='info')
+        
+        # DEBUG: Check types for first calendar row only
+        if i == 0 and len(visits_df) > 0:
+            log_activity(f"DEBUG: Calendar date type: {type(date)}, value: {date}", level='info')
+            log_activity(f"DEBUG: Calendar_date type: {type(calendar_date)}, value: {calendar_date}", level='info')
+            log_activity(f"DEBUG: Visits Date sample types: {[type(d) for d in visits_df['Date'].head(3)]}", level='info')
+            log_activity(f"DEBUG: Visits Date sample values: {visits_df['Date'].head(3).tolist()}", level='info')
+            log_activity(f"DEBUG: Comparison result for {calendar_date.strftime('%Y-%m-%d')}: {len(visits_today)} matches", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
@@ -259,18 +281,28 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 # Handle regular patient visits
                 base_col_id = f"{study}_{pid}"
                 
+                # DEBUG: Log column matching
+                if i < 5:  # Only log first few iterations
+                    log_activity(f"Processing visit: {study}_{pid} | Base col: {base_col_id}", level='info')
+                
                 # Find the actual column ID (may have site suffix)
                 col_id = None
                 if base_col_id in calendar_df.columns:
                     col_id = base_col_id
+                    if i < 5:
+                        log_activity(f"Found exact column match: {col_id}", level='info')
                 else:
                     # Look for suffixed version
                     for col in calendar_df.columns:
                         if col.startswith(base_col_id + "_"):
                             col_id = col
                             break
+                    if i < 5:
+                        log_activity(f"Looking for suffixed column, found: {col_id}", level='info')
                 
                 if col_id and col_id in calendar_df.columns:
+                    if i < 5:
+                        log_activity(f"Placing visit '{visit_info}' in column '{col_id}'", level='info')
                     current_value = calendar_df.at[i, col_id]
                     
                     if current_value == "":
