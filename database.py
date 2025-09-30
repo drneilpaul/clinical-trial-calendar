@@ -5,6 +5,7 @@ from typing import Optional, Dict, List
 import io
 from datetime import datetime
 import zipfile
+from helpers import log_activity
 
 def get_supabase_client() -> Optional[Client]:
     """
@@ -56,7 +57,9 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'start_date': 'StartDate',
                 'site': 'Site'
             })
+            log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
+        log_activity("No patients found in database", level='info')
         return pd.DataFrame()
     except Exception as e:
         st.error(f"Error fetching patients: {e}")
@@ -132,8 +135,9 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
-        # Upsert (insert or update)
-        client.table('patients').upsert(records).execute()
+        # Upsert (insert or update) - specify conflict resolution
+        response = client.table('patients').upsert(records, on_conflict='patient_id,study').execute()
+        log_activity(f"Saved {len(records)} patient records to database", level='info')
         return True
         
     except Exception as e:

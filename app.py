@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from helpers import (
     load_file, normalize_columns, parse_dates_column, 
     standardize_visit_columns, safe_string_conversion_series, 
@@ -191,9 +192,6 @@ def main():
     use_database = st.session_state.get('use_database', False)
     has_files = patients_file and trials_file
     
-    # Debug info (temporary)
-    st.sidebar.caption(f"Debug: use_database={use_database}, has_files={has_files}")
-    
     if use_database or has_files:
         display_action_buttons()
 
@@ -249,7 +247,7 @@ def main():
             if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
                 st.divider()
                 st.subheader("Save to Database")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     if st.button("💾 Save Patients to DB"):
@@ -272,6 +270,41 @@ def main():
                                 log_activity("Actual visits saved!", level='success')
                             else:
                                 log_activity("Failed to save actual visits to database", level='error')
+                
+                with col4:
+                    if st.button("📦 Download DB Backup"):
+                        backup_zip = database.create_backup_zip()
+                        if backup_zip:
+                            st.download_button(
+                                "💾 Download Database Backup (ZIP)",
+                                data=backup_zip.getvalue(),
+                                file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                mime="application/zip"
+                            )
+                            log_activity("Database backup created successfully", level='success')
+                        else:
+                            log_activity("Failed to create database backup", level='error')
+            
+            # Debug section for database contents
+            if st.session_state.get('database_available', False):
+                st.divider()
+                st.subheader("Database Debug")
+                if st.button("🔍 Check Database Contents"):
+                    patients_db = database.fetch_all_patients()
+                    trials_db = database.fetch_all_trial_schedules()
+                    visits_db = database.fetch_all_actual_visits()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Patients in DB", len(patients_db) if patients_db is not None else 0)
+                    with col2:
+                        st.metric("Trials in DB", len(trials_db) if trials_db is not None else 0)
+                    with col3:
+                        st.metric("Visits in DB", len(visits_db) if visits_db is not None else 0)
+                    
+                    if patients_db is not None and not patients_db.empty:
+                        st.write("**Sample Patients from DB:**")
+                        st.dataframe(patients_db.head())
             
             # 1. CALENDAR (moved to top)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
