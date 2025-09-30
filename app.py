@@ -506,10 +506,19 @@ def main():
                 st.write(f"StartDate unique values: {patients_df['StartDate'].unique()[:10]}")
                 
                 st.write("**Patient Studies:**")
-                st.write(patients_df['Study'].unique())
+                st.write(list(patients_df['Study'].unique()))
                 
                 st.write("**Patient IDs:**")
-                st.write(patients_df['PatientID'].unique())
+                st.write(list(patients_df['PatientID'].unique()))
+                
+                st.write("**Patient StartDate Range:**")
+                st.write(f"Earliest: {patients_df['StartDate'].min()}")
+                st.write(f"Latest: {patients_df['StartDate'].max()}")
+                
+                st.write("**Calendar Date Range:**")
+                if 'calendar_df' in locals():
+                    st.write(f"Calendar start: {calendar_df['Date'].min()}")
+                    st.write(f"Calendar end: {calendar_df['Date'].max()}")
             
             # Skip file processing, go straight to calendar generation
         else:

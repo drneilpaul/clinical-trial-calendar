@@ -4,12 +4,30 @@ from helpers import safe_string_conversion, format_site_events, log_activity
 
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
-    # Create date range
-    min_date = visits_df["Date"].min() - timedelta(days=1)
-    max_date = visits_df["Date"].max() + timedelta(days=1)
+    # Create date range based on visits if available, otherwise use patient dates
+    if not visits_df.empty and 'Date' in visits_df.columns:
+        min_date = visits_df["Date"].min() - timedelta(days=1)
+        max_date = visits_df["Date"].max() + timedelta(days=1)
+    else:
+        # Fallback: use patient start dates to create a reasonable date range
+        if not patients_df.empty and 'StartDate' in patients_df.columns:
+            patient_min = patients_df["StartDate"].min()
+            patient_max = patients_df["StartDate"].max()
+            # Create a range from 30 days before first patient to 2 years after last patient
+            min_date = patient_min - timedelta(days=30)
+            max_date = patient_max + timedelta(days=730)  # 2 years
+        else:
+            # Ultimate fallback: use current date range
+            from datetime import date
+            today = date.today()
+            min_date = today - timedelta(days=30)
+            max_date = today + timedelta(days=365)
+    
     calendar_dates = pd.date_range(start=min_date, end=max_date)
     calendar_df = pd.DataFrame({"Date": calendar_dates})
     calendar_df["Day"] = calendar_df["Date"].dt.day_name()
+    
+    log_activity(f"Created calendar with date range: {min_date} to {max_date} ({len(calendar_dates)} days)", level='info')
 
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
