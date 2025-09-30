@@ -61,7 +61,11 @@ def create_site_header_row(columns, site_column_mapping):
                     for patient_info in site_data['patient_info']:
                         if patient_info['col_id'] == col:
                             study_patient = f"{patient_info['study']}_{patient_info['patient_id']}"
-                            origin_site = f"({patient_info['origin_site']})"
+                            origin_site_value = patient_info.get('origin_site', '')
+                            if origin_site_value and origin_site_value != 'Unknown Origin':
+                                origin_site = f"({origin_site_value})"
+                            else:
+                                origin_site = ""
                             break
                     break
             

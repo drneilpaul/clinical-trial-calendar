@@ -56,7 +56,18 @@ def build_calendar_dataframe(visits_df, patients_df):
                 ]
                 
                 if not patient_row.empty:
-                    origin_site = patient_row.iloc[0]['Site']
+                    # Try to get origin site from various possible columns
+                    origin_site = ""
+                    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                        if candidate in patient_row.columns and not pd.isna(patient_row.iloc[0][candidate]):
+                            origin_site = str(patient_row.iloc[0][candidate]).strip()
+                            if origin_site and origin_site != 'nan':
+                                break
+                    
+                    # If still empty, use a default
+                    if not origin_site:
+                        origin_site = "Unknown Origin"
+                    
                     col_id = f"{study}_{patient_id}"
                     
                     site_patients_info.append({
@@ -76,7 +87,19 @@ def build_calendar_dataframe(visits_df, patients_df):
                         for _, patient in recruited_patients.iterrows():
                             patient_id = patient['PatientID']
                             study = patient['Study']
-                            origin_site = patient['Site']
+                            
+                            # Try to get origin site from various possible columns
+                            origin_site = ""
+                            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                                if candidate in patient.index and not pd.isna(patient[candidate]):
+                                    origin_site = str(patient[candidate]).strip()
+                                    if origin_site and origin_site != 'nan':
+                                        break
+                            
+                            # If still empty, use a default
+                            if not origin_site:
+                                origin_site = "Unknown Origin"
+                            
                             col_id = f"{study}_{patient_id}"
                             
                             site_patients_info.append({
