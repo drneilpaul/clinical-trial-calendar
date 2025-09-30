@@ -35,7 +35,7 @@ def load_file_with_defaults(uploaded_file, default_columns=None):
 def normalize_columns(df):
     """Normalize column names by stripping whitespace"""
     if df is not None:
-        df.columns = df.columns.str.strip()
+        df.columns = [str(col).strip() for col in df.columns]
     return df
 
 def safe_string_conversion(value, default=""):

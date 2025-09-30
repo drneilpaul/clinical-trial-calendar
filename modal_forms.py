@@ -69,14 +69,14 @@ def _render_patient_form(is_modal=True):
             st.error("Could not load patients file or file is empty")
             return
             
-        existing_patients.columns = existing_patients.columns.str.strip()
+        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
         
         existing_trials = load_file(trials_file)
         if existing_trials is None or existing_trials.empty:
             st.error("Could not load trials file or file is empty")
             return
             
-        existing_trials.columns = existing_trials.columns.str.strip()
+        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
         
         available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
         
@@ -218,20 +218,20 @@ def _render_visit_form(is_modal=True):
             st.error("Could not load patients file or file is empty")
             return
             
-        existing_patients.columns = existing_patients.columns.str.strip()
+        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
         
         existing_trials = load_file(trials_file)
         if existing_trials is None or existing_trials.empty:
             st.error("Could not load trials file or file is empty")
             return
             
-        existing_trials.columns = existing_trials.columns.str.strip()
+        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
         
         # Load existing visits
         existing_visits = pd.DataFrame()
         if actual_visits_file:
             existing_visits = load_file(actual_visits_file)
-            existing_visits.columns = existing_visits.columns.str.strip()
+            existing_visits.columns = [str(col).strip() for col in existing_visits.columns]
         
         # Patient selection
         patient_options = []

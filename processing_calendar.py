@@ -13,11 +13,11 @@ from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
 def build_calendar(patients_df, trials_df, actual_visits_df=None):
     """Enhanced calendar builder with study events support - Main orchestrator function"""
     
-    # Clean columns
-    patients_df.columns = patients_df.columns.str.strip()
-    trials_df.columns = trials_df.columns.str.strip()
+    # Clean columns - ensure they are strings before using .str accessor
+    patients_df.columns = [str(col).strip() for col in patients_df.columns]
+    trials_df.columns = [str(col).strip() for col in trials_df.columns]
     if actual_visits_df is not None:
-        actual_visits_df.columns = actual_visits_df.columns.str.strip()
+        actual_visits_df.columns = [str(col).strip() for col in actual_visits_df.columns]
 
     # Validate required columns
     validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
