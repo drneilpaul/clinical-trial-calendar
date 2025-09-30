@@ -287,6 +287,10 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
     recalculated_patients = []
     patients_with_no_visits = []
     
+    log_activity(f"Processing {len(patients_df)} patients with {len(patient_visits)} trial visits", level='info')
+    log_activity(f"Patient studies: {patients_df['Study'].unique()}", level='info')
+    log_activity(f"Trial studies: {patient_visits['Study'].unique()}", level='info')
+    
     for _, patient in patients_df.iterrows():
         patient_id = str(patient["PatientID"])
         study = str(patient["Study"])
@@ -308,6 +312,9 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
+    
+    log_activity(f"Processed all patients: {len(all_visit_records)} total visit records generated", level='info')
+    log_activity(f"Patients with no visits: {len(patients_with_no_visits)}", level='info')
     
     return {
         'visit_records': all_visit_records,

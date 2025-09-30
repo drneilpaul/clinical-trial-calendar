@@ -499,6 +499,17 @@ def main():
                 
                 st.write("**Patient StartDate Sample:**")
                 st.write(patients_df['StartDate'].head())
+                
+                st.write("**Patient StartDate Info:**")
+                st.write(f"StartDate column type: {patients_df['StartDate'].dtype}")
+                st.write(f"StartDate null count: {patients_df['StartDate'].isna().sum()}")
+                st.write(f"StartDate unique values: {patients_df['StartDate'].unique()[:10]}")
+                
+                st.write("**Patient Studies:**")
+                st.write(patients_df['Study'].unique())
+                
+                st.write("**Patient IDs:**")
+                st.write(patients_df['PatientID'].unique())
             
             # Skip file processing, go straight to calendar generation
         else:
