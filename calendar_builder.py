@@ -168,6 +168,12 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     if 'IsActual' in visits_df.columns:
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         log_activity(f"DEBUG: Found {actual_count} actual visits in visits_df", level='info')
+        
+        # Debug: Show sample actual visits
+        if actual_count > 0:
+            actual_sample = visits_df[visits_df['IsActual'] == True].head(3)
+            for _, visit in actual_sample.iterrows():
+                log_activity(f"DEBUG: Actual visit - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {visit['Date']}", level='info')
     else:
         log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
     

@@ -636,6 +636,13 @@ def main():
                 for _, visit in actual_sample.iterrows():
                     date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
                     st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {date_str}")
+                
+                # Debug: Check if actual visits have valid dates
+                valid_dates = 0
+                for _, visit in visits_df[visits_df.get('IsActual', False) == True].iterrows():
+                    if not pd.isna(visit['Date']):
+                        valid_dates += 1
+                st.write(f"**Debug:** {valid_dates} actual visits have valid dates")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 
