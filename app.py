@@ -156,71 +156,70 @@ def main():
         
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-# Check if we can proceed - either with files OR with database
-can_proceed = (patients_file and trials_file) or st.session_state.get('use_database', False)
+    # Check if we can proceed - either with files OR with database
+    can_proceed = (patients_file and trials_file) or st.session_state.get('use_database', False)
 
-if can_proceed:
-    # Only show action buttons if files are uploaded (needed for adding patients/visits)
-    if patients_file and trials_file:
-        display_action_buttons()
+    if can_proceed:
+        # Only show action buttons if files are uploaded (needed for adding patients/visits)
+        if patients_file and trials_file:
+            display_action_buttons()
 
-    # Load data - either from database or files
-    if st.session_state.get('use_database', False):
-        st.info("Loading data from database...")
-        try:
-            patients_df = database.fetch_all_patients()
-            trials_df = database.fetch_all_trial_schedules()
-            actual_visits_df = database.fetch_all_actual_visits()
-            
-            if patients_df is None or trials_df is None:
-                st.error("Failed to load from database. Check your database connection and table structure.")
+        # Load data - either from database or files
+        if st.session_state.get('use_database', False):
+            st.info("Loading data from database...")
+            try:
+                patients_df = database.fetch_all_patients()
+                trials_df = database.fetch_all_trial_schedules()
+                actual_visits_df = database.fetch_all_actual_visits()
+                
+                if patients_df is None or trials_df is None:
+                    st.error("Failed to load from database. Check your database connection and table structure.")
+                    st.stop()
+                
+                if patients_df.empty or trials_df.empty:
+                    st.warning("Database tables are empty. Please upload files and save to database first.")
+                    st.session_state.use_database = False
+                    st.stop()
+                
+                st.success(f"Loaded {len(patients_df)} patients and {len(trials_df)} trial schedules from database")
+                
+                # Process the database data
+                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                    patients_df, trials_df, actual_visits_df
+                )
+                
+            except Exception as e:
+                st.error(f"Error loading from database: {str(e)}")
+                st.exception(e)
                 st.stop()
-            
-            if patients_df.empty or trials_df.empty:
-                st.warning("Database tables are empty. Please upload files and save to database first.")
-                st.session_state.use_database = False
+                
+        else:
+            # Load from uploaded files
+            try:
+                init_error_system()
+                patients_df = normalize_columns(load_file(patients_file))
+                trials_df = normalize_columns(load_file(trials_file))
+                actual_visits_df = None
+                if actual_visits_file:
+                    actual_visits_df = normalize_columns(load_file_with_defaults(
+                        actual_visits_file,
+                        {'VisitType': 'patient', 'Status': 'completed'}
+                    ))
+
+                patients_df, trials_df, actual_visits_df = process_dates_and_validation(
+                    patients_df, trials_df, actual_visits_df
+                )
+            except Exception as e:
+                st.error(f"Error processing files: {str(e)}")
                 st.stop()
-            
-            st.success(f"Loaded {len(patients_df)} patients and {len(trials_df)} trial schedules from database")
-            
-            # Process the database data
-            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                patients_df, trials_df, actual_visits_df
-            )
-            
-        except Exception as e:
-            st.error(f"Error loading from database: {str(e)}")
-            st.exception(e)
-            st.stop()
-            
-    else:
-        # Load from uploaded files
-        try:
-            init_error_system()
-            patients_df = normalize_columns(load_file(patients_file))
-            trials_df = normalize_columns(load_file(trials_file))
-            actual_visits_df = None
-            if actual_visits_file:
-                actual_visits_df = normalize_columns(load_file_with_defaults(
-                    actual_visits_file,
-                    {'VisitType': 'patient', 'Status': 'completed'}
-                ))
 
-            patients_df, trials_df, actual_visits_df = process_dates_and_validation(
-                patients_df, trials_df, actual_visits_df
-            )
-        except Exception as e:
-            st.error(f"Error processing files: {str(e)}")
-            st.stop()
-
-        
+        # THESE LINES ARE NOW AT THE SAME INDENTATION LEVEL AS "if can_proceed:"
         handle_patient_modal()
         handle_visit_modal()
         handle_study_event_modal()
         show_download_sections()
 
         try:
-
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
@@ -306,38 +305,9 @@ if can_proceed:
             - **PatientSite** / **OriginSite** - Alternative site columns
             """)
         
-        with col2:
-            st.markdown("""
-            **Trials File**
-            
-            Required columns:
-            - **Study** - Study name/code (must match Patients file)
-            - **Day** - Visit day number (Day 1 = baseline)
-            - **VisitName** - Visit identifier
-            - **SiteforVisit** - Where visit takes place
-            
-            Optional columns:
-            - **Payment** / **Income** - Visit payment amount
-            - **ToleranceBefore** - Days before visit allowed
-            - **ToleranceAfter** - Days after visit allowed
-            - **VisitType** - patient/siv/monitor for study events
-            """)
-        
-        with col3:
-            st.markdown("""
-            **Actual Visits File** *(Optional)*
-            
-            Required columns:
-            - **PatientID** - Must match Patients file
-            - **Study** - Must match Study files
-            - **VisitName** - Must match Trials file
-            - **ActualDate** - When visit actually occurred
-            
-            Optional columns:
-            - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
-            - **VisitType** - patient/siv/monitor (defaults to patient)
-            - **Status** - completed/proposed/cancelled (defaults to completed)
-            """)
+
+if __name__ == "__main__":
+    main()
         
         st.markdown("---")
         
