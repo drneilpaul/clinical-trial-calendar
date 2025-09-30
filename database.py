@@ -112,6 +112,13 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
+            
+            # Debug: Log raw database data
+            log_activity(f"Raw database actual visits: {len(df)} records", level='info')
+            if len(df) > 0:
+                log_activity(f"Sample raw data: {df.head(3).to_dict('records')}", level='info')
+                log_activity(f"ActualDate column types: {df['actual_date'].apply(type).value_counts().to_dict()}", level='info')
+            
             df = df.rename(columns={
                 'patient_id': 'PatientID',
                 'study': 'Study',
@@ -119,6 +126,11 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'actual_date': 'ActualDate',
                 'notes': 'Notes'
             })
+            
+            # Debug: Log after column renaming
+            log_activity(f"After column renaming: {df.columns.tolist()}", level='info')
+            log_activity(f"ActualDate sample values: {df['ActualDate'].head().tolist()}", level='info')
+            
             return df
         # Return empty DataFrame with proper column structure
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
