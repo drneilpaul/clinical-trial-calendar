@@ -76,7 +76,7 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
         # Check for NaN values in Date column
         nan_dates = visits_df_enhanced['Date'].isna().sum()
         if nan_dates > 0:
-            log_activity(f"Warning: Found {nan_dates} NaN values in Date column, filtering them out", level='warning')
+            log_activity(f"Filtered {nan_dates} invalid dates", level='info')
             visits_df_enhanced = visits_df_enhanced.dropna(subset=['Date'])
         
         visits_df_enhanced['Quarter'] = visits_df_enhanced['Date'].dt.quarter
@@ -270,7 +270,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         # Check for NaN values in StartDate column
         nan_start_dates = site_patients_enhanced['StartDate'].isna().sum()
         if nan_start_dates > 0:
-            log_activity(f"Warning: Found {nan_start_dates} NaN values in StartDate column, filtering them out", level='warning')
+            log_activity(f"Filtered {nan_start_dates} invalid start dates", level='info')
             site_patients_enhanced = site_patients_enhanced.dropna(subset=['StartDate'])
         
         site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter

@@ -35,7 +35,7 @@ def prepare_financial_data(visits_df):
     # Check for NaN values in Date column
     nan_dates = financial_df['Date'].isna().sum()
     if nan_dates > 0:
-        st.warning(f"Found {nan_dates} NaN values in Date column, filtering them out")
+        # Filter out invalid dates silently
         financial_df = financial_df.dropna(subset=['Date'])
     
     financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')

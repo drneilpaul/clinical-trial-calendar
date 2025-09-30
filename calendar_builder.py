@@ -143,7 +143,7 @@ def build_calendar_dataframe(visits_df, patients_df):
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
         
         # Debug: Log patient info for this site
-        log_activity(f"Site {visit_site}: Processing {len(site_patients_info)} patients", level='info')
+        # Process patients for this site
         for patient_info in site_patients_info:
             log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
@@ -310,12 +310,12 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     
     # Check for duplicate indices before returning
     if not calendar_df.index.is_unique:
-        log_activity(f"Warning: Found duplicate indices in calendar DataFrame. Resetting index...", level='warning')
+        log_activity(f"Reset duplicate indices in calendar DataFrame", level='info')
         calendar_df = calendar_df.reset_index(drop=True)
     
     # Check for duplicate column names
     if not calendar_df.columns.is_unique:
-        log_activity(f"Warning: Found duplicate column names in calendar DataFrame. Removing duplicates...", level='warning')
+        log_activity(f"Removed duplicate column names in calendar DataFrame", level='info')
         # Keep first occurrence of each column name
         calendar_df = calendar_df.loc[:, ~calendar_df.columns.duplicated()]
     

@@ -120,12 +120,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         duplicate_mask = visits_df.duplicated(subset=['PatientID', 'Study', 'Date', 'Visit'], keep='first')
         if duplicate_mask.any():
             duplicate_count = duplicate_mask.sum()
-            log_activity(f"Warning: Found {duplicate_count} duplicate visits. Removing duplicates...", level='warning')
+            log_activity(f"Removed {duplicate_count} duplicate visits", level='info')
             visits_df = visits_df[~duplicate_mask].reset_index(drop=True)
     
     # Check for duplicate indices in visits DataFrame
     if not visits_df.index.is_unique:
-        log_activity(f"Warning: Found duplicate indices in visits DataFrame. Resetting index...", level='warning')
+        log_activity(f"Reset duplicate indices in visits DataFrame", level='info')
         visits_df = visits_df.reset_index(drop=True)
 
     # Build processing messages
@@ -293,9 +293,7 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
     recalculated_patients = []
     patients_with_no_visits = []
     
-    log_activity(f"Processing {len(patients_df)} patients with {len(patient_visits)} trial visits", level='info')
-    log_activity(f"Patient studies: {patients_df['Study'].unique()}", level='info')
-    log_activity(f"Trial studies: {patient_visits['Study'].unique()}", level='info')
+    # Process patients and generate visits
     
     for _, patient in patients_df.iterrows():
         patient_id = str(patient["PatientID"])
