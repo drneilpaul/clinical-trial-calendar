@@ -530,13 +530,7 @@ def main():
                     st.write(f"Patient date range: {patients_df['StartDate'].min().strftime('%Y-%m-%d')} to {patients_df['StartDate'].max().strftime('%Y-%m-%d')}")
                     st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
                 
-                st.write("**Calendar Date Range:**")
-                if 'calendar_df' in locals():
-                    st.write(f"Calendar start: {calendar_df['Date'].min()}")
-                    st.write(f"Calendar end: {calendar_df['Date'].max()}")
-                    st.write(f"Calendar days: {len(calendar_df)}")
-                else:
-                    st.write("Calendar not yet created")
+                # Calendar date range will be shown after build_calendar is called
             
             # Skip file processing, go straight to calendar generation
         else:
@@ -639,7 +633,7 @@ def main():
                 if not calendar_df.empty and 'Date' in calendar_df.columns:
                     cal_min = calendar_df['Date'].min()
                     cal_max = calendar_df['Date'].max()
-                    st.write(f"**Calendar Date Range:** {cal_min.strftime('%Y-%m-%d')} to {cal_max.strftime('%Y-%m-%d')}")
+                    st.write(f"**Calendar Date Range:** {cal_min.strftime('%Y-%m-%d')} to {cal_max.strftime('%Y-%m-%d')} ({len(calendar_df)} days)")
                     
                     # Show actual visits date range
                     if 'ActualDate' in actual_visits_df.columns:
@@ -658,6 +652,12 @@ def main():
                             for _, visit in outside_range.head(3).iterrows():
                                 date_str = "Invalid Date" if pd.isna(visit['ActualDate']) else visit['ActualDate'].strftime('%Y-%m-%d')
                                 st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {date_str}")
+                        
+                        # Show if calendar was extended
+                        if len(outside_range) == 0:
+                            st.write("✅ **All actual visits are within calendar range**")
+                        else:
+                            st.write(f"⚠️ **{len(outside_range)} actual visits are outside calendar range**")
             
             # Debug: Check database data format and content
             if st.session_state.get('load_from_database', False):
