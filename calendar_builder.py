@@ -16,7 +16,16 @@ def build_calendar_dataframe(visits_df, patients_df):
     
     # Get unique visit sites (filter out None values)
     site_values = visits_df["SiteofVisit"].dropna().unique()
-    unique_visit_sites = sorted(site_values)
+    
+    # Also include sites that have recruited patients (even if they have no visits)
+    patient_sites = set()
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in patients_df.columns:
+            patient_sites.update(patients_df[candidate].dropna().unique())
+    
+    # Combine visit sites and patient recruitment sites
+    all_sites = set(site_values) | patient_sites
+    unique_visit_sites = sorted([site for site in all_sites if site and str(site) != 'nan'])
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
@@ -27,29 +36,50 @@ def build_calendar_dataframe(visits_df, patients_df):
         site_patients_info = []
         
         # Get unique patient-study combinations at this visit site (exclude study events)
-        for patient_study in site_visits[['PatientID', 'Study']].drop_duplicates().itertuples():
-            patient_id = patient_study.PatientID
-            study = patient_study.Study
-            
-            # Skip study event pseudo-patients
-            if patient_id.startswith(('SIV_', 'MONITOR_')):
-                continue
-            
-            patient_row = patients_df[
-                (patients_df['PatientID'] == patient_id) & 
-                (patients_df['Study'] == study)
-            ]
-            
-            if not patient_row.empty:
-                origin_site = patient_row.iloc[0]['Site']
-                col_id = f"{study}_{patient_id}"
+        if not site_visits.empty:
+            # Site has visits - get patients from visits
+            for patient_study in site_visits[['PatientID', 'Study']].drop_duplicates().itertuples():
+                patient_id = patient_study.PatientID
+                study = patient_study.Study
                 
-                site_patients_info.append({
-                    'col_id': col_id,
-                    'study': study,
-                    'patient_id': patient_id,
-                    'origin_site': origin_site
-                })
+                # Skip study event pseudo-patients
+                if patient_id.startswith(('SIV_', 'MONITOR_')):
+                    continue
+                
+                patient_row = patients_df[
+                    (patients_df['PatientID'] == patient_id) & 
+                    (patients_df['Study'] == study)
+                ]
+                
+                if not patient_row.empty:
+                    origin_site = patient_row.iloc[0]['Site']
+                    col_id = f"{study}_{patient_id}"
+                    
+                    site_patients_info.append({
+                        'col_id': col_id,
+                        'study': study,
+                        'patient_id': patient_id,
+                        'origin_site': origin_site
+                    })
+        else:
+            # Site has no visits - get patients recruited by this site
+            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    recruited_patients = patients_df[patients_df[candidate] == visit_site]
+                    if not recruited_patients.empty:
+                        for _, patient in recruited_patients.iterrows():
+                            patient_id = patient['PatientID']
+                            study = patient['Study']
+                            origin_site = patient['Site']
+                            col_id = f"{study}_{patient_id}"
+                            
+                            site_patients_info.append({
+                                'col_id': col_id,
+                                'study': study,
+                                'patient_id': patient_id,
+                                'origin_site': origin_site
+                            })
+                        break  # Found the right column, stop looking
         
         # Sort by study then patient ID for consistent ordering
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
