@@ -344,7 +344,6 @@ def setup_file_uploaders():
             # Database Contents Check
             if st.button("🔍 Check All Database Tables", use_container_width=True):
                 st.session_state.show_database_contents = True
-                st.success("Loading database contents...")
                 st.rerun()
             
             st.divider()
@@ -441,12 +440,9 @@ def main():
         st.subheader("📊 Database Contents")
         
         try:
-            st.write("Fetching data from database...")
             patients_db = database.fetch_all_patients()
             trials_db = database.fetch_all_trial_schedules()
             visits_db = database.fetch_all_actual_visits()
-            
-            st.write(f"Fetched: Patients={patients_db is not None}, Trials={trials_db is not None}, Visits={visits_db is not None}")
             
             col1, col2, col3 = st.columns(3)
             
