@@ -634,6 +634,30 @@ def main():
                 st.write(f"**Actual Visits Processing:** {len(actual_visits_df)} from DB -> {actual_count} in calendar")
                 if len(actual_visits_df) > actual_count:
                     st.write(f"**Missing:** {len(actual_visits_df) - actual_count} actual visits not processed")
+                
+                # Show calendar date range
+                if not calendar_df.empty and 'Date' in calendar_df.columns:
+                    cal_min = calendar_df['Date'].min()
+                    cal_max = calendar_df['Date'].max()
+                    st.write(f"**Calendar Date Range:** {cal_min.strftime('%Y-%m-%d')} to {cal_max.strftime('%Y-%m-%d')}")
+                    
+                    # Show actual visits date range
+                    if 'ActualDate' in actual_visits_df.columns:
+                        actual_min = actual_visits_df['ActualDate'].min()
+                        actual_max = actual_visits_df['ActualDate'].max()
+                        st.write(f"**Actual Visits Date Range:** {actual_min.strftime('%Y-%m-%d')} to {actual_max.strftime('%Y-%m-%d')}")
+                        
+                        # Count visits outside calendar range
+                        outside_range = actual_visits_df[
+                            (actual_visits_df['ActualDate'] < cal_min) | 
+                            (actual_visits_df['ActualDate'] > cal_max)
+                        ]
+                        st.write(f"**Visits Outside Calendar Range:** {len(outside_range)}")
+                        if len(outside_range) > 0:
+                            st.write("**Sample Outside Range:**")
+                            for _, visit in outside_range.head(3).iterrows():
+                                date_str = "Invalid Date" if pd.isna(visit['ActualDate']) else visit['ActualDate'].strftime('%Y-%m-%d')
+                                st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {date_str}")
             
             # Debug: Check database data format and content
             if st.session_state.get('load_from_database', False):
@@ -651,11 +675,23 @@ def main():
                         
                         # Check for invalid dates in database
                         invalid_db_dates = 0
+                        nat_dates = 0
+                        empty_dates = 0
                         for _, visit in db_visits.iterrows():
                             actual_date = visit.get('ActualDate')
-                            if pd.isna(actual_date) or actual_date == '' or actual_date is None:
-                                invalid_db_dates += 1
-                        st.write(f"**Invalid dates in database:** {invalid_db_dates}")
+                            if pd.isna(actual_date):
+                                nat_dates += 1
+                            elif actual_date == '' or actual_date is None:
+                                empty_dates += 1
+                        invalid_db_dates = nat_dates + empty_dates
+                        st.write(f"**Invalid dates in database:** {invalid_db_dates} (NaT: {nat_dates}, Empty: {empty_dates})")
+                        
+                        # Show sample of invalid dates
+                        if nat_dates > 0:
+                            st.write("**Sample NaT dates:**")
+                            nat_samples = db_visits[pd.isna(db_visits['ActualDate'])].head(3)
+                            for _, visit in nat_samples.iterrows():
+                                st.write(f"- {visit.get('PatientID', 'N/A')} | {visit.get('Study', 'N/A')} | {visit.get('VisitName', 'N/A')} | {visit.get('ActualDate', 'N/A')}")
                         
                         # Check date format consistency
                         valid_dates = []

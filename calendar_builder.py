@@ -34,6 +34,24 @@ def build_calendar_dataframe(visits_df, patients_df):
             max_date = today + timedelta(days=365)
             log_activity(f"Using fallback date range: {min_date} to {max_date}", level='info')
     
+    # IMPORTANT: Extend calendar range to include actual visits from database
+    # This ensures all actual visits are visible even if they're outside the predicted visit range
+    if not visits_df.empty and 'IsActual' in visits_df.columns:
+        actual_visits = visits_df[visits_df['IsActual'] == True]
+        if not actual_visits.empty and 'Date' in actual_visits.columns:
+            actual_min = actual_visits["Date"].min()
+            actual_max = actual_visits["Date"].max()
+            
+            # Extend calendar range to include all actual visits
+            if actual_min < min_date:
+                min_date = actual_min - timedelta(days=1)
+                log_activity(f"Extended min_date to include actual visits: {min_date}", level='info')
+            if actual_max > max_date:
+                max_date = actual_max + timedelta(days=1)
+                log_activity(f"Extended max_date to include actual visits: {max_date}", level='info')
+            
+            log_activity(f"Final calendar date range: {min_date} to {max_date}", level='info')
+    
     calendar_dates = pd.date_range(start=min_date, end=max_date)
     calendar_df = pd.DataFrame({"Date": calendar_dates})
     calendar_df["Day"] = calendar_df["Date"].dt.day_name()
