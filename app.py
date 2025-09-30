@@ -636,7 +636,9 @@ def main():
                 actual_visits_sample = visits_df[visits_df.get('IsActual', False) == True].head(3)
                 st.write(f"**Sample Actual Visits:** {len(actual_visits_sample)} shown")
                 for _, visit in actual_visits_sample.iterrows():
-                    st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {visit['Date'].strftime('%Y-%m-%d')}")
+                    # Handle NaT dates safely
+                    date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
+                    st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {date_str}")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 

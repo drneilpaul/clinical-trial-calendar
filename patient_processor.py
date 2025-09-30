@@ -59,6 +59,13 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     # Ensure it's a proper Timestamp and normalize to date only for calendar matching
     if not isinstance(visit_date, pd.Timestamp):
         visit_date = pd.Timestamp(visit_date)
+    
+    # Skip visits with invalid dates
+    if pd.isna(visit_date):
+        from helpers import log_activity
+        log_activity(f"⚠️ Skipping visit '{visit_name}' for patient {patient_id} - invalid date: {actual_visit_data['ActualDate']}", level='warning')
+        return None, []
+    
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
     # Get payment amount
@@ -262,8 +269,10 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 patient_id, study, patient_origin, visit, actual_visit_data,
                 baseline_date, screen_fail_date, processing_messages, out_of_window_visits
             )
-            visit_records.append(visit_record)
-            visit_records.extend(tolerance_records)
+            # Skip if visit was invalid (None returned)
+            if visit_record is not None:
+                visit_records.append(visit_record)
+                visit_records.extend(tolerance_records)
         
         # ALWAYS process scheduled visit (predicted) - show what was planned
         # This ensures we see the full visit schedule even when some visits have happened
