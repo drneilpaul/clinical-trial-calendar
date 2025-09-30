@@ -6,6 +6,12 @@ def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
     log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
     
+    # DEBUG: Check visits_df state when calendar is built
+    if not visits_df.empty:
+        log_activity(f"Visits_df has data - date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+    else:
+        log_activity(f"Visits_df is empty when building calendar!", level='warning')
+    
     # Create date range based on visits if available, otherwise use patient dates
     if not visits_df.empty and 'Date' in visits_df.columns and len(visits_df) > 0:
         min_date = visits_df["Date"].min() - timedelta(days=1)
