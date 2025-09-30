@@ -18,9 +18,17 @@ def load_file_with_defaults(uploaded_file, default_columns=None):
         return df
     
     if default_columns:
-        for col, default_value in default_columns.items():
-            if col not in df.columns:
-                df[col] = default_value
+        # Handle both list and dict inputs
+        if isinstance(default_columns, list):
+            # If list, add columns with empty string defaults
+            for col in default_columns:
+                if col not in df.columns:
+                    df[col] = ""
+        elif isinstance(default_columns, dict):
+            # If dict, use provided default values
+            for col, default_value in default_columns.items():
+                if col not in df.columns:
+                    df[col] = default_value
     
     return df
 
