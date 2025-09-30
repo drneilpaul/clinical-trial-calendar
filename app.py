@@ -162,7 +162,7 @@ def setup_file_uploaders():
                                 st.session_state.overwrite_patients_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
                     with col2:
-                        if st.button("❌", help="Cancel"):
+                        if st.button("❌ Cancel Patients", help="Cancel patients overwrite"):
                             st.session_state.overwrite_patients_confirmed = False
                             st.rerun()
                 
@@ -204,7 +204,7 @@ def setup_file_uploaders():
                                 st.session_state.overwrite_trials_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
                     with col2:
-                        if st.button("❌", help="Cancel"):
+                        if st.button("❌ Cancel Trials", help="Cancel trials overwrite"):
                             st.session_state.overwrite_trials_confirmed = False
                             st.rerun()
                 
@@ -246,7 +246,7 @@ def setup_file_uploaders():
                                 st.session_state.overwrite_visits_confirmed = True
                                 st.warning("⚠️ Click again to confirm overwrite")
                     with col2:
-                        if st.button("❌", help="Cancel"):
+                        if st.button("❌ Cancel Visits", help="Cancel visits overwrite"):
                             st.session_state.overwrite_visits_confirmed = False
                             st.rerun()
     else:
