@@ -35,7 +35,11 @@ def prepare_financial_data(visits_df):
     if 'QuarterYear' not in financial_df.columns:
         financial_df['Quarter'] = financial_df['Date'].dt.quarter
         financial_df['Year'] = financial_df['Date'].dt.year
-        financial_df['QuarterYear'] = financial_df['Year'].astype(int).astype(str) + '-Q' + financial_df['Quarter'].astype(int).astype(str)
+        # Handle NaN values before converting to int
+        financial_df['QuarterYear'] = (
+            financial_df['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
+            financial_df['Quarter'].fillna(0).astype(int).astype(str)
+        )
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in financial_df.columns:
@@ -69,9 +73,19 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
     # Add time period columns to visits_df if not already present
     visits_df_enhanced = visits_df.copy()
     if 'QuarterYear' not in visits_df_enhanced.columns:
+        # Check for NaN values in Date column
+        nan_dates = visits_df_enhanced['Date'].isna().sum()
+        if nan_dates > 0:
+            log_activity(f"Warning: Found {nan_dates} NaN values in Date column, filtering them out", level='warning')
+            visits_df_enhanced = visits_df_enhanced.dropna(subset=['Date'])
+        
         visits_df_enhanced['Quarter'] = visits_df_enhanced['Date'].dt.quarter
         visits_df_enhanced['Year'] = visits_df_enhanced['Date'].dt.year
-        visits_df_enhanced['QuarterYear'] = visits_df_enhanced['Year'].astype(int).astype(str) + '-Q' + visits_df_enhanced['Quarter'].astype(int).astype(str)
+        # Handle NaN values before converting to int
+        visits_df_enhanced['QuarterYear'] = (
+            visits_df_enhanced['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
+            visits_df_enhanced['Quarter'].fillna(0).astype(int).astype(str)
+        )
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in visits_df_enhanced.columns:
@@ -248,9 +262,20 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         # Add time period columns to patients data
         site_patients_enhanced = site_related_patients.copy()
+        
+        # Check for NaN values in StartDate column
+        nan_start_dates = site_patients_enhanced['StartDate'].isna().sum()
+        if nan_start_dates > 0:
+            log_activity(f"Warning: Found {nan_start_dates} NaN values in StartDate column, filtering them out", level='warning')
+            site_patients_enhanced = site_patients_enhanced.dropna(subset=['StartDate'])
+        
         site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
         site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
-        site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(int).astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(int).astype(str)
+        # Handle NaN values before converting to int
+        site_patients_enhanced['QuarterYear'] = (
+            site_patients_enhanced['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
+            site_patients_enhanced['Quarter'].fillna(0).astype(int).astype(str)
+        )
         # FIXED: Use centralized FY calculation from helpers
         site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
         
