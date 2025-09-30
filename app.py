@@ -432,6 +432,16 @@ def main():
                 if actual_visits_df is not None:
                     st.write(f"Visits: {len(actual_visits_df)} records")
                 
+                st.write("**Trials Data Sample:**")
+                st.dataframe(trials_df.head())
+                
+                st.write("**Trials Payment Column:**")
+                if 'Payment' in trials_df.columns:
+                    st.write(f"Payment values: {trials_df['Payment'].unique()}")
+                    st.write(f"Payment non-zero count: {(trials_df['Payment'] > 0).sum()}")
+                else:
+                    st.write("❌ Payment column missing from trials!")
+                
                 st.write("**Patient Data Sample:**")
                 st.dataframe(patients_df.head())
                 
@@ -472,6 +482,32 @@ def main():
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
+            
+            # Debug: Check financial data after calendar build
+            if st.session_state.get('show_debug_info', False):
+                st.write("**Calendar Financial Data Debug:**")
+                if 'Daily Total' in calendar_df.columns:
+                    st.write(f"Daily Total non-zero count: {(calendar_df['Daily Total'] > 0).sum()}")
+                    st.write(f"Daily Total max: {calendar_df['Daily Total'].max()}")
+                    st.write(f"Daily Total sample: {calendar_df['Daily Total'].head()}")
+                else:
+                    st.write("❌ Daily Total column missing!")
+                
+                if 'Monthly Total' in calendar_df.columns:
+                    monthly_non_zero = calendar_df['Monthly Total'].dropna()
+                    st.write(f"Monthly Total non-zero count: {len(monthly_non_zero)}")
+                    if len(monthly_non_zero) > 0:
+                        st.write(f"Monthly Total max: {monthly_non_zero.max()}")
+                else:
+                    st.write("❌ Monthly Total column missing!")
+                
+                if 'FY Total' in calendar_df.columns:
+                    fy_non_zero = calendar_df['FY Total'].dropna()
+                    st.write(f"FY Total non-zero count: {len(fy_non_zero)}")
+                    if len(fy_non_zero) > 0:
+                        st.write(f"FY Total max: {fy_non_zero.max()}")
+                else:
+                    st.write("❌ FY Total column missing!")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 
