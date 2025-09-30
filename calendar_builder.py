@@ -164,6 +164,14 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     # DEBUG: Check visits data
     log_activity(f"Filling calendar with {len(visits_df)} visits", level='info')
     
+    # Debug: Count actual vs predicted in visits_df
+    if 'IsActual' in visits_df.columns:
+        actual_count = len(visits_df[visits_df['IsActual'] == True])
+        predicted_count = len(visits_df[visits_df['IsActual'] == False])
+        log_activity(f"Visits breakdown: {actual_count} actual, {predicted_count} predicted", level='info')
+    else:
+        log_activity(f"No IsActual column in visits_df", level='warning')
+    
     # Create income tracking columns
     for study in trials_df["Study"].unique():
         income_col = f"{study} Income"
@@ -184,7 +192,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
             log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
             # Debug: Show which visits are being placed
             for _, visit in visits_today.iterrows():
-                log_activity(f"  - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} (IsActual: {visit.get('IsActual', False)})", level='info')
+                is_actual = visit.get('IsActual', False)
+                visit_type = "ACTUAL" if is_actual else "PREDICTED"
+                log_activity(f"  - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} ({visit_type})", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
@@ -302,18 +312,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         # Force unique column names by adding suffixes
         calendar_df.columns = pd.io.common.dedup_names(calendar_df.columns, is_potential_multiindex=False)
     
-    # Debug: Count actual vs predicted visits placed
-    total_actual = 0
-    total_predicted = 0
-    for col in calendar_df.columns:
-        if col not in ['Date', 'Day', 'Daily Total', 'MonthPeriod', 'Monthly Total', 'FYStart', 'FY Total'] and not col.endswith('_Events') and not col.endswith(' Income'):
-            non_empty_cells = calendar_df[col].str.contains('✅|🔴|⚠️', na=False).sum()
-            if non_empty_cells > 0:
-                # Check if this column has actual visits (look for actual visit indicators)
-                actual_visits = calendar_df[col].str.contains('✅.*\(actual\)|🔴.*\(actual\)|⚠️.*\(actual\)', na=False).sum()
-                predicted_visits = non_empty_cells - actual_visits
-                total_actual += actual_visits
-                total_predicted += predicted_visits
+    # Debug: Count actual vs predicted visits placed by checking the visits_df
+    total_actual = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
+    total_predicted = len(visits_df[visits_df.get('IsActual', False) == False]) if 'IsActual' in visits_df.columns else len(visits_df)
     
     log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
     
