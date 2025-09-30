@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
-from helpers import load_file, normalize_columns, parse_dates_column, standardize_visit_columns, safe_string_conversion_series, load_file_with_defaults
+from helpers import (
+    load_file, normalize_columns, parse_dates_column, 
+    standardize_visit_columns, safe_string_conversion_series, 
+    load_file_with_defaults, init_error_system, display_error_log_section
+)
 from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
