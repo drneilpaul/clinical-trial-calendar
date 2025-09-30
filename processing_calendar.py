@@ -162,14 +162,13 @@ def prepare_actual_visits_data(actual_visits_df):
     
     # Check if dates are already parsed (from database) or need parsing (from file upload)
     if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
-        log_activity(f"Converting ActualDate to datetime with dayfirst=True", level='info')
         # Try dayfirst=True first, but if that fails, try without dayfirst
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
         
         # Check if we got NaT values and try alternative parsing
         nat_count = actual_visits_df["ActualDate"].isna().sum()
         if nat_count > 0:
-            log_activity(f"First attempt created {nat_count} NaT values, trying alternative parsing", level='warning')
+            log_activity(f"⚠️ {nat_count} dates failed to parse, trying alternative format", level='warning')
             # Try without dayfirst for the NaT values
             nat_mask = actual_visits_df["ActualDate"].isna()
             actual_visits_df.loc[nat_mask, "ActualDate"] = pd.to_datetime(
@@ -177,20 +176,11 @@ def prepare_actual_visits_data(actual_visits_df):
                 dayfirst=False, 
                 errors="coerce"
             )
-        
-        # Debug: Check dates after conversion
-        nat_count = actual_visits_df["ActualDate"].isna().sum()
-        log_activity(f"After conversion: {nat_count} NaT values out of {len(actual_visits_df)} total", level='info')
-        
-        if nat_count > 0:
-            # Show which dates failed to parse
-            failed_dates = actual_visits_df[actual_visits_df["ActualDate"].isna()]
-            log_activity(f"Failed to parse dates: {failed_dates['ActualDate'].head().tolist()}", level='warning')
-            # Show the original values that failed
-            original_failed = actual_visits_df.loc[failed_dates.index, 'ActualDate']
-            log_activity(f"Original values that failed: {original_failed.head().tolist()}", level='warning')
-    else:
-        log_activity(f"ActualDate already parsed as datetime - {len(actual_visits_df)} records", level='info')
+            
+            # Check final result
+            final_nat_count = actual_visits_df["ActualDate"].isna().sum()
+            if final_nat_count > 0:
+                log_activity(f"⚠️ {final_nat_count} dates still failed to parse after trying both formats", level='warning')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""
@@ -351,8 +341,10 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
     
-    log_activity(f"Processed all patients: {len(all_visit_records)} total visit records generated", level='info')
-    log_activity(f"Patients with no visits: {len(patients_with_no_visits)}", level='info')
+    if len(all_visit_records) > 0:
+        log_activity(f"✅ Generated {len(all_visit_records)} visit records from {len(patients_df)} patients", level='info')
+    if len(patients_with_no_visits) > 0:
+        log_activity(f"⚠️ {len(patients_with_no_visits)} patients have no visits scheduled", level='warning')
     
     return {
         'visit_records': all_visit_records,

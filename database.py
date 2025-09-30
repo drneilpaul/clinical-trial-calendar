@@ -123,20 +123,14 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
             })
             
             
-            # ADD THIS: Parse ActualDate to datetime objects
+            # Parse ActualDate to datetime objects
             if 'ActualDate' in df.columns:
-                log_activity(f"Converting ActualDate from strings to datetime objects", level='info')
                 df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
                 
                 # Log any parsing failures
                 nat_count = df['ActualDate'].isna().sum()
                 if nat_count > 0:
-                    log_activity(f"⚠️ {nat_count} dates failed to parse in actual_visits", level='warning')
-                    nat_samples = df[df['ActualDate'].isna()].head(3)
-                    for _, row in nat_samples.iterrows():
-                        log_activity(f"  Failed to parse: {row['PatientID']} | {row['Study']} | {row['VisitName']} | {row['ActualDate']}", level='warning')
-                else:
-                    log_activity(f"✅ All {len(df)} dates parsed successfully", level='info')
+                    log_activity(f"⚠️ {nat_count} actual visit dates failed to parse from database", level='warning')
             
             return df
         # Return empty DataFrame with proper column structure

@@ -294,7 +294,6 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             visit_records.extend(scheduled_records)
             screen_fail_exclusions += exclusions
     
-    log_activity(f"Patient {patient_id} generated {len(visit_records)} visit records", level='info')
     if skipped_invalid_dates[0] > 0:
-        log_activity(f"Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
+        log_activity(f"⚠️ Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc

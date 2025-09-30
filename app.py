@@ -619,18 +619,6 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
             
-            # Show visit summary
-            actual_count = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
-            st.write(f"**Status:** {len(visits_df)} visits ({actual_count} actual) | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
-            
-            
-            # Show sample actual visits if any
-            if actual_count > 0:
-                actual_sample = visits_df[visits_df.get('IsActual', False) == True].head(3)
-                st.write("**Sample Actual Visits:**")
-                for _, visit in actual_sample.iterrows():
-                    date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
-                    st.write(f"- {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {date_str}")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 
