@@ -51,6 +51,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
             skipped_counter[0] += 1
         return None, []
     
+    # Debug: Log all actual visits being processed
+    from helpers import log_activity
+    log_activity(f"🔍 Processing actual visit: {patient_id} | {visit_name} | {visit_date.strftime('%Y-%m-%d')}", level='info')
+    
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
     # Get payment amount
@@ -255,6 +259,10 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         actual_visit_data = patient_actual_visits.get(visit_name)
         
         if actual_visit_data is not None:
+            # Debug: Log when we find a matching actual visit
+            from helpers import log_activity
+            log_activity(f"🎯 Found matching actual visit: {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
+            
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, visit, actual_visit_data,

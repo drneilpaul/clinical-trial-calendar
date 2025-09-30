@@ -629,6 +629,12 @@ def main():
             actual_count = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
             st.write(f"**Status:** {len(visits_df)} visits ({actual_count} actual) | {len(calendar_df)} calendar days | {len(site_column_mapping)} sites")
             
+            # Debug: Check what happened to actual visits from database
+            if st.session_state.get('load_from_database', False) and actual_visits_df is not None:
+                st.write(f"**Actual Visits Processing:** {len(actual_visits_df)} from DB -> {actual_count} in calendar")
+                if len(actual_visits_df) > actual_count:
+                    st.write(f"**Missing:** {len(actual_visits_df) - actual_count} actual visits not processed")
+            
             # Debug: Check database data format and content
             if st.session_state.get('load_from_database', False):
                 st.write("**Database Data Debug:**")
