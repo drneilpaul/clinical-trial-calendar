@@ -78,13 +78,19 @@ def display_breakdown_by_study(site_visits, site_patients, site_name):
             'PatientID': 'count'
         }).rename(columns={'PatientID': 'Patient Count'})
         
-        visit_breakdown = site_visits.groupby('Study').agg({
-            'Visit': 'count',
-            'Payment': 'sum'
-        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
-        
-        combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
-        combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(format_currency)
+        if len(site_visits) > 0:
+            visit_breakdown = site_visits.groupby('Study').agg({
+                'Visit': 'count',
+                'Payment': 'sum'
+            }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
+            
+            combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
+            combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(format_currency)
+        else:
+            # Just show patient recruitment data
+            combined_breakdown = study_breakdown.copy()
+            combined_breakdown['Visit Count'] = 0
+            combined_breakdown['Total Income'] = "£0.00"
         
         st.dataframe(combined_breakdown, use_container_width=True)
     except Exception as e:
@@ -491,7 +497,8 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
         # Prepare enhanced visits data
         enhanced_visits_df = prepare_financial_data(visits_df)
         
-        # Create tabs for each visit site or display directly if single site
+        # Always create tabs for all visit sites, even if they have no visits
+        # This ensures sites like Kiltearn are visible even when they only have patient recruitment income
         if len(unique_visit_sites) > 1:
             tabs = st.tabs(unique_visit_sites)
             for i, visit_site in enumerate(unique_visit_sites):
@@ -512,24 +519,49 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         patients_with_visits_here = visits_df[visits_df['SiteofVisit'] == site]['PatientID'].unique()
         site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
         
+        # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            st.warning(f"No patients found with visits at site: {site}")
-            return
+            # Look for patients recruited by this site (based on patient origin)
+            site_col = None
+            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    site_col = candidate
+                    break
+            
+            if site_col:
+                site_related_patients = patients_df[patients_df[site_col] == site]
+            
+            if site_related_patients.empty:
+                st.warning(f"No patients found for site: {site}")
+                return
+            else:
+                st.info(f"ℹ️ No visits performed at {site}, but showing patient recruitment data")
         
         st.subheader(f"🏥 {site} - Visit Site Analysis")
         
         # Overall statistics
         st.write("**Overall Statistics**")
-        metrics_data = {
-            "Patients with visits here": len(site_related_patients),
-            "Total Visits at this site": len(site_visits),
-            "Completed Visits": len(site_visits[site_visits.get('IsActual', False)]),
-            "Total Income": format_currency(site_visits['Payment'].sum())
-        }
+        if len(site_visits) > 0:
+            metrics_data = {
+                "Patients with visits here": len(site_related_patients),
+                "Total Visits at this site": len(site_visits),
+                "Completed Visits": len(site_visits[site_visits.get('IsActual', False)]),
+                "Total Income": format_currency(site_visits['Payment'].sum())
+            }
+        else:
+            metrics_data = {
+                "Patients recruited by this site": len(site_related_patients),
+                "Total Visits at this site": 0,
+                "Recruitment Income": "See below",
+                "Visit Income": "£0.00"
+            }
         create_summary_metrics_row(metrics_data, 4)
         
         # Study breakdown at this site
-        st.write("**Studies performed at this site:**")
+        if len(site_visits) > 0:
+            st.write("**Studies performed at this site:**")
+        else:
+            st.write("**Studies recruited by this site:**")
         display_breakdown_by_study(site_visits, site_related_patients, site)
         
         # Time-based analysis for work done at this site

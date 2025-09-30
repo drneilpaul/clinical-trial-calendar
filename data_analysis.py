@@ -77,7 +77,8 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
     if 'FinancialYear' not in visits_df_enhanced.columns:
         visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(get_financial_year)
     
-    # Create tabs for each visit site
+    # Always create tabs for all visit sites, even if they have no visits
+    # This ensures sites like Kiltearn are visible even when they only have patient recruitment income
     if len(unique_visit_sites) > 1:
         tabs = st.tabs(unique_visit_sites)
         
@@ -98,9 +99,23 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         patients_with_visits_here = site_visits['PatientID'].unique()
         site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
         
+        # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            st.warning(f"No patients found with visits at site: {site}")
-            return
+            # Look for patients recruited by this site (based on patient origin)
+            site_col = None
+            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    site_col = candidate
+                    break
+            
+            if site_col:
+                site_related_patients = patients_df[patients_df[site_col] == site]
+            
+            if site_related_patients.empty:
+                st.warning(f"No patients found for site: {site}")
+                return
+            else:
+                st.info(f"ℹ️ No visits performed at {site}, but showing patient recruitment data")
         
         st.subheader(f"🏥 {site} - Visit Site Analysis")
         
@@ -110,34 +125,53 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         with col1:
             total_patients = len(site_related_patients)
-            st.metric("Patients with visits here", total_patients)
+            if len(site_visits) > 0:
+                st.metric("Patients with visits here", total_patients)
+            else:
+                st.metric("Patients recruited by this site", total_patients)
         
         with col2:
             total_visits = len(site_visits)
             st.metric("Total Visits", total_visits)
         
         with col3:
-            actual_visits = len(site_visits[site_visits.get('IsActual', False)])
-            st.metric("Completed Visits", actual_visits)
+            if len(site_visits) > 0:
+                actual_visits = len(site_visits[site_visits.get('IsActual', False)])
+                st.metric("Completed Visits", actual_visits)
+            else:
+                st.metric("Recruitment Income", "See below")
         
         with col4:
-            total_income = site_visits['Payment'].sum()
-            st.metric("Total Income", f"£{total_income:,.2f}")
+            if len(site_visits) > 0:
+                total_income = site_visits['Payment'].sum()
+                st.metric("Total Income", f"£{total_income:,.2f}")
+            else:
+                st.metric("Visit Income", "£0.00")
         
         # Study breakdown at this visit site
-        st.write("**Studies performed at this site:**")
+        if len(site_visits) > 0:
+            st.write("**Studies performed at this site:**")
+        else:
+            st.write("**Studies recruited by this site:**")
+        
         study_breakdown = site_related_patients.groupby('Study').agg({
             'PatientID': 'count'
         }).rename(columns={'PatientID': 'Patient Count'})
         
-        # Add visit counts and income for work done at this site
-        visit_breakdown = site_visits.groupby('Study').agg({
-            'Visit': 'count',
-            'Payment': 'sum'
-        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
-        
-        combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
-        combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(lambda x: f"£{x:,.2f}")
+        if len(site_visits) > 0:
+            # Add visit counts and income for work done at this site
+            visit_breakdown = site_visits.groupby('Study').agg({
+                'Visit': 'count',
+                'Payment': 'sum'
+            }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
+            
+            combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
+            combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(lambda x: f"£{x:,.2f}")
+        else:
+            # Just show patient recruitment data
+            combined_breakdown = study_breakdown.copy()
+            combined_breakdown['Visit Count'] = 0
+            combined_breakdown['Total Income'] = "£0.00"
         
         st.dataframe(combined_breakdown, use_container_width=True)
         
@@ -148,15 +182,20 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         st.dataframe(origin_breakdown, use_container_width=True)
         
         # Quarterly Analysis
-        st.write("**Quarterly Analysis**")
-        
-        # Filter for relevant visits (exclude tolerance periods)
-        financial_site_visits = site_visits[
-            (site_visits['Visit'].str.startswith("✅", na=False)) |
-            (site_visits['Visit'].str.startswith("⚠️ Screen Fail", na=False)) |
-            (site_visits['Visit'].str.startswith("🔴", na=False)) |
-            (~site_visits['Visit'].isin(['-', '+']) & (~site_visits.get('IsActual', False)))
-        ].copy()
+        if len(site_visits) > 0:
+            st.write("**Quarterly Analysis**")
+            
+            # Filter for relevant visits (exclude tolerance periods)
+            financial_site_visits = site_visits[
+                (site_visits['Visit'].str.startswith("✅", na=False)) |
+                (site_visits['Visit'].str.startswith("⚠️ Screen Fail", na=False)) |
+                (site_visits['Visit'].str.startswith("🔴", na=False)) |
+                (~site_visits['Visit'].isin(['-', '+']) & (~site_visits.get('IsActual', False)))
+            ].copy()
+        else:
+            st.write("**Quarterly Analysis**")
+            st.info("No visits performed at this site - showing patient recruitment analysis only")
+            financial_site_visits = pd.DataFrame()  # Empty dataframe
         
         # Initialize empty dataframes to avoid UnboundLocalError
         quarterly_stats = pd.DataFrame()
@@ -183,7 +222,11 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                     st.dataframe(quarterly_display[['Income']], use_container_width=True)
         
         # Financial Year Analysis
-        st.write("**Financial Year Analysis**")
+        if len(site_visits) > 0:
+            st.write("**Financial Year Analysis**")
+        else:
+            st.write("**Financial Year Analysis**")
+            st.info("No visits performed at this site - showing patient recruitment analysis only")
         
         if not financial_site_visits.empty:
             # Financial year visit and income analysis
