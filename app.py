@@ -132,6 +132,7 @@ def main():
         show_download_sections()
 
         try:
+            init_error_system()  # Initialize error logging
             patients_df = normalize_columns(load_file(patients_file))
             trials_df = normalize_columns(load_file(trials_file))
             actual_visits_df = None
@@ -173,6 +174,9 @@ def main():
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
             
             display_verification_figures(visits_df, calendar_df, financial_df, patients_df)
+
+            # Show error log if any issues occurred
+            display_error_log_section()
 
         except Exception as e:
             st.error(f"Error processing files: {e}")
