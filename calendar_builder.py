@@ -109,10 +109,12 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Site has no visits - only track recruitment income, don't create visit columns
             log_activity(f"Site {visit_site} has no visits, will only track recruitment income", level='info')
             # Don't add any patient columns for sites with no visits
-            site_columns = []
         
         # Sort by study then patient ID for consistent ordering
         site_patients_info.sort(key=lambda x: (x['study'], x['patient_id']))
+        
+        # Initialize site_columns for this site
+        site_columns = []
         
         # Debug: Log patient info for this site
         # Process patients for this site
@@ -120,6 +122,7 @@ def build_calendar_dataframe(visits_df, patients_df):
             log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
         # Add patient columns for this visit site (handle duplicates with suffixes)
+        # Only process if there are patients with visits at this site
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
             final_col_id = col_id
