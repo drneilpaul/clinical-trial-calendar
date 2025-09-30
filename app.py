@@ -277,37 +277,38 @@ def main():
                 st.divider()
                 st.subheader("Save to Database")
                 col1, col2, col3 = st.columns(3)
-    
-            with col1:
-                if st.button("💾 Save Patients to DB"):
-                    if database.save_patients_to_database(patients_df):
-                        record_count = len(patients_df)
-                        st.toast(f"Saved {record_count} patients to database!", icon="✅")
-                        log_activity(f"Saved {record_count} patients to database", level='success')
-                    else:
-                        st.toast("Failed to save patients", icon="❌")
-                        log_activity("Failed to save patients to database", level='error')
-    
-            with col2:
-                if st.button("💾 Save Trials to DB"):
-                    if database.save_trial_schedules_to_database(trials_df):
-                        record_count = len(trials_df)
-                        st.toast(f"Saved {record_count} trial schedules to database!", icon="✅")
-                        log_activity(f"Saved {record_count} trial schedules to database", level='success')
-                    else:
-                        st.toast("Failed to save trials", icon="❌")
-                        log_activity("Failed to save trial schedules to database", level='error')
-            
-            with col3:
-                if actual_visits_df is not None and not actual_visits_df.empty:
-                    if st.button("💾 Save Visits to DB"):
-                        if database.save_actual_visits_to_database(actual_visits_df):
-                            record_count = len(actual_visits_df)
-                            st.toast(f"Saved {record_count} actual visits to database!", icon="✅")
-                            log_activity(f"Saved {record_count} actual visits to database", level='success')
+
+                with col1:
+                    if st.button("💾 Save Patients to DB"):
+                        if database.save_patients_to_database(patients_df):
+                            record_count = len(patients_df)
+                            st.toast(f"Saved {record_count} patients to database!", icon="✅")
+                            log_activity(f"Saved {record_count} patients to database", level='success')
                         else:
-                            st.toast("Failed to save visits", icon="❌")
-                            log_activity("Failed to save actual visits to database", level='error')
+                            st.toast("Failed to save patients", icon="❌")
+                            log_activity("Failed to save patients to database", level='error')
+
+                with col2:
+                    if st.button("💾 Save Trials to DB"):
+                        if database.save_trial_schedules_to_database(trials_df):
+                            record_count = len(trials_df)
+                            st.toast(f"Saved {record_count} trial schedules to database!", icon="✅")
+                            log_activity(f"Saved {record_count} trial schedules to database", level='success')
+                        else:
+                            st.toast("Failed to save trials", icon="❌")
+                            log_activity("Failed to save trial schedules to database", level='error')
+
+                with col3:
+                   if actual_visits_df is not None and not actual_visits_df.empty:
+                        if st.button("💾 Save Visits to DB"):
+                            if database.save_actual_visits_to_database(actual_visits_df):
+                                record_count = len(actual_visits_df)
+                                st.toast(f"Saved {record_count} actual visits to database!", icon="✅")
+                                log_activity(f"Saved {record_count} actual visits to database", level='success')
+                            else:
+                                st.toast("Failed to save visits", icon="❌")
+                                log_activity("Failed to save actual visits to database", level='error')
+
             
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
