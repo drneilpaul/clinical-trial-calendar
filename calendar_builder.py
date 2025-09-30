@@ -169,11 +169,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         log_activity(f"DEBUG: Found {actual_count} actual visits in visits_df", level='info')
         
-        # Debug: Show sample actual visits
-        if actual_count > 0:
-            actual_sample = visits_df[visits_df['IsActual'] == True].head(3)
-            for _, visit in actual_sample.iterrows():
-                log_activity(f"DEBUG: Actual visit - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} on {visit['Date']}", level='info')
     else:
         log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
     
@@ -192,6 +187,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         calendar_date = pd.Timestamp(date.date())  # Normalize to date-only Timestamp
         visits_today = visits_df[visits_df["Date"] == calendar_date]
         
+        
         # DEBUG: Log matches (first few only to avoid spam)
         if len(visits_today) > 0 and i < 3:
             log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
@@ -208,9 +204,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
             is_actual = visit.get("IsActual", False)
             visit_site = visit["SiteofVisit"]
             
-            # Debug: Log actual visits being processed
-            if is_actual and i < 5:
-                log_activity(f"Processing ACTUAL visit: {study}_{pid} - {visit_info} on {calendar_date.strftime('%Y-%m-%d')}", level='info')
 
             # Handle study events - FIXED: Properly handle NaN values
             is_study_event = visit.get("IsStudyEvent", False)
@@ -264,16 +257,8 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             col_id = col
                             break
                 
-                # Debug: Log column lookup for actual visits
-                if is_actual and i < 5:
-                    log_activity(f"Looking for column {base_col_id}, found: {col_id}", level='info')
-                
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
-                    
-                    # Debug: Log when placing visits
-                    if is_actual and i < 5:  # Only log first few for debugging
-                        log_activity(f"Placing ACTUAL visit: {visit_info} in column {col_id} on {calendar_date.strftime('%Y-%m-%d')}", level='info')
                     
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info

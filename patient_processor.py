@@ -177,17 +177,20 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "VisitName": visit_name
     }
     
-    # Create tolerance window records
-    expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
-        visit, baseline_date, visit_day
-    )
-    tolerance_records = create_tolerance_window_records(
-        patient_id, study, site, patient_origin, expected_date,
-        tolerance_before, tolerance_after, visit_day, visit_name,
-        screen_fail_date
-    )
-    
-    return [main_record] + tolerance_records, 0
+    # Only create tolerance window records if there's NO actual visit
+    if not has_actual_visit:
+        expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
+            visit, baseline_date, visit_day
+        )
+        tolerance_records = create_tolerance_window_records(
+            patient_id, study, site, patient_origin, expected_date,
+            tolerance_before, tolerance_after, visit_day, visit_name,
+            screen_fail_date
+        )
+        return [main_record] + tolerance_records, 0
+    else:
+        # Has actual visit - only return the planned visit marker, no tolerance windows
+        return [main_record], 0
 
 def process_single_patient(patient, patient_visits, screen_failures, actual_visits_df=None):
     """Process all visits for a single patient"""
@@ -247,7 +250,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         actual_visit_data = patient_actual_visits.get(visit_name)
         
         if actual_visit_data is not None:
-            # Process actual visit
+            # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, visit, actual_visit_data,
                 baseline_date, screen_fail_date, processing_messages, out_of_window_visits
@@ -256,15 +259,21 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             if visit_record is not None:
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
-        
-        # ALWAYS process scheduled visit (predicted) - show what was planned
-        # This ensures we see the full visit schedule even when some visits have happened
-        scheduled_records, exclusions = process_scheduled_visit(
-            patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-            has_actual_visit=(actual_visit_data is not None)
-        )
-        visit_records.extend(scheduled_records)
-        screen_fail_exclusions += exclusions
+            
+            # Process scheduled visit WITHOUT tolerance windows (just show what was planned)
+            scheduled_records, exclusions = process_scheduled_visit(
+                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
+                has_actual_visit=True
+            )
+            visit_records.extend(scheduled_records)
+        else:
+            # No actual visit - process scheduled with full tolerance windows
+            scheduled_records, exclusions = process_scheduled_visit(
+                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
+                has_actual_visit=False
+            )
+            visit_records.extend(scheduled_records)
+            screen_fail_exclusions += exclusions
     
     log_activity(f"Patient {patient_id} generated {len(visit_records)} visit records", level='info')
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
