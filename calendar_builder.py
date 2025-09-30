@@ -5,9 +5,10 @@ from helpers import safe_string_conversion, format_site_events, log_activity
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
     # Create date range based on visits if available, otherwise use patient dates
-    if not visits_df.empty and 'Date' in visits_df.columns:
+    if not visits_df.empty and 'Date' in visits_df.columns and len(visits_df) > 0:
         min_date = visits_df["Date"].min() - timedelta(days=1)
         max_date = visits_df["Date"].max() + timedelta(days=1)
+        log_activity(f"Using visits date range: {min_date} to {max_date}", level='info')
     else:
         # Fallback: use patient start dates to create a reasonable date range
         if not patients_df.empty and 'StartDate' in patients_df.columns:
@@ -16,12 +17,14 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Create a range from 30 days before first patient to 2 years after last patient
             min_date = patient_min - timedelta(days=30)
             max_date = patient_max + timedelta(days=730)  # 2 years
+            log_activity(f"Using patient date range: {min_date} to {max_date}", level='info')
         else:
             # Ultimate fallback: use current date range
             from datetime import date
             today = date.today()
             min_date = today - timedelta(days=30)
             max_date = today + timedelta(days=365)
+            log_activity(f"Using fallback date range: {min_date} to {max_date}", level='info')
     
     calendar_dates = pd.date_range(start=min_date, end=max_date)
     calendar_df = pd.DataFrame({"Date": calendar_dates})

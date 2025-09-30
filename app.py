@@ -519,6 +519,9 @@ def main():
                 if 'calendar_df' in locals():
                     st.write(f"Calendar start: {calendar_df['Date'].min()}")
                     st.write(f"Calendar end: {calendar_df['Date'].max()}")
+                    st.write(f"Calendar days: {len(calendar_df)}")
+                else:
+                    st.write("Calendar not yet created")
             
             # Skip file processing, go straight to calendar generation
         else:
