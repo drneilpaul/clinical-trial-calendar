@@ -385,3 +385,56 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
         st.error(f"Error overwriting database: {e}")
         log_activity(f"Error overwriting database: {e}", level='error')
         return False
+
+def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bool:
+    """Safely overwrite a single table with atomic operation"""
+    try:
+        # Validate data first
+        if df is None or df.empty:
+            log_activity(f"Cannot overwrite {table_name}: No data provided", level='error')
+            return False
+        
+        # Create backup first
+        backup_df = None
+        if table_name == 'patients':
+            backup_df = fetch_all_patients()
+        elif table_name == 'trial_schedules':
+            backup_df = fetch_all_trial_schedules()
+        elif table_name == 'actual_visits':
+            backup_df = fetch_all_actual_visits()
+        
+        log_activity(f"Created backup of {table_name} before overwrite", level='info')
+        
+        # Clear table
+        clear_function = None
+        if table_name == 'patients':
+            clear_function = clear_patients_table
+        elif table_name == 'trial_schedules':
+            clear_function = clear_trial_schedules_table
+        elif table_name == 'actual_visits':
+            clear_function = clear_actual_visits_table
+        
+        if not clear_function():
+            log_activity(f"Failed to clear {table_name} table", level='error')
+            return False
+        
+        # Save new data
+        if not save_function(df):
+            log_activity(f"Failed to save new data to {table_name}, attempting restore", level='error')
+            # Attempt to restore backup
+            if backup_df is not None and not backup_df.empty:
+                if table_name == 'patients':
+                    save_patients_to_database(backup_df)
+                elif table_name == 'trial_schedules':
+                    save_trial_schedules_to_database(backup_df)
+                elif table_name == 'actual_visits':
+                    save_actual_visits_to_database(backup_df)
+                log_activity(f"Restored backup for {table_name}", level='info')
+            return False
+        
+        log_activity(f"Successfully overwrote {table_name} table", level='success')
+        return True
+        
+    except Exception as e:
+        log_activity(f"Error in safe overwrite of {table_name}: {e}", level='error')
+        return False

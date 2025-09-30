@@ -126,44 +126,130 @@ def setup_file_uploaders():
             patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
             actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
             
-            # Debug info
-            if patients_file or trials_file:
-                st.caption(f"Debug: patients_file={patients_file is not None}, trials_file={trials_file is not None}")
-            
-            # Overwrite database buttons when files are uploaded
-            if patients_file and trials_file:
+            # Selective overwrite buttons - one for each uploaded file
+            if patients_file or trials_file or actual_visits_file:
                 st.divider()
-                st.caption("⚠️ **Overwrite Database** - This will replace ALL data in the database")
+                st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("🔄 Overwrite DB", help="Replace database with uploaded files"):
-                        if st.session_state.get('overwrite_confirmed', False):
-                            # Process files first
-                            try:
-                                patients_df = load_file_with_defaults(patients_file, ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
-                                trials_df = load_file_with_defaults(trials_file, ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
-                                actual_visits_df = None
-                                if actual_visits_file:
+                # Patients overwrite
+                if patients_file:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
+                            if st.session_state.get('overwrite_patients_confirmed', False):
+                                try:
+                                    # Load and validate data first
+                                    patients_df = load_file_with_defaults(patients_file, ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+                                    
+                                    # Validate required columns
+                                    required_cols = ['PatientID', 'Study', 'StartDate']
+                                    missing_cols = [col for col in required_cols if col not in patients_df.columns]
+                                    if missing_cols:
+                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                        st.session_state.overwrite_patients_confirmed = False
+                                        st.rerun()
+                                        return
+                                    
+                                    # Use safe overwrite
+                                    if database.safe_overwrite_table('patients', patients_df, database.save_patients_to_database):
+                                        st.success("✅ Patients table overwritten successfully!")
+                                        st.session_state.use_database = True
+                                        st.session_state.overwrite_patients_confirmed = False
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to overwrite patients table")
+                                        st.session_state.overwrite_patients_confirmed = False
+                                except Exception as e:
+                                    st.error(f"❌ Error processing patients file: {e}")
+                                    log_activity(f"Error processing patients file: {e}", level='error')
+                                    st.session_state.overwrite_patients_confirmed = False
+                            else:
+                                st.session_state.overwrite_patients_confirmed = True
+                                st.warning("⚠️ Click again to confirm overwrite")
+                    with col2:
+                        if st.button("❌", help="Cancel"):
+                            st.session_state.overwrite_patients_confirmed = False
+                            st.rerun()
+                
+                # Trials overwrite
+                if trials_file:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
+                            if st.session_state.get('overwrite_trials_confirmed', False):
+                                try:
+                                    # Load and validate data first
+                                    trials_df = load_file_with_defaults(trials_file, ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+                                    
+                                    # Validate required columns
+                                    required_cols = ['Study', 'Day', 'VisitName']
+                                    missing_cols = [col for col in required_cols if col not in trials_df.columns]
+                                    if missing_cols:
+                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                        st.session_state.overwrite_trials_confirmed = False
+                                        st.rerun()
+                                        return
+                                    
+                                    # Use safe overwrite
+                                    if database.safe_overwrite_table('trial_schedules', trials_df, database.save_trial_schedules_to_database):
+                                        st.success("✅ Trials table overwritten successfully!")
+                                        st.session_state.use_database = True
+                                        st.session_state.overwrite_trials_confirmed = False
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to overwrite trials table")
+                                        st.session_state.overwrite_trials_confirmed = False
+                                except Exception as e:
+                                    st.error(f"❌ Error processing trials file: {e}")
+                                    log_activity(f"Error processing trials file: {e}", level='error')
+                                    st.session_state.overwrite_trials_confirmed = False
+                            else:
+                                st.session_state.overwrite_trials_confirmed = True
+                                st.warning("⚠️ Click again to confirm overwrite")
+                    with col2:
+                        if st.button("❌", help="Cancel"):
+                            st.session_state.overwrite_trials_confirmed = False
+                            st.rerun()
+                
+                # Visits overwrite
+                if actual_visits_file:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
+                            if st.session_state.get('overwrite_visits_confirmed', False):
+                                try:
+                                    # Load and validate data first
                                     actual_visits_df = load_file_with_defaults(actual_visits_file, ['PatientID', 'Study', 'VisitName', 'VisitDate', 'SiteofVisit'])
-                                
-                                # Overwrite database
-                                if database.overwrite_database_with_files(patients_df, trials_df, actual_visits_df):
-                                    st.success("✅ Database overwritten successfully!")
-                                    st.session_state.use_database = True  # Switch to database mode
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to overwrite database")
-                            except Exception as e:
-                                st.error(f"Error processing files: {e}")
-                        else:
-                            st.session_state.overwrite_confirmed = True
-                            st.warning("⚠️ Click again to confirm overwrite")
-                
-                with col2:
-                    if st.button("❌ Cancel", help="Cancel overwrite operation"):
-                        st.session_state.overwrite_confirmed = False
-                        st.rerun()
+                                    
+                                    # Validate required columns
+                                    required_cols = ['PatientID', 'Study', 'VisitName', 'VisitDate']
+                                    missing_cols = [col for col in required_cols if col not in actual_visits_df.columns]
+                                    if missing_cols:
+                                        st.error(f"❌ Missing required columns: {missing_cols}")
+                                        st.session_state.overwrite_visits_confirmed = False
+                                        st.rerun()
+                                        return
+                                    
+                                    # Use safe overwrite
+                                    if database.safe_overwrite_table('actual_visits', actual_visits_df, database.save_actual_visits_to_database):
+                                        st.success("✅ Visits table overwritten successfully!")
+                                        st.session_state.use_database = True
+                                        st.session_state.overwrite_visits_confirmed = False
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to overwrite visits table")
+                                        st.session_state.overwrite_visits_confirmed = False
+                                except Exception as e:
+                                    st.error(f"❌ Error processing visits file: {e}")
+                                    log_activity(f"Error processing visits file: {e}", level='error')
+                                    st.session_state.overwrite_visits_confirmed = False
+                            else:
+                                st.session_state.overwrite_visits_confirmed = True
+                                st.warning("⚠️ Click again to confirm overwrite")
+                    with col2:
+                        if st.button("❌", help="Cancel"):
+                            st.session_state.overwrite_visits_confirmed = False
+                            st.rerun()
     else:
         # Database not available - show file uploaders directly
         st.sidebar.caption("Upload your data files to get started")
