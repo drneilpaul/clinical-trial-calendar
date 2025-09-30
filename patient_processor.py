@@ -19,31 +19,14 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
         (actual_visits_df.get("VisitType", "patient") == "patient")
     ]
     
-    # Debug: Log what actual visits we found for this patient
-    from helpers import log_activity
-    log_activity(f"Found {len(patient_actuals)} actual visits for patient {patient_id} in study {study}", level='info')
-    if len(patient_actuals) > 0:
-        actual_visit_names = patient_actuals["VisitName"].str.strip().tolist()
-        log_activity(f"Actual visit names: {actual_visit_names}", level='info')
-    
     for _, actual_visit in patient_actuals.iterrows():
         visit_name = str(actual_visit["VisitName"]).strip()
-        
-        # Debug: Log the matching attempt
-        from helpers import log_activity
-        log_activity(f"Trying to match actual visit '{visit_name}' for patient {patient_id} in study {study}", level='info')
-        
-        # Get all trial visit names for this study
-        trial_visit_names = study_visits["VisitName"].str.strip().tolist()
-        log_activity(f"Available trial visits: {trial_visit_names}", level='info')
         
         matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
         if len(matching_trial) == 0:
             unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials")
-            log_activity(f"❌ No match found for '{visit_name}'", level='warning')
             continue
         
-        log_activity(f"✅ Matched '{visit_name}' successfully", level='info')
         patient_actual_visits[visit_name] = actual_visit
         actual_visits_used += 1
     

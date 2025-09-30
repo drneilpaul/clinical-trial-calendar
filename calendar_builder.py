@@ -164,14 +164,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     # DEBUG: Check visits data
     log_activity(f"Filling calendar with {len(visits_df)} visits", level='info')
     
-    # Debug: Count actual vs predicted in visits_df
-    if 'IsActual' in visits_df.columns:
-        actual_count = len(visits_df[visits_df['IsActual'] == True])
-        predicted_count = len(visits_df[visits_df['IsActual'] == False])
-        log_activity(f"Visits breakdown: {actual_count} actual, {predicted_count} predicted", level='info')
-    else:
-        log_activity(f"No IsActual column in visits_df", level='warning')
-    
     # Create income tracking columns
     for study in trials_df["Study"].unique():
         income_col = f"{study} Income"
@@ -190,11 +182,6 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         # DEBUG: Log matches (first few only to avoid spam)
         if len(visits_today) > 0 and i < 3:
             log_activity(f"Found {len(visits_today)} visits for {calendar_date.strftime('%Y-%m-%d')}", level='info')
-            # Debug: Show which visits are being placed
-            for _, visit in visits_today.iterrows():
-                is_actual = visit.get('IsActual', False)
-                visit_type = "ACTUAL" if is_actual else "PREDICTED"
-                log_activity(f"  - {visit['Study']}_{visit['PatientID']}: {visit['Visit']} ({visit_type})", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
@@ -207,6 +194,10 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
             payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
             is_actual = visit.get("IsActual", False)
             visit_site = visit["SiteofVisit"]
+            
+            # Debug: Log actual visits being processed
+            if is_actual and i < 5:
+                log_activity(f"Processing ACTUAL visit: {study}_{pid} - {visit_info} on {calendar_date.strftime('%Y-%m-%d')}", level='info')
 
             # Handle study events - FIXED: Properly handle NaN values
             is_study_event = visit.get("IsStudyEvent", False)
@@ -260,8 +251,16 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             col_id = col
                             break
                 
+                # Debug: Log column lookup for actual visits
+                if is_actual and i < 5:
+                    log_activity(f"Looking for column {base_col_id}, found: {col_id}", level='info')
+                
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
+                    
+                    # Debug: Log when placing visits
+                    if is_actual and i < 5:  # Only log first few for debugging
+                        log_activity(f"Placing ACTUAL visit: {visit_info} in column {col_id} on {calendar_date.strftime('%Y-%m-%d')}", level='info')
                     
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
@@ -313,9 +312,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         calendar_df.columns = pd.io.common.dedup_names(calendar_df.columns, is_potential_multiindex=False)
     
     # Debug: Count actual vs predicted visits placed by checking the visits_df
-    total_actual = len(visits_df[visits_df.get('IsActual', False) == True]) if 'IsActual' in visits_df.columns else 0
-    total_predicted = len(visits_df[visits_df.get('IsActual', False) == False]) if 'IsActual' in visits_df.columns else len(visits_df)
-    
-    log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
+    if 'IsActual' in visits_df.columns:
+        total_actual = len(visits_df[visits_df['IsActual'] == True])
+        total_predicted = len(visits_df[visits_df['IsActual'] == False])
+        log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
     
     return calendar_df
