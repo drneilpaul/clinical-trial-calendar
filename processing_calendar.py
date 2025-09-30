@@ -292,20 +292,28 @@ def build_processing_messages(processing_stats, unmatched_visits):
 
 def calculate_financial_totals(calendar_df):
     """Calculate monthly and financial year totals"""
-    # Calculate monthly totals
+    # Calculate monthly totals - cumulative within each month
     calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
-    monthly_totals = calendar_df.groupby("MonthPeriod")["Daily Total"].sum()
-    calendar_df["IsMonthEnd"] = calendar_df["Date"] == calendar_df["Date"] + pd.offsets.MonthEnd(0)
-    calendar_df["Monthly Total"] = calendar_df.apply(
-        lambda r: monthly_totals.get(r["MonthPeriod"], 0.0) if r["IsMonthEnd"] else pd.NA, axis=1
-    )
+    calendar_df["Monthly Total"] = 0.0
+    
+    for month in calendar_df["MonthPeriod"].unique():
+        month_mask = calendar_df["MonthPeriod"] == month
+        month_data = calendar_df[month_mask].copy()
+        month_data = month_data.sort_values("Date")
+        month_data["Monthly Total"] = month_data["Daily Total"].cumsum()
+        calendar_df.loc[month_mask, "Monthly Total"] = month_data["Monthly Total"].values
 
-    # Calculate financial year totals
+    # Calculate financial year totals - cumulative within each financial year
     calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start_year)
-    fy_totals = calendar_df.groupby("FYStart")["Daily Total"].sum()
-    calendar_df["IsFYE"] = calendar_df["Date"].apply(is_financial_year_end)
-    calendar_df["FY Total"] = calendar_df.apply(
-        lambda r: fy_totals.get(r["FYStart"], 0.0) if r["IsFYE"] else pd.NA, axis=1
-    )
+    calendar_df["FY Total"] = 0.0
+    
+    for fy_year in calendar_df["FYStart"].unique():
+        if pd.isna(fy_year):
+            continue
+        fy_mask = calendar_df["FYStart"] == fy_year
+        fy_data = calendar_df[fy_mask].copy()
+        fy_data = fy_data.sort_values("Date")
+        fy_data["FY Total"] = fy_data["Daily Total"].cumsum()
+        calendar_df.loc[fy_mask, "FY Total"] = fy_data["FY Total"].values
     
     return calendar_df

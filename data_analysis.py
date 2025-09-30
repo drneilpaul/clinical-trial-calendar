@@ -35,7 +35,7 @@ def prepare_financial_data(visits_df):
     if 'QuarterYear' not in financial_df.columns:
         financial_df['Quarter'] = financial_df['Date'].dt.quarter
         financial_df['Year'] = financial_df['Date'].dt.year
-        financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
+        financial_df['QuarterYear'] = financial_df['Year'].astype(int).astype(str) + '-Q' + financial_df['Quarter'].astype(int).astype(str)
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in financial_df.columns:
@@ -71,7 +71,7 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
     if 'QuarterYear' not in visits_df_enhanced.columns:
         visits_df_enhanced['Quarter'] = visits_df_enhanced['Date'].dt.quarter
         visits_df_enhanced['Year'] = visits_df_enhanced['Date'].dt.year
-        visits_df_enhanced['QuarterYear'] = visits_df_enhanced['Year'].astype(str) + '-Q' + visits_df_enhanced['Quarter'].astype(str)
+        visits_df_enhanced['QuarterYear'] = visits_df_enhanced['Year'].astype(int).astype(str) + '-Q' + visits_df_enhanced['Quarter'].astype(int).astype(str)
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in visits_df_enhanced.columns:
@@ -102,14 +102,9 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
             # Look for patients recruited by this site (based on patient origin)
-            site_col = None
-            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-                if candidate in patients_df.columns:
-                    site_col = candidate
-                    break
-            
-            if site_col:
-                site_related_patients = patients_df[patients_df[site_col] == site]
+            # The 'Site' column contains the origin site (who recruited the patient)
+            if 'Site' in patients_df.columns:
+                site_related_patients = patients_df[patients_df['Site'] == site]
             
             if site_related_patients.empty:
                 st.warning(f"No patients found for site: {site}")
@@ -255,7 +250,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         site_patients_enhanced = site_related_patients.copy()
         site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
         site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
-        site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(str)
+        site_patients_enhanced['QuarterYear'] = site_patients_enhanced['Year'].astype(int).astype(str) + '-Q' + site_patients_enhanced['Quarter'].astype(int).astype(str)
         # FIXED: Use centralized FY calculation from helpers
         site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
         
