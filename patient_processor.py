@@ -260,12 +260,21 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
             
-            # Process scheduled visit WITHOUT tolerance windows (just show what was planned)
-            scheduled_records, exclusions = process_scheduled_visit(
-                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-                has_actual_visit=True
+            # DON'T create a scheduled visit on the ACTUAL date
+            # Only create it on the EXPECTED date if different
+            expected_date, _, _, _, _ = calculate_tolerance_windows(
+                visit, baseline_date, int(visit["Day"])
             )
-            visit_records.extend(scheduled_records)
+            expected_date = pd.Timestamp(expected_date.date())
+            actual_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
+            
+            # Only add planned marker if actual happened on a different date
+            if expected_date != actual_date:
+                scheduled_records, exclusions = process_scheduled_visit(
+                    patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
+                    has_actual_visit=True
+                )
+                visit_records.extend(scheduled_records)
         else:
             # No actual visit - process scheduled with full tolerance windows
             scheduled_records, exclusions = process_scheduled_visit(

@@ -169,6 +169,11 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         log_activity(f"DEBUG: Found {actual_count} actual visits in visits_df", level='info')
         
+        # NEW: Show ALL actual visits before placing them
+        actual_visits = visits_df[visits_df['IsActual'] == True].copy()
+        for idx, actual in actual_visits.iterrows():
+            log_activity(f"  Actual visit to place: {actual['Study']}_{actual['PatientID']} - {actual['Visit']} on {actual['Date'].strftime('%Y-%m-%d')}", level='info')
+        
     else:
         log_activity(f"DEBUG: No IsActual column in visits_df", level='warning')
     
@@ -260,8 +265,14 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
                     
+                    # NEW: Log when placing actual visits
+                    if is_actual:
+                        log_activity(f"  Placing actual visit in col '{col_id}' on {calendar_date.strftime('%Y-%m-%d')}: '{visit_info}' (current: '{current_value}')", level='info')
+                    
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
+                        if is_actual:
+                            log_activity(f"    -> Placed in empty cell", level='info')
                     else:
                         # Handle multiple visits on same day - IMPROVED LOGIC
                         
@@ -293,14 +304,20 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             # Actual visits take priority - always add them
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
+                                if is_actual:
+                                    log_activity(f"    -> Placed in cell with tolerance markers", level='info')
                             else:
                                 # Check if there's already an actual visit
                                 if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                     # Multiple actual visits on same day
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                                    if is_actual:
+                                        log_activity(f"    -> Added to existing actual visit", level='info')
                                 else:
                                     # Replace predicted/planned with actual
                                     calendar_df.at[i, col_id] = visit_info
+                                    if is_actual:
+                                        log_activity(f"    -> Replaced predicted/planned with actual", level='info')
 
                 # Count payments for actual visits and scheduled main visits
                 if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
