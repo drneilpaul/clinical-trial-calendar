@@ -172,10 +172,14 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
 
 def process_single_patient(patient, patient_visits, screen_failures, actual_visits_df=None):
     """Process all visits for a single patient"""
+    from helpers import log_activity
+    
     patient_id = str(patient["PatientID"])
     study = str(patient["Study"])
     start_date = patient["StartDate"]
     patient_origin = str(patient["OriginSite"])
+    
+    log_activity(f"Processing patient {patient_id} (Study: {study}, StartDate: {start_date}, Origin: {patient_origin})", level='info')
     
     visit_records = []
     actual_visits_used = 0
@@ -186,6 +190,8 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     patient_needs_recalc = False
     
     if pd.isna(start_date):
+        from helpers import log_activity
+        log_activity(f"Patient {patient_id} has invalid start_date: {start_date}", level='warning')
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
     # Use patient-specific screen failure key
@@ -239,4 +245,5 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         visit_records.extend(scheduled_records)
         screen_fail_exclusions += exclusions
     
+    log_activity(f"Patient {patient_id} generated {len(visit_records)} visit records", level='info')
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
