@@ -4,7 +4,8 @@ from datetime import datetime
 from helpers import (
     load_file, normalize_columns, parse_dates_column, 
     standardize_visit_columns, safe_string_conversion_series, 
-    load_file_with_defaults, init_error_system, display_error_log_section
+    load_file_with_defaults, init_error_system, display_error_log_section,
+    log_activity, display_activity_log_sidebar  # ADD THESE
 )
 import database  # NEW - Supabase integration
 from processing_calendar import build_calendar
@@ -83,7 +84,7 @@ def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
     st.sidebar.header("Upload Data Files")
     
-    # NEW - Database toggle and backup section
+    # Database toggle and backup section
     if st.session_state.get('database_available', False):
         st.sidebar.success("Database Connected")
         
@@ -94,6 +95,13 @@ def setup_file_uploaders():
                 backup_zip = database.create_backup_zip()
                 if backup_zip:
                     today = datetime.now().strftime('%Y-%m-%d')
+                    
+                    # Count records for logging
+                    patients_df = database.fetch_all_patients()
+                    trials_df = database.fetch_all_trial_schedules()
+                    visits_df = database.fetch_all_actual_visits()
+                    total_records = len(patients_df) + len(trials_df) + len(visits_df)
+                    
                     st.sidebar.download_button(
                         label="Download ZIP File",
                         data=backup_zip,
@@ -101,7 +109,16 @@ def setup_file_uploaders():
                         mime="application/zip",
                         use_container_width=True
                     )
-                    st.sidebar.success("Backup ready for download!")
+                    
+                    st.toast("Backup created successfully!", icon="✅")
+                    log_activity(
+                        f"Created database backup",
+                        level='success',
+                        details=f"3 tables, {total_records} total records"
+                    )
+                else:
+                    st.toast("Failed to create backup", icon="❌")
+                    log_activity("Backup creation failed", level='error')
         
         st.sidebar.divider()
         
@@ -123,9 +140,26 @@ def setup_file_uploaders():
     patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
     actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
     
+    # Log file uploads
+    if trials_file and 'last_trials_file' not in st.session_state:
+        st.session_state.last_trials_file = trials_file.name
+        log_activity(f"Uploaded trials file: {trials_file.name}", level='info')
+    
+    if patients_file and 'last_patients_file' not in st.session_state:
+        st.session_state.last_patients_file = patients_file.name
+        log_activity(f"Uploaded patients file: {patients_file.name}", level='info')
+    
+    if actual_visits_file and 'last_visits_file' not in st.session_state:
+        st.session_state.last_visits_file = actual_visits_file.name
+        log_activity(f"Uploaded actual visits file: {actual_visits_file.name}", level='info')
+    
     st.session_state.patients_file = patients_file
     st.session_state.trials_file = trials_file
     st.session_state.actual_visits_file = actual_visits_file
+    
+    # Display activity log at bottom of sidebar
+    st.sidebar.divider()
+    display_activity_log_sidebar()
     
     return patients_file, trials_file, actual_visits_file
 
@@ -178,6 +212,8 @@ def main():
                 actual_visits_df = database.fetch_all_actual_visits()
                 
                 if patients_df is None or trials_df is None:
+                    st.toast("Failed to load from database", icon="❌")
+                    log_activity("Database load failed - check connection and table structure", level='error')
                     st.error("Failed to load from database. Check your database connection and table structure.")
                     st.stop()
                 
@@ -186,7 +222,12 @@ def main():
                     st.session_state.use_database = False
                     st.stop()
                 
-                st.success(f"Loaded {len(patients_df)} patients and {len(trials_df)} trial schedules from database")
+                st.toast(f"Loaded from database: {len(patients_df)} patients, {len(trials_df)} trials", icon="✅")
+                log_activity(
+                    "Loaded data from database",
+                    level='success',
+                    details=f"{len(patients_df)} patients, {len(trials_df)} trials, {len(actual_visits_df) if actual_visits_df is not None else 0} visits"
+                )
                 
                 # Process the database data
                 patients_df, trials_df, actual_visits_df = process_dates_and_validation(
@@ -231,33 +272,42 @@ def main():
             screen_failures = extract_screen_failures(actual_visits_df)
             display_processing_messages(messages)
             
-            # NEW - Offer to save to database
+            # Offer to save to database
             if st.session_state.get('database_available', False) and not st.session_state.get('use_database', False):
                 st.divider()
                 st.subheader("Save to Database")
                 col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    if st.button("💾 Save Patients to DB"):
-                        if database.save_patients_to_database(patients_df):
-                            st.success("Patients saved to database!")
+    
+            with col1:
+                if st.button("💾 Save Patients to DB"):
+                    if database.save_patients_to_database(patients_df):
+                        record_count = len(patients_df)
+                        st.toast(f"Saved {record_count} patients to database!", icon="✅")
+                        log_activity(f"Saved {record_count} patients to database", level='success')
+            else:
+                st.toast("Failed to save patients", icon="❌")
+                log_activity("Failed to save patients to database", level='error')
+    
+            with col2:
+                if st.button("💾 Save Trials to DB"):
+                    if database.save_trial_schedules_to_database(trials_df):
+                        record_count = len(trials_df)
+                        st.toast(f"Saved {record_count} trial schedules to database!", icon="✅")
+                        log_activity(f"Saved {record_count} trial schedules to database", level='success')
+                    else:
+                        st.toast("Failed to save trials", icon="❌")
+                        log_activity("Failed to save trial schedules to database", level='error')
+            
+            with col3:
+                if actual_visits_df is not None and not actual_visits_df.empty:
+                    if st.button("💾 Save Visits to DB"):
+                        if database.save_actual_visits_to_database(actual_visits_df):
+                            record_count = len(actual_visits_df)
+                            st.toast(f"Saved {record_count} actual visits to database!", icon="✅")
+                            log_activity(f"Saved {record_count} actual visits to database", level='success')
                         else:
-                            st.error("Failed to save patients")
-                
-                with col2:
-                    if st.button("💾 Save Trials to DB"):
-                        if database.save_trial_schedules_to_database(trials_df):
-                            st.success("Trial schedules saved!")
-                        else:
-                            st.error("Failed to save trials")
-                
-                with col3:
-                    if actual_visits_df is not None and not actual_visits_df.empty:
-                        if st.button("💾 Save Visits to DB"):
-                            if database.save_actual_visits_to_database(actual_visits_df):
-                                st.success("Actual visits saved!")
-                            else:
-                                st.error("Failed to save visits")
+                            st.toast("Failed to save visits", icon="❌")
+                            log_activity("Failed to save actual visits to database", level='error')
             
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
