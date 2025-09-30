@@ -177,7 +177,8 @@ def _render_patient_form(is_modal=True):
                 st.session_state.patient_added = True
                 st.session_state.show_patient_form = False
                 
-                st.success("Patient added successfully!")
+                st.toast(f"Added patient {new_patient_id} to study {new_study}", icon="✅")
+                log_activity(f"Added patient {new_patient_id} to study {new_study}", level='success')
                 st.rerun()
         
         with col2:
@@ -339,7 +340,8 @@ def _render_visit_form(is_modal=True):
                         st.session_state.visit_added = True
                         st.session_state.show_visit_form = False
                         
-                        st.success("Visit recorded successfully!")
+                        st.toast(f"Recorded visit {visit_name} for patient {patient_id}", icon="✅")
+                        log_activity(f"Recorded visit {visit_name} for patient {patient_id}", level='success')
                         st.rerun()
                 
                 with col2:
