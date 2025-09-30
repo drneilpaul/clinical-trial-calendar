@@ -51,7 +51,8 @@ def build_calendar_dataframe(visits_df, patients_df):
             log_activity(f"⚠️ {out_of_range} actual visits are outside calendar date range", level='warning')
             out_of_range_visits = visits_df[~((visits_df['Date'] >= min_date) & (visits_df['Date'] <= max_date))]
             for _, visit in out_of_range_visits.head(3).iterrows():
-                log_activity(f"  - {visit.get('Study', 'N/A')}_{visit.get('PatientID', 'N/A')} on {visit['Date'].strftime('%Y-%m-%d')}", level='warning')
+                date_str = "Invalid Date" if pd.isna(visit['Date']) else visit['Date'].strftime('%Y-%m-%d')
+                log_activity(f"  - {visit.get('Study', 'N/A')}_{visit.get('PatientID', 'N/A')} on {date_str}", level='warning')
 
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
@@ -185,7 +186,8 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         # NEW: Show ALL actual visits before placing them
         actual_visits = visits_df[visits_df['IsActual'] == True].copy()
         for idx, actual in actual_visits.iterrows():
-            log_activity(f"  Actual visit to place: {actual['Study']}_{actual['PatientID']} - {actual['Visit']} on {actual['Date'].strftime('%Y-%m-%d')}", level='info')
+            date_str = "Invalid Date" if pd.isna(actual['Date']) else actual['Date'].strftime('%Y-%m-%d')
+            log_activity(f"  Actual visit to place: {actual['Study']}_{actual['PatientID']} - {actual['Visit']} on {date_str}", level='info')
         
         # Debug: Show available patient columns
         patient_columns = [col for col in calendar_df.columns if '_' in col and not col.endswith('_Events') and not col.endswith('_Income')]
