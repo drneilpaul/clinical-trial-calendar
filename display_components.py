@@ -575,7 +575,7 @@ def _display_site_screen_failures(site_patients, screen_failures):
     except Exception as e:
         st.error(f"Error displaying screen failures: {e}")
 
-def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites):
+def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df=None, visits_df=None):
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
@@ -636,8 +636,12 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             # Enhanced Excel from table_builders
             try:
                 from table_builders import create_enhanced_excel_export
+                # Use actual data instead of empty DataFrames
+                patients_data = patients_df if patients_df is not None else pd.DataFrame()
+                visits_data = visits_df if visits_df is not None else pd.DataFrame()
+                
                 enhanced_excel = create_enhanced_excel_export(
-                    excel_df, pd.DataFrame(), pd.DataFrame(), site_column_mapping, unique_visit_sites
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites
                 )
                 
                 if enhanced_excel:

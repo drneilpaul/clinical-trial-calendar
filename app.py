@@ -343,6 +343,20 @@ def setup_file_uploaders():
                     log_activity("Database backup created successfully", level='success')
                 else:
                     log_activity("Failed to create database backup", level='error')
+            
+            st.divider()
+            
+            # Save to Database buttons (when not using database data)
+            st.caption("Save uploaded data to database:")
+            if st.button("💾 Save Patients to DB", use_container_width=True):
+                # This will be handled in the main area when files are uploaded
+                st.info("Upload files first to save to database")
+            
+            if st.button("💾 Save Trials to DB", use_container_width=True):
+                st.info("Upload files first to save to database")
+            
+            if st.button("💾 Save Visits to DB", use_container_width=True):
+                st.info("Upload files first to save to database")
     
     # Display activity log at bottom of sidebar
     st.sidebar.divider()
@@ -463,36 +477,6 @@ def main():
 
             display_processing_messages(messages)
 
-            # Database operations section - moved to sidebar
-            if st.session_state.get('database_available', False):
-                st.divider()
-                st.subheader("Database Operations")
-                
-                # Only show save buttons when not using database data
-                if not st.session_state.get('use_database', False):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        if st.button("💾 Save Patients to DB"):
-                            if database.save_patients_to_database(patients_df):
-                                log_activity("Patients saved to database!", level='success')
-                            else:
-                                log_activity("Failed to save patients to database", level='error')
-                    
-                    with col2:
-                        if st.button("💾 Save Trials to DB"):
-                            if database.save_trial_schedules_to_database(trials_df):
-                                log_activity("Trial schedules saved!", level='success')
-                            else:
-                                log_activity("Failed to save trial schedules to database", level='error')
-                    
-                    with col3:
-                        if actual_visits_df is not None and not actual_visits_df.empty:
-                            if st.button("💾 Save Visits to DB"):
-                                if database.save_actual_visits_to_database(actual_visits_df):
-                                    log_activity("Actual visits saved!", level='success')
-                                else:
-                                    log_activity("Failed to save actual visits to database", level='error')
             
             # 1. CALENDAR (moved to top)
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
@@ -515,7 +499,7 @@ def main():
 
             display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
-            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites)
+            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, actual_visits_df)
 
             # Show error log if any issues occurred
             display_error_log_section()
