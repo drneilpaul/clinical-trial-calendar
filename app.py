@@ -479,7 +479,9 @@ def main():
                 st.write(f"Patients: {len(patients_df)} records")
                 st.write(f"Trials: {len(trials_df)} records")
                 if actual_visits_df is not None:
-                    st.write(f"Visits: {len(actual_visits_df)} records")
+                    st.write(f"Actual Visits (from DB): {len(actual_visits_df)} records")
+                else:
+                    st.write("Actual Visits (from DB): 0 records")
                 
                 st.write("**Trials Data Sample:**")
                 st.dataframe(trials_df.head())
@@ -612,6 +614,17 @@ def main():
             
             # Debug: Check financial data after calendar build
             if st.session_state.get('show_debug_info', False):
+                st.write("**Generated Visits (Predicted + Actual):**")
+                st.write(f"Total visits generated: {len(visits_df)} records")
+                if not visits_df.empty:
+                    st.write(f"Visit date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
+                    st.write(f"Predicted visits: {len(visits_df[visits_df['IsActual'] == False])}")
+                    st.write(f"Actual visits: {len(visits_df[visits_df['IsActual'] == True])}")
+                
+                st.write("**Calendar Date Range:**")
+                st.write(f"Calendar start: {calendar_df['Date'].min()}")
+                st.write(f"Calendar end: {calendar_df['Date'].max()}")
+                st.write(f"Calendar days: {len(calendar_df)}")
                 st.write("**Calendar Financial Data Debug:**")
                 if 'Daily Total' in calendar_df.columns:
                     st.write(f"Daily Total non-zero count: {(calendar_df['Daily Total'] > 0).sum()}")

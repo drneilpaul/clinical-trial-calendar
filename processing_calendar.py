@@ -109,6 +109,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
+    log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
+    if not visits_df.empty:
+        log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
     
