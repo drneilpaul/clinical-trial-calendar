@@ -2,6 +2,9 @@ import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
 from typing import Optional, Dict, List
+import io
+from datetime import datetime
+import zipfile
 
 def get_supabase_client() -> Optional[Client]:
     """
@@ -11,13 +14,9 @@ def get_supabase_client() -> Optional[Client]:
     try:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
-        
-        # Use the correct initialization for supabase-py v2.x
-        from supabase import create_client, Client
         return create_client(url, key)
-        
     except Exception as e:
-        st.session_state.database_status = f"Connection failed: {str(e)}"
+        st.session_state.database_status = f"Connection failed: {e}"
         return None
 
 def test_database_connection() -> bool:
@@ -35,7 +34,7 @@ def test_database_connection() -> bool:
         st.session_state.database_status = "Connected"
         return True
     except Exception as e:
-        st.session_state.database_status = f"Tables not found: {str(e)}"
+        st.session_state.database_status = f"Tables not configured: {e}"
         return False
 
 # READ FUNCTIONS
@@ -57,8 +56,6 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'start_date': 'StartDate',
                 'site': 'Site'
             })
-            # Parse dates
-            df['StartDate'] = pd.to_datetime(df['StartDate'])
             return df
         return pd.DataFrame()
     except Exception as e:
@@ -109,8 +106,6 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'actual_date': 'ActualDate',
                 'notes': 'Notes'
             })
-            # Parse dates
-            df['ActualDate'] = pd.to_datetime(df['ActualDate'])
             return df
         return pd.DataFrame()
     except Exception as e:
@@ -196,3 +191,115 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
     except Exception as e:
         st.error(f"Error saving actual visits to database: {e}")
         return False
+
+# EXPORT FUNCTIONS FOR BACKUP
+def export_patients_to_csv() -> Optional[pd.DataFrame]:
+    """Export patients from database in upload-ready CSV format"""
+    try:
+        df = fetch_all_patients()
+        if df is None or df.empty:
+            # Return empty DataFrame with proper headers
+            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+        
+        # Ensure all expected columns exist
+        for col in ['PatientPractice', 'OriginSite']:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # Format dates as DD/MM/YYYY
+        if 'StartDate' in df.columns:
+            df['StartDate'] = pd.to_datetime(df['StartDate']).dt.strftime('%d/%m/%Y')
+        
+        # Select and order columns to match upload format
+        export_columns = ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite']
+        df = df[export_columns]
+        
+        return df
+    except Exception as e:
+        st.error(f"Error exporting patients: {e}")
+        return None
+
+def export_trials_to_csv() -> Optional[pd.DataFrame]:
+    """Export trial schedules from database in upload-ready CSV format"""
+    try:
+        df = fetch_all_trial_schedules()
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+        
+        # Ensure all expected columns exist with proper defaults
+        if 'Payment' not in df.columns:
+            df['Payment'] = 0
+        if 'ToleranceBefore' not in df.columns:
+            df['ToleranceBefore'] = 0
+        if 'ToleranceAfter' not in df.columns:
+            df['ToleranceAfter'] = 0
+        
+        # Select and order columns to match upload format
+        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter']
+        df = df[export_columns]
+        
+        return df
+    except Exception as e:
+        st.error(f"Error exporting trials: {e}")
+        return None
+
+def export_visits_to_csv() -> Optional[pd.DataFrame]:
+    """Export actual visits from database in upload-ready CSV format"""
+    try:
+        df = fetch_all_actual_visits()
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
+        
+        # Ensure Notes column exists
+        if 'Notes' not in df.columns:
+            df['Notes'] = ''
+        
+        # Format dates as DD/MM/YYYY
+        if 'ActualDate' in df.columns:
+            df['ActualDate'] = pd.to_datetime(df['ActualDate']).dt.strftime('%d/%m/%Y')
+        
+        # Select and order columns to match upload format
+        export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes']
+        df = df[export_columns]
+        
+        return df
+    except Exception as e:
+        st.error(f"Error exporting visits: {e}")
+        return None
+
+def create_backup_zip() -> Optional[io.BytesIO]:
+    """Create a ZIP file containing all three database tables as CSVs"""
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Export all tables
+        patients_df = export_patients_to_csv()
+        trials_df = export_trials_to_csv()
+        visits_df = export_visits_to_csv()
+        
+        if patients_df is None or trials_df is None or visits_df is None:
+            st.error("Failed to export one or more tables")
+            return None
+        
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add patients CSV
+            patients_csv = patients_df.to_csv(index=False)
+            zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
+            
+            # Add trials CSV
+            trials_csv = trials_df.to_csv(index=False)
+            zip_file.writestr(f'trials_backup_{today}.csv', trials_csv)
+            
+            # Add visits CSV
+            visits_csv = visits_df.to_csv(index=False)
+            zip_file.writestr(f'actual_visits_backup_{today}.csv', visits_csv)
+        
+        zip_buffer.seek(0)
+        return zip_buffer
+        
+    except Exception as e:
+        st.error(f"Error creating backup ZIP: {e}")
+        return None
