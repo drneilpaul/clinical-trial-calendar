@@ -4,6 +4,8 @@ from helpers import safe_string_conversion, format_site_events, log_activity
 
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
+    log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
+    
     # Create date range based on visits if available, otherwise use patient dates
     if not visits_df.empty and 'Date' in visits_df.columns and len(visits_df) > 0:
         min_date = visits_df["Date"].min() - timedelta(days=1)
