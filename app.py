@@ -444,28 +444,36 @@ def main():
             trials_db = database.fetch_all_trial_schedules()
             visits_db = database.fetch_all_actual_visits()
             
+            # Show metrics in a row
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric("Patients", len(patients_db) if patients_db is not None else 0)
-                if patients_db is not None and not patients_db.empty:
-                    st.dataframe(patients_db[['PatientID', 'Study', 'StartDate']].head(5), use_container_width=True)
-                else:
-                    st.info("No patients found")
             
             with col2:
                 st.metric("Trials", len(trials_db) if trials_db is not None else 0)
-                if trials_db is not None and not trials_db.empty:
-                    st.dataframe(trials_db[['Study', 'VisitName', 'Day', 'Payment']].head(5), use_container_width=True)
-                else:
-                    st.info("No trials found")
             
             with col3:
                 st.metric("Actual Visits", len(visits_db) if visits_db is not None else 0)
-                if visits_db is not None and not visits_db.empty:
-                    st.dataframe(visits_db[['PatientID', 'Study', 'VisitName', 'ActualDate']].head(5), use_container_width=True)
-                else:
-                    st.info("No actual visits found")
+            
+            # Show full scrollable tables
+            if patients_db is not None and not patients_db.empty:
+                st.subheader("👥 Patients Table")
+                st.dataframe(patients_db, use_container_width=True, height=300)
+            else:
+                st.info("No patients found")
+            
+            if trials_db is not None and not trials_db.empty:
+                st.subheader("🧪 Trials Table")
+                st.dataframe(trials_db, use_container_width=True, height=300)
+            else:
+                st.info("No trials found")
+            
+            if visits_db is not None and not visits_db.empty:
+                st.subheader("📅 Actual Visits Table")
+                st.dataframe(visits_db, use_container_width=True, height=300)
+            else:
+                st.info("No actual visits found")
             
             # Close button
             if st.button("❌ Close Database View", use_container_width=True):
