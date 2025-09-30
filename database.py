@@ -2,7 +2,6 @@ import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
 from typing import Optional, Dict, List
-from helpers import prepare_for_database_insert
 
 def get_supabase_client() -> Optional[Client]:
     """
@@ -12,9 +11,15 @@ def get_supabase_client() -> Optional[Client]:
     try:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
-        return create_client(url, key)
+        
+        # Updated for supabase-py v2.x - no proxy parameter
+        client = create_client(url, key)
+        return client
+    except KeyError as e:
+        st.session_state.database_status = f"Missing configuration: {e}"
+        return None
     except Exception as e:
-        st.session_state.database_status = f"Connection failed: {e}"
+        st.session_state.database_status = f"Connection failed: {str(e)}"
         return None
 
 def test_database_connection() -> bool:
@@ -32,7 +37,7 @@ def test_database_connection() -> bool:
         st.session_state.database_status = "Connected"
         return True
     except Exception as e:
-        st.session_state.database_status = f"Tables not configured: {e}"
+        st.session_state.database_status = f"Tables not found: {str(e)}"
         return False
 
 # READ FUNCTIONS
@@ -54,6 +59,8 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'start_date': 'StartDate',
                 'site': 'Site'
             })
+            # Parse dates
+            df['StartDate'] = pd.to_datetime(df['StartDate'])
             return df
         return pd.DataFrame()
     except Exception as e:
@@ -104,6 +111,8 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'actual_date': 'ActualDate',
                 'notes': 'Notes'
             })
+            # Parse dates
+            df['ActualDate'] = pd.to_datetime(df['ActualDate'])
             return df
         return pd.DataFrame()
     except Exception as e:
