@@ -475,47 +475,18 @@ def main():
             
             # Debug: Show what we're actually working with
             if st.session_state.get('show_debug_info', False):
-                st.write("**Debug - Data being used for calendar:**")
-                st.write(f"Patients: {len(patients_df)} records")
-                st.write(f"Trials: {len(trials_df)} records")
-                if actual_visits_df is not None:
-                    st.write(f"Actual Visits (from DB): {len(actual_visits_df)} records")
-                else:
-                    st.write("Actual Visits (from DB): 0 records")
+                st.write("**Data Summary:**")
+                st.write(f"Patients: {len(patients_df)} | Trials: {len(trials_df)} | Actual Visits: {len(actual_visits_df) if actual_visits_df is not None else 0}")
                 
-                st.write("**Trials Data Sample:**")
-                st.dataframe(trials_df.head())
-                
-                st.write("**Trials Payment Column:**")
                 if 'Payment' in trials_df.columns:
-                    st.write(f"Payment values: {trials_df['Payment'].unique()}")
-                    st.write(f"Payment non-zero count: {(trials_df['Payment'] > 0).sum()}")
+                    payment_count = (trials_df['Payment'] > 0).sum()
+                    st.write(f"Trials with payments: {payment_count}/{len(trials_df)}")
                 else:
-                    st.write("❌ Payment column missing from trials!")
+                    st.write("❌ No Payment column in trials")
                 
-                st.write("**Patient Data Sample:**")
-                st.dataframe(patients_df.head())
-                
-                st.write("**Patient Data Types:**")
-                st.write(patients_df.dtypes)
-                
-                st.write("**Patient StartDate Sample:**")
-                st.write(patients_df['StartDate'].head())
-                
-                st.write("**Patient StartDate Info:**")
-                st.write(f"StartDate column type: {patients_df['StartDate'].dtype}")
-                st.write(f"StartDate null count: {patients_df['StartDate'].isna().sum()}")
-                st.write(f"StartDate unique values: {patients_df['StartDate'].unique()[:10]}")
-                
-                st.write("**Patient Studies:**")
-                st.write(list(patients_df['Study'].unique()))
-                
-                st.write("**Patient IDs:**")
-                st.write(list(patients_df['PatientID'].unique()))
-                
-                st.write("**Patient StartDate Range:**")
-                st.write(f"Earliest: {patients_df['StartDate'].min()}")
-                st.write(f"Latest: {patients_df['StartDate'].max()}")
+                if not patients_df.empty and 'StartDate' in patients_df.columns:
+                    st.write(f"Patient date range: {patients_df['StartDate'].min().strftime('%Y-%m-%d')} to {patients_df['StartDate'].max().strftime('%Y-%m-%d')}")
+                    st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
                 
                 st.write("**Calendar Date Range:**")
                 if 'calendar_df' in locals():
@@ -612,54 +583,40 @@ def main():
                 patients_df, trials_df, actual_visits_df
             )
             
+            # DEBUG: Calendar & Visits Check
+            if st.session_state.get('show_debug_info', False):
+                st.write("**DEBUG: Calendar & Visits Check**")
+                st.write(f"Visits DataFrame: {len(visits_df)} records")
+                st.write(f"Calendar DataFrame: {len(calendar_df)} records")
+
+                if not visits_df.empty:
+                    st.write(f"Visits date type: {visits_df['Date'].dtype}")
+                    st.write(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
+                    st.write("Sample visits:")
+                    sample_cols = ['Date', 'PatientID', 'Visit', 'IsActual'] if all(col in visits_df.columns for col in ['Date', 'PatientID', 'Visit', 'IsActual']) else visits_df.columns[:4]
+                    st.dataframe(visits_df[sample_cols].head(10))
+
+                if not calendar_df.empty:
+                    st.write(f"Calendar date type: {calendar_df['Date'].dtype}")
+                    st.write(f"Calendar date range: {calendar_df['Date'].min()} to {calendar_df['Date'].max()}")
+            
             # Debug: Check financial data after calendar build
             if st.session_state.get('show_debug_info', False):
-                st.write("**Generated Visits (Predicted + Actual):**")
-                st.write(f"Total visits generated: {len(visits_df)} records")
+                predicted_count = len(visits_df[visits_df['IsActual'] == False]) if not visits_df.empty else 0
+                actual_count = len(visits_df[visits_df['IsActual'] == True]) if not visits_df.empty else 0
+                st.write(f"Generated Visits: {len(visits_df)} (Predicted: {predicted_count}, Actual: {actual_count})")
+                
                 if not visits_df.empty:
-                    st.write(f"Visit date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}")
-                    st.write(f"Predicted visits: {len(visits_df[visits_df['IsActual'] == False])}")
-                    st.write(f"Actual visits: {len(visits_df[visits_df['IsActual'] == True])}")
+                    st.write(f"Visit range: {visits_df['Date'].min().strftime('%Y-%m-%d')} to {visits_df['Date'].max().strftime('%Y-%m-%d')}")
                 
-                st.write("**Calendar Date Range:**")
-                st.write(f"Calendar start: {calendar_df['Date'].min()}")
-                st.write(f"Calendar end: {calendar_df['Date'].max()}")
-                st.write(f"Calendar days: {len(calendar_df)}")
-                st.write("**Calendar Financial Data Debug:**")
+                st.write(f"Calendar: {len(calendar_df)} days from {calendar_df['Date'].min().strftime('%Y-%m-%d')} to {calendar_df['Date'].max().strftime('%Y-%m-%d')}")
+                
                 if 'Daily Total' in calendar_df.columns:
-                    st.write(f"Daily Total non-zero count: {(calendar_df['Daily Total'] > 0).sum()}")
-                    st.write(f"Daily Total max: {calendar_df['Daily Total'].max()}")
-                    st.write(f"Daily Total sample: {calendar_df['Daily Total'].head()}")
-                else:
-                    st.write("❌ Daily Total column missing!")
+                    daily_income_days = (calendar_df['Daily Total'] > 0).sum()
+                    max_daily = calendar_df['Daily Total'].max()
+                    st.write(f"Financial: {daily_income_days} days with income, max: £{max_daily:.2f}")
                 
-                if 'Monthly Total' in calendar_df.columns:
-                    monthly_non_zero = calendar_df['Monthly Total'].dropna()
-                    st.write(f"Monthly Total non-zero count: {len(monthly_non_zero)}")
-                    if len(monthly_non_zero) > 0:
-                        st.write(f"Monthly Total max: {monthly_non_zero.max()}")
-                else:
-                    st.write("❌ Monthly Total column missing!")
-                
-                if 'FY Total' in calendar_df.columns:
-                    fy_non_zero = calendar_df['FY Total'].dropna()
-                    st.write(f"FY Total non-zero count: {len(fy_non_zero)}")
-                    if len(fy_non_zero) > 0:
-                        st.write(f"FY Total max: {fy_non_zero.max()}")
-                else:
-                    st.write("❌ FY Total column missing!")
-                
-                # Debug calendar structure
-                st.write("**Calendar Structure Debug:**")
-                st.write(f"Calendar shape: {calendar_df.shape}")
-                st.write(f"Calendar columns: {list(calendar_df.columns)}")
-                st.write(f"Calendar has unique columns: {calendar_df.columns.is_unique}")
-                st.write(f"Site column mapping: {site_column_mapping}")
-                st.write(f"Unique visit sites: {unique_visit_sites}")
-                
-                # Show first few rows of calendar
-                st.write("**Calendar First 5 Rows:**")
-                st.dataframe(calendar_df.head(), use_container_width=True)
+                st.write(f"Sites: {', '.join(site_column_mapping.keys()) if site_column_mapping else 'None'}")
             
             screen_failures = extract_screen_failures(actual_visits_df)
 

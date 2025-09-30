@@ -39,6 +39,11 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     visit_name = str(visit["VisitName"])
     visit_date = actual_visit_data["ActualDate"]
     
+    # Ensure it's a proper Timestamp and normalize to date only for calendar matching
+    if not isinstance(visit_date, pd.Timestamp):
+        visit_date = pd.Timestamp(visit_date)
+    visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
+    
     # Get payment amount
     trial_payment = visit.get("Payment", 0)
     if pd.notna(trial_payment):
@@ -121,7 +126,14 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     
+    # Ensure baseline_date is a proper Timestamp and normalize to date only
+    if not isinstance(baseline_date, pd.Timestamp):
+        baseline_date = pd.Timestamp(baseline_date)
+    baseline_date = pd.Timestamp(baseline_date.date())  # Normalize to date only
+    
     scheduled_date = baseline_date + timedelta(days=visit_day - 1)
+    # Normalize scheduled_date to date only for calendar matching
+    scheduled_date = pd.Timestamp(scheduled_date.date())
     
     # Use patient-specific screen failure check
     if screen_fail_date is not None and scheduled_date > screen_fail_date:

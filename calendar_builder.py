@@ -180,6 +180,14 @@ def build_calendar_dataframe(visits_df, patients_df):
 
 def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     """Fill the calendar with visit information"""
+    
+    # DEBUG: Check visits data
+    log_activity(f"fill_calendar_with_visits - visits_df shape: {visits_df.shape}", level='info')
+    if not visits_df.empty:
+        log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+        log_activity(f"Sample visit dates: {visits_df['Date'].head().tolist()}", level='info')
+        log_activity(f"Date dtype: {visits_df['Date'].dtype}", level='info')
+    
     # Create income tracking columns
     for study in trials_df["Study"].unique():
         income_col = f"{study} Income"
@@ -190,7 +198,13 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     # Fill calendar with visits
     for i, row in calendar_df.iterrows():
         date = row["Date"]
-        visits_today = visits_df[visits_df["Date"] == date]
+        
+        # FIX: Compare dates properly (normalize both sides)
+        visits_today = visits_df[visits_df["Date"].dt.date == date.date()]
+        
+        # DEBUG: Log matches
+        if len(visits_today) > 0:
+            log_activity(f"Found {len(visits_today)} visits for {date.date()}", level='info')
         daily_total = 0.0
 
         # Group events by site for the events columns
