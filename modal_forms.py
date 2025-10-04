@@ -183,9 +183,10 @@ def patient_entry_modal():
             help="Patient enrollment/start date"
         )
         
-        patient_site = st.text_input(
-            "Patient Site",
-            help="Optional: Site or location information"
+        patient_site = st.selectbox(
+            "Patient Site*",
+            options=["Ashfields", "Kiltearn"],
+            help="Site where patient was recruited"
         )
     
     # Validation and submission
