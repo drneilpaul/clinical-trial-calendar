@@ -180,6 +180,7 @@ def patient_entry_modal():
         start_date = st.date_input(
             "Start Date*",
             value=date.today(),
+            format="DD/MM/YYYY",
             help="Patient enrollment/start date"
         )
         
@@ -339,6 +340,7 @@ def visit_entry_modal():
         visit_date = st.date_input(
             "Visit Date*",
             value=date.today(),
+            format="DD/MM/YYYY",
             help="Actual date of the visit"
         )
         
