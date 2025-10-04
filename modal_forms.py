@@ -213,7 +213,7 @@ def patient_entry_modal():
                 'PatientID': new_patient_id,
                 'Study': selected_study,
                 'StartDate': formatted_date,
-                'PatientSite': patient_site if patient_site else ''
+                'Site': patient_site  # Use 'Site' to match database schema
             }
             
             # Handle database or file mode
