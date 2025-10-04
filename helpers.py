@@ -18,16 +18,24 @@ def load_file_with_defaults(uploaded_file, default_columns=None):
         return df
     
     if default_columns:
-        for col, default_value in default_columns.items():
-            if col not in df.columns:
-                df[col] = default_value
+        # Handle both list and dict inputs
+        if isinstance(default_columns, list):
+            # If list, add columns with empty string defaults
+            for col in default_columns:
+                if col not in df.columns:
+                    df[col] = ""
+        elif isinstance(default_columns, dict):
+            # If dict, use provided default values
+            for col, default_value in default_columns.items():
+                if col not in df.columns:
+                    df[col] = default_value
     
     return df
 
 def normalize_columns(df):
     """Normalize column names by stripping whitespace"""
     if df is not None:
-        df.columns = df.columns.str.strip()
+        df.columns = [str(col).strip() for col in df.columns]
     return df
 
 def safe_string_conversion(value, default=""):
@@ -247,3 +255,195 @@ def get_trial_payment_for_visit(trials_lookup, study, visit_name):
     
     key = f"{study}_{visit_name}"
     return trials_lookup.get(key, 0)
+
+# =============================================================================
+# ERROR COLLECTION SYSTEM - SUPABASE PREPARATION
+# =============================================================================
+import streamlit as st
+from datetime import datetime
+from typing import List, Dict, Optional
+
+def init_error_system():
+    """Initialize error tracking in session state for Supabase preparation"""
+    if 'error_log' not in st.session_state:
+        st.session_state.error_log = {
+            'errors': [],
+            'warnings': [],
+            'info': [],
+            'session_id': datetime.now().strftime('%Y%m%d_%H%M%S')
+        }
+
+def log_error(message: str, error_type: str = 'error', context: Optional[Dict] = None):
+    """
+    Log error with context for future Supabase storage
+    
+    Args:
+        message: Error message
+        error_type: 'error', 'warning', or 'info'
+        context: Optional dict with patient_id, study, file_name, etc.
+    """
+    if 'error_log' not in st.session_state:
+        init_error_system()
+    
+    log_entry = {
+        'timestamp': datetime.now(),
+        'message': message,
+        'type': error_type,
+        'context': context or {}
+    }
+    
+    st.session_state.error_log[f"{error_type}s"].append(log_entry)
+
+def get_error_summary() -> Dict[str, int]:
+    """Get summary of errors for display"""
+    if 'error_log' not in st.session_state:
+        return {'errors': 0, 'warnings': 0, 'info': 0}
+    
+    return {
+        'errors': len(st.session_state.error_log.get('errors', [])),
+        'warnings': len(st.session_state.error_log.get('warnings', [])),
+        'info': len(st.session_state.error_log.get('info', []))
+    }
+
+def display_error_log_section():
+    """Display collected errors in expandable section"""
+    if 'error_log' not in st.session_state:
+        return
+    
+    summary = get_error_summary()
+    total = sum(summary.values())
+    
+    if total == 0:
+        return
+    
+    with st.expander(f"📋 Processing Log ({total} messages)", expanded=False):
+        # Errors
+        if summary['errors'] > 0:
+            st.error(f"**{summary['errors']} Errors:**")
+            for entry in st.session_state.error_log['errors']:
+                time_str = entry['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"- **{time_str}**: {entry['message']}")
+                if entry['context']:
+                    st.caption(f"  Context: {entry['context']}")
+        
+        # Warnings
+        if summary['warnings'] > 0:
+            st.warning(f"**{summary['warnings']} Warnings:**")
+            for entry in st.session_state.error_log['warnings']:
+                time_str = entry['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"- **{time_str}**: {entry['message']}")
+        
+        # Info
+        if summary['info'] > 0:
+            st.info(f"**{summary['info']} Info Messages:**")
+            for entry in st.session_state.error_log['info']:
+                time_str = entry['timestamp'].strftime('%H:%M:%S')
+                st.markdown(f"- **{time_str}**: {entry['message']}")
+
+def clear_error_log():
+    """Clear error log"""
+    if 'error_log' in st.session_state:
+        st.session_state.error_log = {
+            'errors': [],
+            'warnings': [],
+            'info': [],
+            'session_id': datetime.now().strftime('%Y%m%d_%H%M%S')
+        }
+
+# Supabase preparation - data validation helpers
+def prepare_for_database_insert(data: Dict) -> Dict:
+    """
+    Clean data for database insertion (Supabase preparation)
+    Handles None, NaN, and type conversions
+    """
+    clean_data = {}
+    for key, value in data.items():
+        if pd.isna(value):
+            clean_data[key] = None
+        elif isinstance(value, (pd.Timestamp, datetime)):
+            clean_data[key] = value.isoformat()
+        elif isinstance(value, (int, float)):
+            clean_data[key] = value
+        else:
+            clean_data[key] = str(value)
+    return clean_data
+
+def validate_database_schema(df: pd.DataFrame, required_columns: List[str]) -> tuple:
+    """
+    Validate DataFrame matches expected database schema
+    
+    Returns:
+        (is_valid: bool, missing_columns: list, error_message: str)
+    """
+    missing = [col for col in required_columns if col not in df.columns]
+    
+    if missing:
+        error_msg = f"Missing required columns for database: {', '.join(missing)}"
+        return False, missing, error_msg
+    
+    return True, [], ""
+
+# =============================================================================
+# ACTIVITY LOG SYSTEM
+# =============================================================================
+from datetime import datetime
+
+def init_activity_log():
+    """Initialize activity log in session state"""
+    if 'activity_log' not in st.session_state:
+        st.session_state.activity_log = []
+
+def log_activity(message: str, level: str = 'info', details: str = None):
+    """
+    Log activity with timestamp
+    
+    Args:
+        message: Main activity message
+        level: 'info', 'success', 'error', or 'warning'
+        details: Optional additional details
+    """
+    if 'activity_log' not in st.session_state:
+        init_activity_log()
+    
+    log_entry = {
+        'timestamp': datetime.now(),
+        'message': message,
+        'level': level,
+        'details': details
+    }
+    
+    st.session_state.activity_log.append(log_entry)
+    
+    # Keep only last 100 entries to prevent memory issues
+    if len(st.session_state.activity_log) > 100:
+        st.session_state.activity_log = st.session_state.activity_log[-100:]
+
+def display_activity_log_sidebar():
+    """Display activity log in sidebar expander"""
+    if 'activity_log' not in st.session_state or not st.session_state.activity_log:
+        return
+    
+    log_count = len(st.session_state.activity_log)
+    
+    with st.sidebar.expander(f"📋 Activity Log ({log_count})", expanded=False):
+        # Display in reverse chronological order (newest first)
+        for entry in reversed(st.session_state.activity_log[-50:]):  # Show last 50
+            timestamp_str = entry['timestamp'].strftime('%H:%M:%S')
+            level = entry['level']
+            message = entry['message']
+            
+            # Choose icon based on level
+            if level == 'success':
+                icon = '✅'
+            elif level == 'error':
+                icon = '❌'
+            elif level == 'warning':
+                icon = '⚠️'
+            else:
+                icon = 'ℹ️'
+            
+            st.text(f"{icon} {timestamp_str} - {message}")
+            
+            # Show details if present
+            if entry.get('details'):
+                st.caption(f"   {entry['details']}")

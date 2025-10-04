@@ -2,29 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import date
-
-# Import with error handling
-try:
-    from helpers import load_file
-except ImportError as e:
-    print(f"Failed to import helpers: {e}")
-    raise
-
-try:
-    from database_service import db_service
-except ImportError as e:
-    print(f"Failed to import database_service: {e}")
-    # Create a dummy service for fallback
-    class DummyDBService:
-        def __init__(self):
-            self.connected = False
-        def load_patients(self): return pd.DataFrame()
-        def load_trials(self): return pd.DataFrame()
-        def load_actual_visits(self): return pd.DataFrame()
-        def add_patient(self, data): return False
-        def add_visit(self, data): return False
-        def add_study_event(self, data): return False
-    db_service = DummyDBService()
+from helpers import load_file
 
 def handle_patient_modal():
     """Handle patient entry modal with compatibility check"""
@@ -78,134 +56,105 @@ def patient_entry_inline_form():
 
 def _render_patient_form(is_modal=True):
     """Render the patient form content"""
-    # Check if we're in database mode
-    use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
+    patients_file = st.session_state.get('patients_file')
+    trials_file = st.session_state.get('trials_file')
     
-    if use_database:
-        # Load from database
-        existing_patients = db_service.load_patients()
-        existing_trials = db_service.load_trials()
-        
-        if existing_patients.empty or existing_trials.empty:
-            st.error("Could not load data from database")
+    if not patients_file or not trials_file:
+        st.error("Files not available")
+        return
+    
+    try:
+        existing_patients = load_file(patients_file)
+        if existing_patients is None or existing_patients.empty:
+            st.error("Could not load patients file or file is empty")
             return
+            
+        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
+        
+        existing_trials = load_file(trials_file)
+        if existing_trials is None or existing_trials.empty:
+            st.error("Could not load trials file or file is empty")
+            return
+            
+        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
         
         available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
-    else:
-        # Load from files
-        patients_file = st.session_state.get('patients_file')
-        trials_file = st.session_state.get('trials_file')
         
-        if not patients_file or not trials_file:
-            st.error("Files not available")
-            return
+        # Main form fields first
+        new_patient_id = st.text_input("Patient ID")
+        new_study = st.selectbox("Study", options=available_studies)
         
-        try:
-            existing_patients = load_file(patients_file)
-            if existing_patients is None or existing_patients.empty:
-                st.error("Could not load patients file or file is empty")
-                return
+        # Use columns to make the date input more prominent
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.write("**Start Date:**")
+        with col2:
+            new_start_date = st.date_input("", value=date.today(), format="DD/MM/YYYY", key="patient_start_date")
+        
+        # Get existing sites with improved handling
+        patient_origin_col = None
+        possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
+        for col in possible_origin_cols:
+            if col in existing_patients.columns:
+                patient_origin_col = col
+                break
+        
+        # Site selection
+        if patient_origin_col:
+            existing_sites = sorted([str(s) for s in existing_patients[patient_origin_col].dropna().unique().tolist() if str(s) != 'nan'])
+            if not existing_sites:  # If column exists but is empty
+                existing_sites = ["Ashfields", "Kiltearn"]
+            
+            new_site = st.selectbox(f"Patient Site ({patient_origin_col})", options=existing_sites + ["Add New..."])
+            if new_site == "Add New...":
+                new_site = st.text_input("Enter New Site Name")
+        else:
+            # No patient origin column found - use text input with default
+            st.info("No patient site column found in your data. Will use 'PatientPractice' column.")
+            new_site = st.text_input("Patient Site", value="Ashfields")
+            patient_origin_col = "PatientPractice"  # Set default column name
+        
+        # Validation
+        validation_errors = []
+        if new_patient_id and str(new_patient_id) in existing_patients["PatientID"].astype(str).values:
+            validation_errors.append("Patient ID already exists")
+        if new_start_date and new_start_date > date.today():
+            validation_errors.append("Start date cannot be in future")
+        if not new_patient_id:
+            validation_errors.append("Patient ID is required")
+        if not new_study:
+            validation_errors.append("Study selection is required")
+        if not new_site or new_site == "Add New...":
+            validation_errors.append("Site selection is required")
+        
+        # Validate that the selected study has a Day 1 visit
+        if new_study:
+            study_visits = existing_trials[existing_trials["Study"] == new_study]
+            day_1_visits = study_visits[study_visits["Day"] == 1]
+            if len(day_1_visits) == 0:
+                validation_errors.append(f"Study {new_study} has no Day 1 visit defined")
+            elif len(day_1_visits) > 1:
+                validation_errors.append(f"Study {new_study} has multiple Day 1 visits - only one allowed")
+        
+        if validation_errors:
+            for error in validation_errors:
+                st.error(error)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Add Patient", disabled=bool(validation_errors), use_container_width=True):
+                # Create new patient record
+                new_patient_data = {
+                    "PatientID": str(new_patient_id),
+                    "Study": str(new_study),
+                    "StartDate": new_start_date,
+                }
                 
-            existing_patients.columns = existing_patients.columns.str.strip()
-            
-            existing_trials = load_file(trials_file)
-            if existing_trials is None or existing_trials.empty:
-                st.error("Could not load trials file or file is empty")
-                return
-                
-            existing_trials.columns = existing_trials.columns.str.strip()
-            
-            available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
-        except Exception as e:
-            st.error(f"Error loading files: {e}")
-            return
-    
-    # Main form fields first
-    new_patient_id = st.text_input("Patient ID")
-    new_study = st.selectbox("Study", options=available_studies)
-    
-    # Use columns to make the date input more prominent
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.write("**Start Date:**")
-    with col2:
-        new_start_date = st.date_input("", value=date.today(), format="DD/MM/YYYY", key="patient_start_date")
-    
-    # Get existing sites with improved handling
-    patient_origin_col = None
-    possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
-    for col in possible_origin_cols:
-        if col in existing_patients.columns:
-            patient_origin_col = col
-            break
-    
-    # Site selection
-    if patient_origin_col:
-        existing_sites = sorted([str(s) for s in existing_patients[patient_origin_col].dropna().unique().tolist() if str(s) != 'nan'])
-        if not existing_sites:  # If column exists but is empty
-            existing_sites = ["Ashfields", "Kiltearn"]
-        
-        new_site = st.selectbox(f"Patient Site ({patient_origin_col})", options=existing_sites + ["Add New..."])
-        if new_site == "Add New...":
-            new_site = st.text_input("Enter New Site Name")
-    else:
-        # No patient origin column found - use text input with default
-        st.info("No patient site column found in your data. Will use 'PatientPractice' column.")
-        new_site = st.text_input("Patient Site", value="Ashfields")
-        patient_origin_col = "PatientPractice"  # Set default column name
-    
-    # Validation
-    validation_errors = []
-    if new_patient_id and str(new_patient_id) in existing_patients["PatientID"].astype(str).values:
-        validation_errors.append("Patient ID already exists")
-    if new_start_date and new_start_date > date.today():
-        validation_errors.append("Start date cannot be in future")
-    if not new_patient_id:
-        validation_errors.append("Patient ID is required")
-    if not new_study:
-        validation_errors.append("Study selection is required")
-    if not new_site or new_site == "Add New...":
-        validation_errors.append("Site selection is required")
-    
-    # Validate that the selected study has a Day 1 visit
-    if new_study:
-        study_visits = existing_trials[existing_trials["Study"] == new_study]
-        day_1_visits = study_visits[study_visits["Day"] == 1]
-        if len(day_1_visits) == 0:
-            validation_errors.append(f"Study {new_study} has no Day 1 visit defined")
-        elif len(day_1_visits) > 1:
-            validation_errors.append(f"Study {new_study} has multiple Day 1 visits - only one allowed")
-    
-    if validation_errors:
-        for error in validation_errors:
-            st.error(error)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Add Patient", disabled=bool(validation_errors), use_container_width=True):
-            # Create new patient record
-            new_patient_data = {
-                "PatientID": str(new_patient_id),
-                "Study": str(new_study),
-                "StartDate": new_start_date,
-            }
-            
-            if patient_origin_col:
-                new_patient_data[patient_origin_col] = str(new_site)
-            else:
-                new_patient_data["PatientPractice"] = str(new_site)
-            
-            if use_database:
-                # Add to database
-                success = db_service.add_patient(new_patient_data)
-                if success:
-                    st.success("Patient added to database successfully!")
-                    st.session_state.show_patient_form = False
-                    st.rerun()
+                if patient_origin_col:
+                    new_patient_data[patient_origin_col] = str(new_site)
                 else:
-                    st.error("Failed to add patient to database")
-            else:
-                # Add to file (existing logic)
+                    new_patient_data["PatientPractice"] = str(new_site)
+                
                 # Add other columns with safe defaults
                 for col in existing_patients.columns:
                     if col not in new_patient_data:
@@ -228,13 +177,17 @@ def _render_patient_form(is_modal=True):
                 st.session_state.patient_added = True
                 st.session_state.show_patient_form = False
                 
-                st.success("Patient added successfully!")
+                st.toast(f"Added patient {new_patient_id} to study {new_study}", icon="✅")
+                log_activity(f"Added patient {new_patient_id} to study {new_study}", level='success')
                 st.rerun()
-    
-    with col2:
-        if st.button("Cancel", use_container_width=True):
-            st.session_state.show_patient_form = False
-            st.rerun()
+        
+        with col2:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.show_patient_form = False
+                st.rerun()
+                
+    except Exception as e:
+        st.error(f"Error loading patient form data: {e}")
 
 def visit_entry_modal():
     """Modal for recording visits"""
@@ -251,144 +204,116 @@ def visit_entry_inline_form():
 
 def _render_visit_form(is_modal=True):
     """Render the visit form content"""
-    # Check if we're in database mode
-    use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
+    patients_file = st.session_state.get('patients_file')
+    trials_file = st.session_state.get('trials_file')
+    actual_visits_file = st.session_state.get('actual_visits_file')
     
-    if use_database:
-        # Load from database
-        existing_patients = db_service.load_patients()
-        existing_trials = db_service.load_trials()
-        existing_visits = db_service.load_actual_visits()
-        
-        if existing_patients.empty or existing_trials.empty:
-            st.error("Could not load data from database")
-            return
-    else:
-        # Load from files
-        patients_file = st.session_state.get('patients_file')
-        trials_file = st.session_state.get('trials_file')
-        actual_visits_file = st.session_state.get('actual_visits_file')
-        
-        if not patients_file or not trials_file:
-            st.error("Files not available")
-            return
-        
-        try:
-            existing_patients = load_file(patients_file)
-            if existing_patients is None or existing_patients.empty:
-                st.error("Could not load patients file or file is empty")
-                return
-                
-            existing_patients.columns = existing_patients.columns.str.strip()
-            
-            existing_trials = load_file(trials_file)
-            if existing_trials is None or existing_trials.empty:
-                st.error("Could not load trials file or file is empty")
-                return
-                
-            existing_trials.columns = existing_trials.columns.str.strip()
-            
-            # Load existing visits
-            existing_visits = pd.DataFrame()
-            if actual_visits_file:
-                existing_visits = load_file(actual_visits_file)
-                existing_visits.columns = existing_visits.columns.str.strip()
-        except Exception as e:
-            st.error(f"Error loading files: {e}")
-            return
-    
-    # Patient selection
-    patient_options = []
-    for _, patient in existing_patients.iterrows():
-        patient_id = str(patient['PatientID'])
-        study = str(patient['Study'])
-        patient_options.append(f"{patient_id} ({study})")
-    
-    if not patient_options:
-        st.error("No patients available")
+    if not patients_file or not trials_file:
+        st.error("Files not available")
         return
     
-    selected_patient = st.selectbox("Select Patient", options=patient_options)
-    
-    if selected_patient:
-        # Extract patient ID and study with safer parsing
-        try:
-            patient_info = selected_patient.split(" (")
-            patient_id = patient_info[0]
-            study = patient_info[1].rstrip(")")
-        except (IndexError, AttributeError):
-            st.error("Error parsing patient selection")
+    try:
+        existing_patients = load_file(patients_file)
+        if existing_patients is None or existing_patients.empty:
+            st.error("Could not load patients file or file is empty")
+            return
+            
+        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
+        
+        existing_trials = load_file(trials_file)
+        if existing_trials is None or existing_trials.empty:
+            st.error("Could not load trials file or file is empty")
+            return
+            
+        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
+        
+        # Load existing visits
+        existing_visits = pd.DataFrame()
+        if actual_visits_file:
+            existing_visits = load_file(actual_visits_file)
+            existing_visits.columns = [str(col).strip() for col in existing_visits.columns]
+        
+        # Patient selection
+        patient_options = []
+        for _, patient in existing_patients.iterrows():
+            patient_id = str(patient['PatientID'])
+            study = str(patient['Study'])
+            patient_options.append(f"{patient_id} ({study})")
+        
+        if not patient_options:
+            st.error("No patients available")
             return
         
-        # Get available visits for this study - using VisitName and sorted by Day
-        study_visits = existing_trials[existing_trials["Study"] == study].sort_values('Day')
-        visit_options = []
-        for _, visit in study_visits.iterrows():
-            day = visit['Day']
-            visit_name = str(visit['VisitName'])
-            visit_options.append(f"{visit_name} (Day {day})")
+        selected_patient = st.selectbox("Select Patient", options=patient_options)
         
-        if not visit_options:
-            st.error(f"No visits defined for study {study}")
-            return
-        
-        selected_visit = st.selectbox("Visit", options=visit_options)
-        
-        if selected_visit:
-            # Extract visit name from the selection with safer parsing
+        if selected_patient:
+            # Extract patient ID and study with safer parsing
             try:
-                visit_name = selected_visit.split(" (Day ")[0]
+                patient_info = selected_patient.split(" (")
+                patient_id = patient_info[0]
+                study = patient_info[1].rstrip(")")
             except (IndexError, AttributeError):
-                visit_name = selected_visit
+                st.error("Error parsing patient selection")
+                return
             
-            # UK date format
-            visit_date = st.date_input("Visit Date", format="DD/MM/YYYY")
+            # Get available visits for this study - using VisitName and sorted by Day
+            study_visits = existing_trials[existing_trials["Study"] == study].sort_values('Day')
+            visit_options = []
+            for _, visit in study_visits.iterrows():
+                day = visit['Day']
+                visit_name = str(visit['VisitName'])
+                visit_options.append(f"{visit_name} (Day {day})")
             
-            # Notes only - no payment field
-            notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to mark screen failures")
+            if not visit_options:
+                st.error(f"No visits defined for study {study}")
+                return
             
-            # Validation
-            validation_errors = []
-            if visit_date > date.today():
-                validation_errors.append("Visit date cannot be in future")
+            selected_visit = st.selectbox("Visit", options=visit_options)
             
-            # Check for duplicates
-            if len(existing_visits) > 0:
-                duplicate_visit = existing_visits[
-                    (existing_visits["PatientID"].astype(str) == str(patient_id)) &
-                    (existing_visits["Study"] == study) &
-                    (existing_visits["VisitName"].astype(str) == str(visit_name))
-                ]
-                if len(duplicate_visit) > 0:
-                    validation_errors.append(f"Visit '{visit_name}' for patient {patient_id} already recorded")
-            
-            if validation_errors:
-                for error in validation_errors:
-                    st.error(error)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Record Visit", disabled=bool(validation_errors), use_container_width=True):
-                    # Create new visit record
-                    new_visit_data = {
-                        "PatientID": str(patient_id),
-                        "Study": str(study),
-                        "VisitName": str(visit_name),
-                        "ActualDate": visit_date,
-                        "Notes": str(notes or "")
-                    }
-                    
-                    if use_database:
-                        # Add to database
-                        success = db_service.add_visit(new_visit_data)
-                        if success:
-                            st.success("Visit recorded in database successfully!")
-                            st.session_state.show_visit_form = False
-                            st.rerun()
-                        else:
-                            st.error("Failed to record visit in database")
-                    else:
-                        # Add to file (existing logic)
+            if selected_visit:
+                # Extract visit name from the selection with safer parsing
+                try:
+                    visit_name = selected_visit.split(" (Day ")[0]
+                except (IndexError, AttributeError):
+                    visit_name = selected_visit
+                
+                # UK date format
+                visit_date = st.date_input("Visit Date", format="DD/MM/YYYY")
+                
+                # Notes only - no payment field
+                notes = st.text_area("Notes (Optional)", help="Use 'ScreenFail' to mark screen failures")
+                
+                # Validation
+                validation_errors = []
+                if visit_date > date.today():
+                    validation_errors.append("Visit date cannot be in future")
+                
+                # Check for duplicates
+                if len(existing_visits) > 0:
+                    duplicate_visit = existing_visits[
+                        (existing_visits["PatientID"].astype(str) == str(patient_id)) &
+                        (existing_visits["Study"] == study) &
+                        (existing_visits["VisitName"].astype(str) == str(visit_name))
+                    ]
+                    if len(duplicate_visit) > 0:
+                        validation_errors.append(f"Visit '{visit_name}' for patient {patient_id} already recorded")
+                
+                if validation_errors:
+                    for error in validation_errors:
+                        st.error(error)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Record Visit", disabled=bool(validation_errors), use_container_width=True):
+                        # Create new visit record
+                        new_visit_data = {
+                            "PatientID": str(patient_id),
+                            "Study": str(study),
+                            "VisitName": str(visit_name),
+                            "ActualDate": visit_date,
+                            "Notes": str(notes or "")
+                        }
+                        
                         if len(existing_visits) > 0:
                             new_visit_df = pd.DataFrame([new_visit_data])
                             updated_visits_df = pd.concat([existing_visits, new_visit_df], ignore_index=True)
@@ -415,13 +340,17 @@ def _render_visit_form(is_modal=True):
                         st.session_state.visit_added = True
                         st.session_state.show_visit_form = False
                         
-                        st.success("Visit recorded successfully!")
+                        st.toast(f"Recorded visit {visit_name} for patient {patient_id}", icon="✅")
+                        log_activity(f"Recorded visit {visit_name} for patient {patient_id}", level='success')
                         st.rerun()
-            
-            with col2:
-                if st.button("Cancel", use_container_width=True):
-                    st.session_state.show_visit_form = False
-                    st.rerun()
+                
+                with col2:
+                    if st.button("Cancel", use_container_width=True):
+                        st.session_state.show_visit_form = False
+                        st.rerun()
+                        
+    except Exception as e:
+        st.error(f"Error loading visit form data: {e}")
 
 def show_patient_download():
     """Show patient download section"""
@@ -748,9 +677,6 @@ def update_study_event(original_event, new_date, new_notes, new_status):
 def create_study_event(study, event_type, visit_name, event_date, status, notes):
     """Create new study event"""
     try:
-        # Check if we're in database mode
-        use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
-        
         # Generate patient ID for event
         patient_id = f"{event_type.upper()}_{study}"
         
@@ -764,43 +690,30 @@ def create_study_event(study, event_type, visit_name, event_date, status, notes)
             "Status": status
         }
         
-        if use_database:
-            # Add to database
-            success = db_service.add_study_event(new_event_data)
-            if success:
-                st.session_state.event_added = True
-                return True
-            else:
-                st.error("Failed to create study event in database")
-                return False
+        # Load existing visits or create new file
+        actual_visits_file = st.session_state.get('actual_visits_file')
+        if actual_visits_file:
+            existing_visits = load_file_with_defaults(
+                actual_visits_file,
+                {'VisitType': 'patient', 'Status': 'completed'}
+            )
+            updated_visits = pd.concat([existing_visits, pd.DataFrame([new_event_data])], ignore_index=True)
         else:
-            # Add to file (existing logic)
-            from helpers import load_file_with_defaults
-            
-            # Load existing visits or create new file
-            actual_visits_file = st.session_state.get('actual_visits_file')
-            if actual_visits_file:
-                existing_visits = load_file_with_defaults(
-                    actual_visits_file,
-                    {'VisitType': 'patient', 'Status': 'completed'}
-                )
-                updated_visits = pd.concat([existing_visits, pd.DataFrame([new_event_data])], ignore_index=True)
-            else:
-                updated_visits = pd.DataFrame([new_event_data])
-            
-            # Save file
-            output = io.BytesIO()
-            try:
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    updated_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
-            except ImportError:
-                updated_visits.to_csv(output, index=False)
-            
-            st.session_state.updated_events_file = output.getvalue()
-            st.session_state.updated_events_filename = f"ActualVisits_Updated_{event_date.strftime('%Y%m%d')}.xlsx"
-            st.session_state.event_added = True
-            
-            return True
+            updated_visits = pd.DataFrame([new_event_data])
+        
+        # Save file
+        output = io.BytesIO()
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                updated_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
+        except ImportError:
+            updated_visits.to_csv(output, index=False)
+        
+        st.session_state.updated_events_file = output.getvalue()
+        st.session_state.updated_events_filename = f"ActualVisits_Updated_{event_date.strftime('%Y%m%d')}.xlsx"
+        st.session_state.event_added = True
+        
+        return True
         
     except Exception as e:
         st.error(f"Error creating event: {e}")

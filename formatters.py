@@ -61,7 +61,11 @@ def create_site_header_row(columns, site_column_mapping):
                     for patient_info in site_data['patient_info']:
                         if patient_info['col_id'] == col:
                             study_patient = f"{patient_info['study']}_{patient_info['patient_id']}"
-                            origin_site = f"({patient_info['origin_site']})"
+                            origin_site_value = patient_info.get('origin_site', '')
+                            if origin_site_value and origin_site_value != 'Unknown Origin':
+                                origin_site = f"({origin_site_value})"
+                            else:
+                                origin_site = ""
                             break
                     break
             
@@ -73,10 +77,14 @@ def create_site_header_row(columns, site_column_mapping):
 
 def style_calendar_row(row, today_date):
     """Apply styling to calendar rows - updated for three-level headers"""
-    if row.name < 3:  # First three rows are headers
-        return create_enhanced_header_styles(row, row.name)
-    else:
-        return create_data_row_styles(row, today_date)
+    try:
+        if row.name < 3:  # First three rows are headers
+            return create_enhanced_header_styles(row, row.name)
+        else:
+            return create_data_row_styles(row, today_date)
+    except Exception as e:
+        # Fallback to basic styling if there are issues
+        return [''] * len(row)
 
 def create_enhanced_header_styles(row, header_level):
     """Create styles for three-level headers"""
@@ -113,7 +121,7 @@ def create_data_row_styles(row, today_date):
     date_str = row.get("Date", "")
     date_obj = None
     try:
-        if date_str:
+        if date_str and str(date_str) != "":
             date_obj = pd.to_datetime(date_str)
     except:
         pass
@@ -121,13 +129,17 @@ def create_data_row_styles(row, today_date):
     for col_name, cell_value in row.items():
         style = ""
         
-        # Apply date-based styling first
-        if date_obj is not None and not pd.isna(date_obj):
-            style = get_date_based_style(date_obj, today_date)
-        
-        # Apply visit-specific styling if no date styling
-        if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
-            style = get_visit_based_style(str(cell_value))
+        try:
+            # Apply date-based styling first
+            if date_obj is not None and not pd.isna(date_obj):
+                style = get_date_based_style(date_obj, today_date)
+            
+            # Apply visit-specific styling if no date styling
+            if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
+                style = get_visit_based_style(str(cell_value))
+        except Exception as e:
+            # If there's any error with styling, just use empty style
+            style = ""
         
         styles.append(style)
     
@@ -153,7 +165,13 @@ def get_visit_based_style(cell_str):
         return 'background-color: #f5c6cb; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
     elif '⚠️ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "⚠️"]):
+    elif '📋' in cell_str and '(Predicted)' in cell_str:
+        # Predicted visits (no actual visit yet)
+        return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
+    elif '📅' in cell_str and '(Planned)' in cell_str:
+        # Planned visits (actual visit also exists - show original schedule)
+        return 'background-color: #f8f9fa; color: #6c757d; font-weight: normal; font-style: italic;'
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "⚠️", "📋", "📅"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
     elif cell_str in ["+", "-"]:
         return 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'

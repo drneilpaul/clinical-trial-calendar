@@ -4,6 +4,7 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
+from helpers import log_activity
 
 # Import only from modules that don't import back to us
 from calculations import (
@@ -78,13 +79,19 @@ def display_breakdown_by_study(site_visits, site_patients, site_name):
             'PatientID': 'count'
         }).rename(columns={'PatientID': 'Patient Count'})
         
-        visit_breakdown = site_visits.groupby('Study').agg({
-            'Visit': 'count',
-            'Payment': 'sum'
-        }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
-        
-        combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
-        combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(format_currency)
+        if len(site_visits) > 0:
+            visit_breakdown = site_visits.groupby('Study').agg({
+                'Visit': 'count',
+                'Payment': 'sum'
+            }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})
+            
+            combined_breakdown = study_breakdown.join(visit_breakdown, how='left').fillna(0)
+            combined_breakdown['Total Income'] = combined_breakdown['Total Income'].apply(format_currency)
+        else:
+            # Just show patient recruitment data
+            combined_breakdown = study_breakdown.copy()
+            combined_breakdown['Visit Count'] = 0
+            combined_breakdown['Total Income'] = "£0.00"
         
         st.dataframe(combined_breakdown, use_container_width=True)
     except Exception as e:
@@ -179,8 +186,9 @@ def show_legend(actual_visits_df):
     - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
 
-    **Scheduled Visits:**
-    - VisitName (Gray background) = Scheduled/Planned Visit
+    **Predicted Visits:**
+    - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
+    - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
     - \\- (Light blue-gray, italic) = Before tolerance period
     - \\+ (Light blue-gray, italic) = After tolerance period
 
@@ -222,48 +230,105 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
     st.subheader("Generated Visit Calendar")
 
     try:
-        # Prepare display columns
+        # Debug: Log calendar DataFrame info
+        log_activity(f"Calendar DataFrame shape: {calendar_df.shape}", level='info')
+        log_activity(f"Calendar columns: {list(calendar_df.columns)}", level='info')
+        log_activity(f"Calendar has unique columns: {calendar_df.columns.is_unique}", level='info')
+        log_activity(f"Site column mapping keys: {list(site_column_mapping.keys())}", level='info')
+        log_activity(f"Unique visit sites: {unique_visit_sites}", level='info')
+        # Prepare display columns (avoid duplicates)
         final_ordered_columns = ["Date", "Day"]
+        seen_columns = {"Date", "Day"}
+        log_activity(f"Building display columns for {len(unique_visit_sites)} sites", level='info')
+        
         for visit_site in unique_visit_sites:
             site_data = site_column_mapping.get(visit_site, {})
             site_columns = site_data.get('columns', [])
+            log_activity(f"Site {visit_site}: {len(site_columns)} columns - {site_columns}", level='info')
+            
             for col in site_columns:
-                if col in calendar_df.columns:
+                if col in calendar_df.columns and col not in seen_columns:
                     final_ordered_columns.append(col)
+                    seen_columns.add(col)
+                    log_activity(f"Added column: {col}", level='info')
+                elif col not in calendar_df.columns:
+                    log_activity(f"Warning: Column {col} not found in calendar DataFrame", level='warning')
+                elif col in seen_columns:
+                    log_activity(f"Warning: Duplicate column {col} skipped", level='warning')
+        
+        log_activity(f"Final ordered columns ({len(final_ordered_columns)}): {final_ordered_columns}", level='info')
 
         display_df = calendar_df[final_ordered_columns].copy()
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
         # Create three-level header rows
+        log_activity(f"Creating headers for {len(display_df_for_view.columns)} columns", level='info')
         header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
+        
+        # Debug header rows
+        log_activity(f"Level 1 headers: {header_rows['level1_site']}", level='info')
+        log_activity(f"Level 2 headers: {header_rows['level2_study_patient']}", level='info')
+        log_activity(f"Level 3 headers: {header_rows['level3_origin']}", level='info')
         
         # Create header dataframes
         level1_df = pd.DataFrame([header_rows['level1_site']])  # Visit sites
         level2_df = pd.DataFrame([header_rows['level2_study_patient']])  # Study_Patient
         level3_df = pd.DataFrame([header_rows['level3_origin']])  # Origin sites
         
+        log_activity(f"Header DataFrames created - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}", level='info')
+        
+        # Check for duplicate indices before concatenation
+        if not display_df_for_view.index.is_unique:
+            st.warning(f"Found duplicate indices in calendar data. Resetting index...")
+            display_df_for_view = display_df_for_view.reset_index(drop=True)
+        
         # Combine all headers with data
-        display_with_headers = pd.concat([
-            level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
-            level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
-            level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
-            display_df_for_view  # Actual visit data
-        ], ignore_index=True)
+        try:
+            log_activity(f"Concatenating DataFrames - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}, Data: {display_df_for_view.shape}", level='info')
+            
+            # Check for column alignment
+            all_columns = set(level1_df.columns) | set(level2_df.columns) | set(level3_df.columns) | set(display_df_for_view.columns)
+            log_activity(f"All columns in concatenation: {sorted(all_columns)}", level='info')
+            
+            display_with_headers = pd.concat([
+                level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)
+                level2_df,      # Level 2: Study_PatientID (Alpha_P001, Beta_P003)
+                level3_df,      # Level 3: Origin sites ((Kiltearn), (Ashfields))
+                display_df_for_view  # Actual visit data
+            ], ignore_index=True)
+            
+            log_activity(f"Concatenation successful - Final shape: {display_with_headers.shape}", level='info')
+            
+        except Exception as concat_error:
+            st.error(f"Error concatenating calendar data: {concat_error}")
+            log_activity(f"Concatenation error details: {str(concat_error)}", level='error')
+            # Fallback: just show the calendar data without headers
+            display_with_headers = display_df_for_view
 
         # Apply styling for three header rows
         try:
+            log_activity(f"Applying styling to DataFrame with shape: {display_with_headers.shape}", level='info')
             today = pd.to_datetime(date.today())
+            
+            # Test styling on first few rows
+            log_activity(f"Testing styling on first row: {display_with_headers.iloc[0].to_dict()}", level='info')
+            
             styled_df = display_with_headers.style.apply(
                 lambda row: style_calendar_row(row, today), axis=1
             )
             
+            log_activity(f"Styling applied successfully", level='info')
+            
             # Generate HTML with month separators
             html_table = _generate_calendar_html_with_separators(styled_df)
+            log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
+            
             components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
             
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
+            log_activity(f"Styling error details: {str(e)}", level='error')
             st.dataframe(display_with_headers, use_container_width=True)
 
         if excluded_visits and len(excluded_visits) > 0:
@@ -272,7 +337,22 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             
     except Exception as e:
         st.error(f"Error displaying calendar: {e}")
-        st.dataframe(calendar_df, use_container_width=True)
+        log_activity(f"Calendar display error: {str(e)}", level='error')
+        
+        # Try to show basic calendar without headers
+        try:
+            st.write("**Fallback Calendar Display (Basic)**")
+            st.dataframe(calendar_df, use_container_width=True)
+        except Exception as fallback_error:
+            st.error(f"Even basic display failed: {fallback_error}")
+            log_activity(f"Basic display also failed: {str(fallback_error)}", level='error')
+            
+            # Show raw data info
+            st.write("**Raw Calendar Data Info:**")
+            st.write(f"Shape: {calendar_df.shape}")
+            st.write(f"Columns: {list(calendar_df.columns)}")
+            st.write(f"First few rows:")
+            st.dataframe(calendar_df.head(), use_container_width=True)
 
 def _generate_calendar_html_with_separators(styled_df):
     """Generate HTML calendar with month separators"""
@@ -491,7 +571,8 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
         # Prepare enhanced visits data
         enhanced_visits_df = prepare_financial_data(visits_df)
         
-        # Create tabs for each visit site or display directly if single site
+        # Always create tabs for all visit sites, even if they have no visits
+        # This ensures sites like Kiltearn are visible even when they only have patient recruitment income
         if len(unique_visit_sites) > 1:
             tabs = st.tabs(unique_visit_sites)
             for i, visit_site in enumerate(unique_visit_sites):
@@ -512,24 +593,49 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         patients_with_visits_here = visits_df[visits_df['SiteofVisit'] == site]['PatientID'].unique()
         site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
         
+        # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            st.warning(f"No patients found with visits at site: {site}")
-            return
+            # Look for patients recruited by this site (based on patient origin)
+            site_col = None
+            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    site_col = candidate
+                    break
+            
+            if site_col:
+                site_related_patients = patients_df[patients_df[site_col] == site]
+            
+            if site_related_patients.empty:
+                st.warning(f"No patients found for site: {site}")
+                return
+            else:
+                st.info(f"ℹ️ No visits performed at {site}, but showing patient recruitment data")
         
         st.subheader(f"🏥 {site} - Visit Site Analysis")
         
         # Overall statistics
         st.write("**Overall Statistics**")
-        metrics_data = {
-            "Patients with visits here": len(site_related_patients),
-            "Total Visits at this site": len(site_visits),
-            "Completed Visits": len(site_visits[site_visits.get('IsActual', False)]),
-            "Total Income": format_currency(site_visits['Payment'].sum())
-        }
+        if len(site_visits) > 0:
+            metrics_data = {
+                "Patients with visits here": len(site_related_patients),
+                "Total Visits at this site": len(site_visits),
+                "Completed Visits": len(site_visits[site_visits.get('IsActual', False)]),
+                "Total Income": format_currency(site_visits['Payment'].sum())
+            }
+        else:
+            metrics_data = {
+                "Patients recruited by this site": len(site_related_patients),
+                "Total Visits at this site": 0,
+                "Recruitment Income": "See below",
+                "Visit Income": "£0.00"
+            }
         create_summary_metrics_row(metrics_data, 4)
         
         # Study breakdown at this site
-        st.write("**Studies performed at this site:**")
+        if len(site_visits) > 0:
+            st.write("**Studies performed at this site:**")
+        else:
+            st.write("**Studies recruited by this site:**")
         display_breakdown_by_study(site_visits, site_related_patients, site)
         
         # Time-based analysis for work done at this site
@@ -575,7 +681,7 @@ def _display_site_screen_failures(site_patients, screen_failures):
     except Exception as e:
         st.error(f"Error displaying screen failures: {e}")
 
-def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites):
+def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df=None, visits_df=None):
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
@@ -636,8 +742,12 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             # Enhanced Excel from table_builders
             try:
                 from table_builders import create_enhanced_excel_export
+                # Use actual data instead of empty DataFrames
+                patients_data = patients_df if patients_df is not None else pd.DataFrame()
+                visits_data = visits_df if visits_df is not None else pd.DataFrame()
+                
                 enhanced_excel = create_enhanced_excel_export(
-                    excel_df, pd.DataFrame(), pd.DataFrame(), site_column_mapping, unique_visit_sites
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites
                 )
                 
                 if enhanced_excel:
@@ -679,147 +789,3 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
         except Exception as fallback_error:
             st.error(f"All download methods failed: {fallback_error}")
 
-def display_verification_figures(visits_df, calendar_df, financial_df, patients_df):
-    """Display verification figures for testing and validation"""
-    st.subheader("🔍 Verification Figures")
-    st.caption("Copy these figures to verify calculations are correct")
-    
-    try:
-        # Calculate key metrics
-        verification_data = []
-        
-        # Overall totals
-        total_visits = len(visits_df)
-        completed_visits = len(visits_df[visits_df.get('IsActual', False) == True])
-        scheduled_visits = total_visits - completed_visits
-        total_income = visits_df['Payment'].sum()
-        completed_income = visits_df[visits_df.get('IsActual', False) == True]['Payment'].sum()
-        scheduled_income = visits_df[visits_df.get('IsActual', False) == False]['Payment'].sum()
-        
-        verification_data.append({
-            'Metric': 'Total Visits',
-            'Value': total_visits,
-            'Details': f"Completed: {completed_visits}, Scheduled: {scheduled_visits}"
-        })
-        
-        verification_data.append({
-            'Metric': 'Total Income',
-            'Value': f"£{total_income:,.2f}",
-            'Details': f"Completed: £{completed_income:,.2f}, Scheduled: £{scheduled_income:,.2f}"
-        })
-        
-        # By study
-        study_breakdown = visits_df.groupby('Study').agg({
-            'Visit': 'count',
-            'Payment': 'sum',
-            'IsActual': lambda x: x.sum() if x.dtype == bool else (x == True).sum()
-        }).rename(columns={'Visit': 'Total_Visits', 'Payment': 'Total_Income', 'IsActual': 'Completed_Visits'})
-        
-        for study, row in study_breakdown.iterrows():
-            verification_data.append({
-                'Metric': f'{study} - Visits',
-                'Value': int(row['Total_Visits']),
-                'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
-            })
-        
-        # By visit site (where work is done)
-        site_breakdown = visits_df.groupby('SiteofVisit').agg({
-            'Visit': 'count',
-            'Payment': 'sum',
-            'IsActual': lambda x: x.sum() if x.dtype == bool else (x == True).sum()
-        }).rename(columns={'Visit': 'Total_Visits', 'Payment': 'Total_Income', 'IsActual': 'Completed_Visits'})
-        
-        for site, row in site_breakdown.iterrows():
-            verification_data.append({
-                'Metric': f'{site} - Visit Site',
-                'Value': int(row['Total_Visits']),
-                'Details': f"Completed: {int(row['Completed_Visits'])}, Income: £{row['Total_Income']:,.2f}"
-            })
-        
-        # Screen failures
-        screen_failed_patients = visits_df[visits_df.get('IsScreenFail', False) == True]['PatientID'].nunique()
-        verification_data.append({
-            'Metric': 'Screen Failed Patients',
-            'Value': screen_failed_patients,
-            'Details': "Patients with screen failure visits"
-        })
-        
-        # Out of protocol visits
-        out_of_protocol_visits = len(visits_df[visits_df.get('IsOutOfProtocol', False) == True])
-        verification_data.append({
-            'Metric': 'Out of Protocol Visits',
-            'Value': out_of_protocol_visits,
-            'Details': "Visits outside tolerance windows"
-        })
-        
-        # Financial year totals
-        if not financial_df.empty and 'FinancialYear' in financial_df.columns:
-            fy_breakdown = financial_df.groupby('FinancialYear')['Payment'].sum()
-            for fy, total in fy_breakdown.items():
-                verification_data.append({
-                    'Metric': f'FY {fy} Income',
-                    'Value': f"£{total:,.2f}",
-                    'Details': f"Financial year total"
-                })
-        
-        # Calendar totals verification
-        calendar_daily_total = calendar_df['Daily Total'].sum()
-        calendar_fy_total = calendar_df['FY Total'].sum() if 'FY Total' in calendar_df.columns else 0
-        calendar_monthly_total = calendar_df['Monthly Total'].sum() if 'Monthly Total' in calendar_df.columns else 0
-        
-        verification_data.append({
-            'Metric': 'Calendar Daily Total Sum',
-            'Value': f"£{calendar_daily_total:,.2f}",
-            'Details': "Sum of all daily totals in calendar"
-        })
-        
-        if calendar_fy_total > 0:
-            verification_data.append({
-                'Metric': 'Calendar FY Total Sum',
-                'Value': f"£{calendar_fy_total:,.2f}",
-                'Details': "Sum of FY totals (should equal daily total)"
-            })
-        
-        if calendar_monthly_total > 0:
-            verification_data.append({
-                'Metric': 'Calendar Monthly Total Sum', 
-                'Value': f"£{calendar_monthly_total:,.2f}",
-                'Details': "Sum of monthly totals (should equal daily total)"
-            })
-        
-        # Patient recruitment by origin site
-        patient_site_breakdown = patients_df.groupby('Site')['PatientID'].count()
-        for site, count in patient_site_breakdown.items():
-            verification_data.append({
-                'Metric': f'{site} - Patients Recruited',
-                'Value': int(count),
-                'Details': "Total patients recruited at this origin site"
-            })
-        
-        # Create verification dataframe
-        verification_df = pd.DataFrame(verification_data)
-        
-        # Display in expandable section
-        with st.expander("📊 Detailed Verification Figures", expanded=False):
-            st.dataframe(verification_df, use_container_width=True, hide_index=True)
-            
-            # Create downloadable CSV
-            csv_data = verification_df.to_csv(index=False)
-            st.download_button(
-                "📥 Download Verification Figures (CSV)",
-                data=csv_data,
-                file_name="verification_figures.csv",
-                mime="text/csv"
-            )
-            
-            # Copy-paste friendly format
-            st.write("**Copy-Paste Format:**")
-            copy_text = "\n".join([
-                f"{row['Metric']}: {row['Value']} ({row['Details']})"
-                for _, row in verification_df.iterrows()
-            ])
-            st.code(copy_text, language="text")
-    
-    except Exception as e:
-        st.error(f"Error generating verification figures: {e}")
-        st.exception(e)
