@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import timedelta
-from helpers import safe_string_conversion, get_screen_failure_key
+from helpers import safe_string_conversion
 
 def process_study_events(event_templates, actual_visits_df):
     """Process all study-level events (SIV, monitor, etc.)"""
@@ -20,12 +20,12 @@ def process_study_events(event_templates, actual_visits_df):
         visit_type = safe_string_conversion(event_visit.get('VisitType', 'siv')).lower()
         status = safe_string_conversion(event_visit.get('Status', 'completed')).lower()
         
-        # Skip if essential fields are missing or invalid - simplified and safe
-        if pd.isna(event_visit.get('Study')) or str(event_visit.get('Study', '')).strip() == '':
+        # Skip if essential fields are missing or invalid
+        if not study or study.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('Study')):
             continue
-        if pd.isna(event_visit.get('VisitName')) or str(event_visit.get('VisitName', '')).strip() == '':
+        if not visit_name or visit_name.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('VisitName')):
             continue
-        if visit_type not in ['siv', 'monitor']:
+        if not visit_type or visit_type not in ['siv', 'monitor']:
             continue
             
         # Validate date
@@ -92,13 +92,9 @@ def detect_screen_failures(actual_visits_df, trials_df):
         actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
     ]
     
-    # Sort by date to ensure we process chronologically and avoid race conditions
-    if not screen_fail_visits.empty:
-        screen_fail_visits = screen_fail_visits.sort_values('ActualDate')
-    
     for _, visit in screen_fail_visits.iterrows():
-        # Create patient-specific key using centralized function
-        patient_study_key = get_screen_failure_key(visit['PatientID'], visit['Study'])
+        # Create patient-specific key
+        patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
         screen_fail_date = visit['ActualDate']
         
         study_visits = trials_df[
@@ -123,11 +119,17 @@ def calculate_tolerance_windows(visit, baseline_date, visit_day):
     tolerance_before = 0
     tolerance_after = 0
     
-    # Use centralized numeric conversion from helpers
-    from helpers import clean_numeric_for_display
-    tolerance_before = int(clean_numeric_for_display(visit.get("ToleranceBefore", 0)))
+    try:
+        if pd.notna(visit.get("ToleranceBefore")):
+            tolerance_before = int(float(visit.get("ToleranceBefore", 0)))
+    except:
+        tolerance_before = 0
         
-    tolerance_after = int(clean_numeric_for_display(visit.get("ToleranceAfter", 0)))
+    try:
+        if pd.notna(visit.get("ToleranceAfter")):
+            tolerance_after = int(float(visit.get("ToleranceAfter", 0)))
+    except:
+        tolerance_after = 0
     
     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
     latest_acceptable = expected_date + timedelta(days=tolerance_after)
@@ -157,7 +159,7 @@ def create_tolerance_window_records(patient_id, study, site, patient_origin, exp
             tolerance_date = expected_date - timedelta(days=i)
             if screen_fail_date is not None and tolerance_date > screen_fail_date:
                 continue
-            if actual_visit_date is not None and tolerance_date.date() == actual_visit_date.date():
+            if actual_visit_date is not None and tolerance_date == actual_visit_date:
                 continue  # Don't duplicate actual visit date
             
             records.append({

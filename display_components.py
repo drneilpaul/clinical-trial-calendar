@@ -4,7 +4,7 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
-from helpers import log_activity, get_screen_failure_key
+from helpers import log_activity
 
 # Import only from modules that don't import back to us
 from calculations import (
@@ -19,8 +19,58 @@ from formatters import (
     create_fy_highlighting_function
 )
 
-# Import table builder functions to avoid duplication
-from table_builders import display_income_table_pair, display_profit_sharing_table, display_ratio_breakdown_table, create_summary_metrics_row
+# Move table builder functions directly into this file to avoid circular imports
+def display_income_table_pair(financial_df):
+    """Display monthly income analysis tables"""
+    try:
+        monthly_totals = financial_df.groupby('MonthYear')['Payment'].sum()
+        if not monthly_totals.empty:
+            monthly_df = monthly_totals.reset_index()
+            monthly_df.columns = ['Month', 'Total Income']
+            monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+            st.dataframe(monthly_df, use_container_width=True)
+        else:
+            st.info("No monthly data available")
+    except Exception as e:
+        st.error(f"Error displaying monthly income: {e}")
+
+def display_profit_sharing_table(quarterly_ratios):
+    """Display profit sharing analysis table"""
+    try:
+        if quarterly_ratios:
+            df = pd.DataFrame(quarterly_ratios)
+            # Apply highlighting for Financial Year rows
+            styled_df = df.style.apply(
+                lambda x: ['background-color: #e6f3ff; font-weight: bold;' if x['Type'] == 'Financial Year' else '' for _ in x], 
+                axis=1
+            )
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No quarterly data available for profit sharing analysis")
+    except Exception as e:
+        st.error(f"Error displaying profit sharing table: {e}")
+
+def display_ratio_breakdown_table(ratio_data, title):
+    """Display ratio breakdown table"""
+    try:
+        if ratio_data:
+            st.write(f"**{title}**")
+            df = pd.DataFrame(ratio_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No data available for {title}")
+    except Exception as e:
+        st.error(f"Error displaying {title}: {e}")
+
+def create_summary_metrics_row(metrics_data, columns=4):
+    """Create a row of metrics using Streamlit columns"""
+    try:
+        cols = st.columns(columns)
+        for i, (label, value) in enumerate(metrics_data.items()):
+            with cols[i % columns]:
+                st.metric(label, value)
+    except Exception as e:
+        st.error(f"Error creating metrics row: {e}")
 
 def display_breakdown_by_study(site_visits, site_patients, site_name):
     """Display study breakdown for a site"""
@@ -209,16 +259,6 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         log_activity(f"Final ordered columns ({len(final_ordered_columns)}): {final_ordered_columns}", level='info')
 
         display_df = calendar_df[final_ordered_columns].copy()
-        
-        # Debug: Check for actual visits in the calendar before display
-        actual_visits_in_calendar = 0
-        for col in display_df.columns:
-            if col not in ["Date", "Day"] and not col.endswith("_Events") and not col.endswith("_Income") and not col in ["Daily Total", "MonthPeriod", "Monthly Total", "FYStart", "FY Total"]:
-                for val in display_df[col]:
-                    if "✅" in str(val):
-                        actual_visits_in_calendar += 1
-        log_activity(f"DEBUG: {actual_visits_in_calendar} actual visits found in display_df before formatting", level='info')
-        
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
 
@@ -261,14 +301,8 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             log_activity(f"Concatenation successful - Final shape: {display_with_headers.shape}", level='info')
             
         except Exception as concat_error:
-            st.error(f"❌ Error concatenating calendar data: {concat_error}")
-            st.info("💡 **Action Required**: Check that all header DataFrames have matching column structures")
+            st.error(f"Error concatenating calendar data: {concat_error}")
             log_activity(f"Concatenation error details: {str(concat_error)}", level='error')
-            
-            # Show debugging info
-            st.info(f"Header DataFrame shapes - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}, Data: {display_df_for_view.shape}")
-            st.info(f"Header DataFrame columns - Level1: {list(level1_df.columns)}, Level2: {list(level2_df.columns)}, Level3: {list(level3_df.columns)}")
-            
             # Fallback: just show the calendar data without headers
             display_with_headers = display_df_for_view
 
@@ -293,70 +327,17 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
             
         except Exception as e:
-            st.warning(f"⚠️ Calendar styling unavailable: {e}")
-            st.info("💡 **Fallback**: Displaying calendar without advanced styling")
+            st.warning(f"Calendar styling unavailable: {e}")
             log_activity(f"Styling error details: {str(e)}", level='error')
-            
-            # Show debugging info
-            if 'display_with_headers' in locals():
-                st.info(f"DataFrame shape: {display_with_headers.shape}")
-                st.info(f"DataFrame columns: {list(display_with_headers.columns)}")
-            
             st.dataframe(display_with_headers, use_container_width=True)
 
         if excluded_visits and len(excluded_visits) > 0:
             st.warning("Some visits were excluded due to screen failure:")
             st.dataframe(pd.DataFrame(excluded_visits))
             
-    except AttributeError as attr_error:
-        st.error(f"❌ Missing columns or attributes in calendar data")
-        st.info("💡 **Action Required**: Check that your data files contain all required columns (Date, Day, etc.)")
-        log_activity(f"AttributeError in calendar display: {str(attr_error)}", level='error')
-        
-        # Try to show basic calendar without headers
-        try:
-            st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, use_container_width=True)
-        except Exception as fallback_error:
-            st.error(f"Even basic display failed: {fallback_error}")
-            
-    except KeyError as key_error:
-        st.error(f"❌ Column mapping issue in calendar display")
-        st.info("💡 **Action Required**: Check that site column mapping is correct and all referenced columns exist")
-        log_activity(f"KeyError in calendar display: {str(key_error)}", level='error')
-        
-        # Show available columns for debugging
-        if 'calendar_df' in locals():
-            st.info(f"Available columns: {list(calendar_df.columns)}")
-        
-        # Try to show basic calendar without headers
-        try:
-            st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, use_container_width=True)
-        except Exception as fallback_error:
-            st.error(f"Even basic display failed: {fallback_error}")
-            
-    except IndexError as index_error:
-        st.error(f"❌ Empty or malformed calendar data")
-        st.info("💡 **Action Required**: Ensure your data files contain valid visit records and are not empty")
-        log_activity(f"IndexError in calendar display: {str(index_error)}", level='error')
-        
-        # Show data info for debugging
-        if 'calendar_df' in locals():
-            st.info(f"Calendar DataFrame shape: {calendar_df.shape}")
-            st.info(f"Calendar DataFrame columns: {list(calendar_df.columns)}")
-        
-        # Try to show basic calendar without headers
-        try:
-            st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, use_container_width=True)
-        except Exception as fallback_error:
-            st.error(f"Even basic display failed: {fallback_error}")
-            
     except Exception as e:
-        st.error(f"❌ Unexpected error displaying calendar: {e}")
-        st.info("💡 **Action Required**: Check the activity log for more details or try refreshing the data")
-        log_activity(f"Unexpected error in calendar display: {str(e)}", level='error')
+        st.error(f"Error displaying calendar: {e}")
+        log_activity(f"Calendar display error: {str(e)}", level='error')
         
         # Try to show basic calendar without headers
         try:
@@ -686,7 +667,7 @@ def _display_site_screen_failures(site_patients, screen_failures):
     try:
         site_screen_failures = []
         for patient in site_patients.itertuples():
-            patient_study_key = get_screen_failure_key(patient.PatientID, patient.Study)
+            patient_study_key = f"{patient.PatientID}_{patient.Study}"
             if patient_study_key in screen_failures:
                 site_screen_failures.append({
                     'Patient': patient.PatientID,

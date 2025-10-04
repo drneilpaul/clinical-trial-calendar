@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from helpers import get_screen_failure_key
 from formatters import (
     apply_currency_formatting, apply_currency_or_empty_formatting,
     create_fy_highlighting_function, format_dataframe_index_as_string,
@@ -12,27 +11,6 @@ from calculations import (
     calculate_income_realization_metrics, calculate_monthly_realization_breakdown,
     calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
 )
-
-def validate_excel_sheet_name(name):
-    """Validate and sanitize Excel sheet name"""
-    if not name or not isinstance(name, str):
-        return "Sheet1"
-    
-    # Remove invalid characters for Excel sheet names
-    invalid_chars = [':', '/', '\\', '?', '*', '[', ']']
-    sanitized = name
-    for char in invalid_chars:
-        sanitized = sanitized.replace(char, '_')
-    
-    # Limit length (Excel limit is 31 characters)
-    if len(sanitized) > 31:
-        sanitized = sanitized[:31]
-    
-    # Ensure it's not empty after sanitization
-    if not sanitized.strip():
-        return "Sheet1"
-    
-    return sanitized
 
 def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_column_mapping, unique_sites):
     """Create Excel export with enhanced explanatory headers and documentation"""
@@ -54,24 +32,14 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             
         cleaned_df = df.copy()
         
-        # Handle pandas <NA> values while preserving type information
+        # Handle pandas <NA> values by converting to None/NaN
         for col in cleaned_df.columns:
-            # Check for nullable types first
-            if pd.api.types.is_integer_dtype(cleaned_df[col]) or pd.api.types.is_float_dtype(cleaned_df[col]):
-                # Preserve numeric types - replace NA with None without converting to object
+            if cleaned_df[col].dtype == 'object':
+                # Replace pandas <NA> with None
                 cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
-            elif cleaned_df[col].dtype == 'object':
-                # Replace pandas <NA> with None for object columns
-                cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
-            elif pd.api.types.is_boolean_dtype(cleaned_df[col]):
-                # Handle nullable boolean types - preserve boolean type
-                cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
-            elif pd.api.types.is_datetime64_any_dtype(cleaned_df[col]):
-                # Handle nullable datetime types - preserve datetime type
-                cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
-            elif pd.api.types.is_string_dtype(cleaned_df[col]):
-                # Handle nullable string types
-                cleaned_df[col] = cleaned_df[col].fillna(None)
+            elif str(cleaned_df[col].dtype).startswith('Int') or str(cleaned_df[col].dtype).startswith('Float'):
+                # Handle nullable integer/float types
+                cleaned_df[col] = cleaned_df[col].astype('object').where(pd.notna(cleaned_df[col]), None)
         
         # Convert Period objects to strings
         for col in cleaned_df.columns:
@@ -95,28 +63,14 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         clean_visits_df = clean_for_excel(visits_df) if not visits_df.empty else visits_df
     except Exception as clean_error:
         st.error(f"Error cleaning data for Excel: {clean_error}")
-        # Return a minimal valid BytesIO object instead of None
-        try:
-            from openpyxl import Workbook
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Error"
-            ws['A1'] = f"Error cleaning data: {clean_error}"
-            
-            output = io.BytesIO()
-            wb.save(output)
-            output.seek(0)
-            return output
-        except Exception as fallback_error:
-            st.error(f"Failed to create error fallback: {fallback_error}")
-            return None
+        return None
     
     # Create workbook with multiple sheets
     wb = Workbook()
     
     # === Main Calendar Sheet ===
     ws_calendar = wb.active
-    ws_calendar.title = validate_excel_sheet_name("Clinical Trial Calendar")
+    ws_calendar.title = "Clinical Trial Calendar"
     
     # Add title and metadata
     ws_calendar['A1'] = "Clinical Trial Calendar - Patient Visit Schedule"
@@ -193,12 +147,9 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows - use bulk operations for better performance
-    # Convert DataFrame to list of tuples for bulk append
-    data_rows = []
-    for _, row in enhanced_df.itertuples(index=False):
-        row_data = []
-        for value in row:
+    # Data rows - handle values carefully with UK accounting format
+    for row_idx, (_, row) in enumerate(enhanced_df.iterrows()):
+        for col_idx, value in enumerate(row, 1):
             # Safely convert value for Excel
             excel_value = value
             if pd.isna(value) or value is None:
@@ -206,30 +157,15 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             elif hasattr(value, '__iter__') and not isinstance(value, str):
                 # Handle any remaining complex objects
                 excel_value = str(value)
-            row_data.append(excel_value)
-        data_rows.append(row_data)
-    
-    # Bulk append all rows
-    for row_data in data_rows:
-        ws_calendar.append(row_data)
-    
-    # Apply formatting to the data rows (after bulk append)
-    for row_idx in range(start_row + 3, start_row + 3 + len(data_rows)):
-        for col_idx in range(1, len(enhanced_df.columns) + 1):
-            cell = ws_calendar.cell(row=row_idx, column=col_idx)
-            excel_value = cell.value  # Get the value from the cell
+            
+            cell = ws_calendar.cell(row=start_row + 3 + row_idx, column=col_idx, value=excel_value)
             
             # Format dates
             if col_idx == 1 and isinstance(excel_value, str) and len(str(excel_value)) > 0:  # Date column
                 cell.number_format = 'DD/MM/YYYY'
             # Format currency columns with UK accounting format
             elif col_idx > 2 and any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
-                # Check for zero/empty values FIRST
-                if excel_value == 0 or excel_value == "" or excel_value is None:
-                    # Zero values - set to 0 and apply accounting format
-                    cell.value = 0
-                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
-                elif isinstance(excel_value, str) and '£' in excel_value:
+                if isinstance(excel_value, str) and '£' in excel_value:
                     # Remove £ symbol and convert to number for proper accounting format
                     try:
                         numeric_value = float(excel_value.replace('£', '').replace(',', ''))
@@ -239,9 +175,12 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
                     except (ValueError, AttributeError):
                         # Fallback to standard currency if conversion fails
                         cell.number_format = '"£"#,##0.00'
-                elif isinstance(excel_value, (int, float)):
+                elif isinstance(excel_value, (int, float)) and excel_value != 0:
                     # Direct numeric values
-                    cell.value = excel_value
+                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                elif excel_value == 0 or excel_value == "":
+                    # Zero values - set to 0 and apply accounting format
+                    cell.value = 0
                     cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
     
     # Auto-adjust column widths
@@ -500,7 +439,7 @@ def display_site_screen_failures(site_patients, screen_failures):
     try:
         site_screen_failures = []
         for patient in site_patients.itertuples():
-            patient_study_key = get_screen_failure_key(patient.PatientID, patient.Study)
+            patient_study_key = f"{patient.PatientID}_{patient.Study}"
             if patient_study_key in screen_failures:
                 site_screen_failures.append({
                     'Patient': patient.PatientID,
