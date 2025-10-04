@@ -9,10 +9,7 @@ from helpers import log_activity
 from payment_handler import normalize_payment_column, validate_payment_data
 
 def get_supabase_client() -> Optional[Client]:
-    """
-    Get Supabase client with error handling
-    Returns None if connection fails
-    """
+    """Get Supabase client with error handling"""
     try:
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
@@ -28,7 +25,6 @@ def test_database_connection() -> bool:
         if client is None:
             return False
         
-        # Try to query each table
         client.table('patients').select("id").limit(1).execute()
         client.table('trial_schedules').select("id").limit(1).execute()
         client.table('actual_visits').select("id").limit(1).execute()
@@ -39,7 +35,6 @@ def test_database_connection() -> bool:
         st.session_state.database_status = f"Tables not configured: {e}"
         return False
 
-# READ FUNCTIONS
 def fetch_all_patients() -> Optional[pd.DataFrame]:
     """Fetch all patients from database"""
     try:
@@ -51,7 +46,6 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
-            # Rename columns to match file format
             df = df.rename(columns={
                 'patient_id': 'PatientID',
                 'study': 'Study',
@@ -61,14 +55,12 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'origin_site': 'OriginSite'
             })
             
-            # Convert StartDate to datetime format for calendar processing
             if 'StartDate' in df.columns:
                 df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
             
             log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
         log_activity("No patients found in database", level='info')
-        # Return empty DataFrame with proper column structure
         return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
     except Exception as e:
         st.error(f"Error fetching patients: {e}")
@@ -95,7 +87,6 @@ def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
                 'tolerance_after': 'ToleranceAfter'
             })
             return df
-        # Return empty DataFrame with proper column structure
         return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
     except Exception as e:
         st.error(f"Error fetching trial schedules: {e}")
@@ -113,7 +104,6 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
         if response.data:
             df = pd.DataFrame(response.data)
             
-            
             df = df.rename(columns={
                 'patient_id': 'PatientID',
                 'study': 'Study',
@@ -122,24 +112,19 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'notes': 'Notes'
             })
             
-            
-            # Parse ActualDate to datetime objects
             if 'ActualDate' in df.columns:
                 df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
                 
-                # Log any parsing failures
                 nat_count = df['ActualDate'].isna().sum()
                 if nat_count > 0:
-                    log_activity(f"⚠️ {nat_count} actual visit dates failed to parse from database", level='warning')
+                    log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
             return df
-        # Return empty DataFrame with proper column structure
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
     except Exception as e:
         st.error(f"Error fetching actual visits: {e}")
         return None
 
-# WRITE FUNCTIONS
 def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
     """Save patients DataFrame to database"""
     try:
@@ -149,16 +134,13 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
         
         records = []
         for _, row in patients_df.iterrows():
-            # Handle date parsing more robustly
             start_date = None
             if pd.notna(row['StartDate']):
                 try:
                     if isinstance(row['StartDate'], str):
-                        # Try parsing string date
                         from datetime import datetime
                         start_date = datetime.strptime(row['StartDate'], '%d/%m/%Y').date()
                     else:
-                        # Already a datetime/date object
                         start_date = row['StartDate'].date() if hasattr(row['StartDate'], 'date') else row['StartDate']
                 except Exception as date_error:
                     log_activity(f"Date parsing error for patient {row['PatientID']}: {date_error}", level='warning')
@@ -174,7 +156,6 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
-        # Use insert instead of upsert for fresh data
         response = client.table('patients').insert(records).execute()
         log_activity(f"Inserted {len(records)} patient records to database", level='info')
         return True
@@ -191,21 +172,17 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         if client is None:
             return False
         
-        # Use centralized payment column handling
         trials_df_clean = normalize_payment_column(trials_df, 'Payment')
         
-        # Validate payment data
         payment_validation = validate_payment_data(trials_df_clean, 'Payment')
         if not payment_validation['valid']:
             for issue in payment_validation['issues']:
                 log_activity(f"Payment data issue: {issue}", level='warning')
         
-        # Clean ToleranceBefore column
         if 'ToleranceBefore' in trials_df_clean.columns:
             trials_df_clean['ToleranceBefore'] = trials_df_clean['ToleranceBefore'].replace('', 0)
             trials_df_clean['ToleranceBefore'] = pd.to_numeric(trials_df_clean['ToleranceBefore'], errors='coerce').fillna(0)
         
-        # Clean ToleranceAfter column
         if 'ToleranceAfter' in trials_df_clean.columns:
             trials_df_clean['ToleranceAfter'] = trials_df_clean['ToleranceAfter'].replace('', 0)
             trials_df_clean['ToleranceAfter'] = pd.to_numeric(trials_df_clean['ToleranceAfter'], errors='coerce').fillna(0)
@@ -223,7 +200,6 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
-        # Debug: Log sample records
         log_activity(f"Sample trial records: {records[:3]}", level='info')
         log_activity(f"Payment values in records: {[r['payment'] for r in records[:5]]}", level='info')
         log_activity(f"Cleaned Payment column sample: {trials_df_clean['Payment'].head().tolist()}", level='info')
@@ -246,7 +222,6 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
         
         records = []
         for _, row in actual_visits_df.iterrows():
-            # Ensure ActualDate is a datetime object before calling .date()
             actual_date = row['ActualDate']
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
@@ -271,25 +246,137 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
         st.error(f"Error saving actual visits to database: {e}")
         return False
 
-# EXPORT FUNCTIONS FOR BACKUP
+def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
+    """Append new patient(s) to database without clearing existing data"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            log_activity("Cannot append patient: Supabase client not available", level='error')
+            return False
+        
+        if patient_df is None or patient_df.empty:
+            log_activity("Cannot append patient: Empty DataFrame", level='error')
+            return False
+        
+        records = []
+        for _, row in patient_df.iterrows():
+            start_date = None
+            if pd.notna(row.get('StartDate')):
+                try:
+                    if isinstance(row['StartDate'], str):
+                        start_date = datetime.strptime(row['StartDate'], '%d/%m/%Y').date()
+                    else:
+                        start_date = row['StartDate'].date() if hasattr(row['StartDate'], 'date') else row['StartDate']
+                except Exception as date_error:
+                    log_activity(f"Date parsing error: {date_error}", level='warning')
+                    start_date = None
+            
+            record = {
+                'patient_id': str(row['PatientID']),
+                'study': str(row['Study']),
+                'start_date': str(start_date) if start_date else None,
+                'site': str(row.get('Site', '')),
+                'patient_practice': str(row.get('PatientPractice', '')),
+                'origin_site': str(row.get('OriginSite', ''))
+            }
+            records.append(record)
+        
+        response = client.table('patients').insert(records).execute()
+        log_activity(f"Appended {len(records)} patient(s) to database", level='success')
+        return True
+        
+    except Exception as e:
+        log_activity(f"Error appending patient: {e}", level='error')
+        return False
+
+def append_visit_to_database(visit_df: pd.DataFrame) -> bool:
+    """Append new actual visit(s) to database without clearing existing data"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            log_activity("Cannot append visit: Supabase client not available", level='error')
+            return False
+        
+        if visit_df is None or visit_df.empty:
+            log_activity("Cannot append visit: Empty DataFrame", level='error')
+            return False
+        
+        records = []
+        for _, row in visit_df.iterrows():
+            actual_date = row.get('ActualDate')
+            if pd.notna(actual_date):
+                if isinstance(actual_date, str):
+                    actual_date = pd.to_datetime(actual_date, dayfirst=True)
+                actual_date_str = str(actual_date.date()) if hasattr(actual_date, 'date') else str(actual_date)
+            else:
+                actual_date_str = None
+            
+            record = {
+                'patient_id': str(row['PatientID']),
+                'study': str(row['Study']),
+                'visit_name': str(row['VisitName']),
+                'actual_date': actual_date_str,
+                'notes': str(row.get('Notes', ''))
+            }
+            records.append(record)
+        
+        response = client.table('actual_visits').insert(records).execute()
+        log_activity(f"Appended {len(records)} visit(s) to database", level='success')
+        return True
+        
+    except Exception as e:
+        log_activity(f"Error appending visit: {e}", level='error')
+        return False
+
+def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
+    """Append new trial schedule(s) to database without clearing existing data"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            log_activity("Cannot append schedule: Supabase client not available", level='error')
+            return False
+        
+        if schedule_df is None or schedule_df.empty:
+            log_activity("Cannot append schedule: Empty DataFrame", level='error')
+            return False
+        
+        schedule_df_clean = normalize_payment_column(schedule_df, 'Payment')
+        
+        records = []
+        for _, row in schedule_df_clean.iterrows():
+            record = {
+                'study': str(row['Study']),
+                'day': int(row.get('Day', 0)),
+                'visit_name': str(row['VisitName']),
+                'site_for_visit': str(row.get('SiteforVisit', '')),
+                'payment': float(row.get('Payment', 0)),
+                'tolerance_before': int(row.get('ToleranceBefore', 0)),
+                'tolerance_after': int(row.get('ToleranceAfter', 0))
+            }
+            records.append(record)
+        
+        response = client.table('trial_schedules').insert(records).execute()
+        log_activity(f"Appended {len(records)} trial schedule(s) to database", level='success')
+        return True
+        
+    except Exception as e:
+        log_activity(f"Error appending trial schedule: {e}", level='error')
+        return False
+
 def export_patients_to_csv() -> Optional[pd.DataFrame]:
     """Export patients from database in upload-ready CSV format"""
     try:
         df = fetch_all_patients()
         if df is None or df.empty:
-            # Return empty DataFrame with proper headers
             return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
         
-        # Ensure all expected columns exist
         for col in ['PatientPractice', 'OriginSite']:
             if col not in df.columns:
                 df[col] = ''
         
-        # Format dates as DD/MM/YYYY
         if 'StartDate' in df.columns:
             df['StartDate'] = pd.to_datetime(df['StartDate']).dt.strftime('%d/%m/%Y')
         
-        # Select and order columns to match upload format
         export_columns = ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite']
         df = df[export_columns]
         
@@ -305,7 +392,6 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
         if df is None or df.empty:
             return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
         
-        # Ensure all expected columns exist with proper defaults
         if 'Payment' not in df.columns:
             df['Payment'] = 0
         if 'ToleranceBefore' not in df.columns:
@@ -313,7 +399,6 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
         if 'ToleranceAfter' not in df.columns:
             df['ToleranceAfter'] = 0
         
-        # Select and order columns to match upload format
         export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter']
         df = df[export_columns]
         
@@ -329,15 +414,12 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
         if df is None or df.empty:
             return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
         
-        # Ensure Notes column exists
         if 'Notes' not in df.columns:
             df['Notes'] = ''
         
-        # Format dates as DD/MM/YYYY
-            if 'ActualDate' in df.columns:
-                df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
+        if 'ActualDate' in df.columns:
+            df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce').dt.strftime('%d/%m/%Y')
         
-        # Select and order columns to match upload format
         export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes']
         df = df[export_columns]
         
@@ -351,7 +433,6 @@ def create_backup_zip() -> Optional[io.BytesIO]:
     try:
         today = datetime.now().strftime('%Y-%m-%d')
         
-        # Export all tables
         patients_df = export_patients_to_csv()
         trials_df = export_trials_to_csv()
         visits_df = export_visits_to_csv()
@@ -360,19 +441,15 @@ def create_backup_zip() -> Optional[io.BytesIO]:
             st.error("Failed to export one or more tables")
             return None
         
-        # Create ZIP file in memory
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Add patients CSV
             patients_csv = patients_df.to_csv(index=False)
             zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
             
-            # Add trials CSV
             trials_csv = trials_df.to_csv(index=False)
             zip_file.writestr(f'trials_backup_{today}.csv', trials_csv)
             
-            # Add visits CSV
             visits_csv = visits_df.to_csv(index=False)
             zip_file.writestr(f'actual_visits_backup_{today}.csv', visits_csv)
         
@@ -383,7 +460,6 @@ def create_backup_zip() -> Optional[io.BytesIO]:
         st.error(f"Error creating backup ZIP: {e}")
         return None
 
-# DATABASE OVERWRITE FUNCTIONS
 def clear_patients_table() -> bool:
     """Clear all patients from database"""
     try:
@@ -435,7 +511,6 @@ def clear_actual_visits_table() -> bool:
 def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataFrame, actual_visits_df: pd.DataFrame = None) -> bool:
     """Completely replace database content with uploaded files"""
     try:
-        # Clear all tables first
         if not clear_patients_table():
             return False
         if not clear_trial_schedules_table():
@@ -444,7 +519,6 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
             if not clear_actual_visits_table():
                 return False
         
-        # Save new data
         if not save_patients_to_database(patients_df):
             return False
         if not save_trial_schedules_to_database(trials_df):
@@ -464,14 +538,12 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
 def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bool:
     """Safely overwrite a single table with atomic operation"""
     try:
-        # Validate data first
         if df is None or df.empty:
             log_activity(f"Cannot overwrite {table_name}: No data provided", level='error')
             return False
         
         log_activity(f"Starting overwrite of {table_name} with {len(df)} records", level='info')
         
-        # Create backup first
         backup_df = None
         if table_name == 'patients':
             backup_df = fetch_all_patients()
@@ -482,7 +554,6 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
         
         log_activity(f"Created backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
         
-        # Clear table
         clear_function = None
         if table_name == 'patients':
             clear_function = clear_patients_table
@@ -497,10 +568,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
         
         log_activity(f"Successfully cleared {table_name} table", level='info')
         
-        # Save new data
         if not save_function(df):
             log_activity(f"Failed to save new data to {table_name}, attempting restore", level='error')
-            # Attempt to restore backup
             if backup_df is not None and not backup_df.empty:
                 if table_name == 'patients':
                     save_patients_to_database(backup_df)
