@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import timedelta
 from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
-                    get_financial_year_start_year, is_financial_year_end, log_activity)
+                    get_financial_year_start_year, is_financial_year_end, log_activity, normalize_date_to_timestamp)
 from payment_handler import normalize_payment_column, validate_payment_data
 
 # Import from our new modules
@@ -28,11 +28,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if 'OriginSite' not in patients_df.columns:
         patients_df['OriginSite'] = ''
     
-    # Trials: Add optional columns if missing
+    # Trials: Add optional columns if missing (but NOT Payment - handled by normalize_payment_column)
     if 'SiteforVisit' not in trials_df.columns:
         trials_df['SiteforVisit'] = 'Default Site'
-    if 'Payment' not in trials_df.columns:
-        trials_df['Payment'] = 0
     if 'ToleranceBefore' not in trials_df.columns:
         trials_df['ToleranceBefore'] = 0
     if 'ToleranceAfter' not in trials_df.columns:
@@ -46,8 +44,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     trials_df = standardize_visit_columns(trials_df)
     if actual_visits_df is not None:
         # Debug: Log actual columns before processing
-        log_activity(f"Actual visits columns before processing: {list(actual_visits_df.columns)}", level='info')
-        log_activity(f"Actual visits shape: {actual_visits_df.shape}", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Actual visits columns before processing: {list(actual_visits_df.columns)}", level='info')
+            log_activity(f"Actual visits shape: {actual_visits_df.shape}", level='info')
         
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
@@ -58,7 +57,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
             actual_visits_df['Notes'] = ''
         
         # Debug: Log columns after adding defaults
-        log_activity(f"Actual visits columns after adding defaults: {list(actual_visits_df.columns)}", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Actual visits columns after adding defaults: {list(actual_visits_df.columns)}", level='info')
         
         # Check for required columns with more detailed error message
         required_columns = {"PatientID", "Study", "VisitName", "ActualDate"}
@@ -109,9 +109,11 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
-    log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
+    if st.session_state.get('show_debug_info', False):
+        log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
     if not visits_df.empty:
-        log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
     
@@ -120,19 +122,22 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         duplicate_mask = visits_df.duplicated(subset=['PatientID', 'Study', 'Date', 'Visit'], keep='first')
         if duplicate_mask.any():
             duplicate_count = duplicate_mask.sum()
-            log_activity(f"Removed {duplicate_count} duplicate visits", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Removed {duplicate_count} duplicate visits", level='info')
             visits_df = visits_df[~duplicate_mask].reset_index(drop=True)
     
     # Check for duplicate indices in visits DataFrame
     if not visits_df.index.is_unique:
-        log_activity(f"Reset duplicate indices in visits DataFrame", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Reset duplicate indices in visits DataFrame", level='info')
         visits_df = visits_df.reset_index(drop=True)
 
     # Build processing messages
     processing_messages = build_processing_messages(processing_stats, unmatched_visits)
 
     # DEBUG: Check visits_df state before building calendar
-    log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
+    if st.session_state.get('show_debug_info', False):
+        log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
     
     # Build calendar dataframe
     calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df)
@@ -160,27 +165,16 @@ def prepare_actual_visits_data(actual_visits_df):
     actual_visits_df["VisitName"] = safe_string_conversion(actual_visits_df["VisitName"])
     
     
-    # Check if dates are already parsed (from database) or need parsing (from file upload)
-    if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
-        # Try dayfirst=True first, but if that fails, try without dayfirst
-        actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
-        
-        # Check if we got NaT values and try alternative parsing
-        nat_count = actual_visits_df["ActualDate"].isna().sum()
-        if nat_count > 0:
-            log_activity(f"⚠️ {nat_count} dates failed to parse, trying alternative format", level='warning')
-            # Try without dayfirst for the NaT values
-            nat_mask = actual_visits_df["ActualDate"].isna()
-            actual_visits_df.loc[nat_mask, "ActualDate"] = pd.to_datetime(
-                actual_visits_df.loc[nat_mask, "ActualDate"], 
-                dayfirst=False, 
-                errors="coerce"
-            )
-            
-            # Check final result
-            final_nat_count = actual_visits_df["ActualDate"].isna().sum()
-            if final_nat_count > 0:
-                log_activity(f"⚠️ {final_nat_count} dates still failed to parse after trying both formats", level='warning')
+    # Use centralized date parsing and ensure consistent normalization
+    from helpers import parse_date_safely
+    actual_visits_df["ActualDate"] = actual_visits_df["ActualDate"].apply(
+        lambda x: parse_date_safely(x, dayfirst=True)
+    ).apply(normalize_date_to_timestamp)  # Centralized date normalization
+    
+    # Log any parsing failures
+    nat_count = actual_visits_df["ActualDate"].isna().sum()
+    if nat_count > 0:
+        log_activity(f"⚠️ {nat_count} actual visit dates failed to parse", level='warning')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""
@@ -205,6 +199,11 @@ def prepare_trials_data(trials_df):
     """Prepare trials data with proper data types and column mapping"""
     # Use centralized payment column handling
     trials_df = normalize_payment_column(trials_df, 'Payment')
+    
+    # Ensure Payment column exists after normalization (add default if missing)
+    if 'Payment' not in trials_df.columns:
+        trials_df['Payment'] = 0
+        log_activity("Added default Payment column with value 0", level='info')
     
     # Validate payment data
     payment_validation = validate_payment_data(trials_df, 'Payment')
@@ -238,8 +237,17 @@ def prepare_patients_data(patients_df, trials_df):
     patients_df["PatientID"] = safe_string_conversion(patients_df["PatientID"])
     patients_df["Study"] = safe_string_conversion(patients_df["Study"])
     
+    # Trust validation, but normalize consistently
     if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
-        patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
+        log_activity("StartDate not datetime after validation - fixing", level='warning')
+        # Fallback parsing
+        from helpers import parse_date_safely
+        patients_df["StartDate"] = patients_df["StartDate"].apply(
+            lambda x: parse_date_safely(x, dayfirst=True)
+        )
+    
+    # Always normalize
+    patients_df["StartDate"] = patients_df["StartDate"].apply(normalize_date_to_timestamp)  # Centralized date normalization
 
     # Check for patient origin site column
     patient_origin_col = None
@@ -325,7 +333,8 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         
         # Debug: Log actual visits used for this patient
         if actual_visits_used > 0:
-            log_activity(f"DEBUG: Patient {patient_id} used {actual_visits_used} actual visits", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"DEBUG: Patient {patient_id} used {actual_visits_used} actual visits", level='info')
         
         if not visit_records and len(patient_visits[patient_visits["Study"] == study]) == 0:
             patients_with_no_visits.append(f"{patient_id} (Study: {study})")
@@ -342,7 +351,8 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             recalculated_patients.append(f"{patient_id} ({study})")
     
     if len(all_visit_records) > 0:
-        log_activity(f"✅ Generated {len(all_visit_records)} visit records from {len(patients_df)} patients", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"✅ Generated {len(all_visit_records)} visit records from {len(patients_df)} patients", level='info')
     if len(patients_with_no_visits) > 0:
         log_activity(f"⚠️ {len(patients_with_no_visits)} patients have no visits scheduled", level='warning')
     

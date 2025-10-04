@@ -11,6 +11,31 @@ def load_file(uploaded_file):
     else:
         return pd.read_excel(uploaded_file, engine="openpyxl")
 
+def parse_date_safely(date_value, dayfirst=True):
+    """
+    Centralized date parsing function with consistent behavior
+    Handles various date formats and provides consistent error handling
+    """
+    if pd.isna(date_value) or date_value == '' or date_value is None:
+        return pd.NaT
+    
+    try:
+        # Convert to string if not already
+        date_str = str(date_value).strip()
+        if not date_str:
+            return pd.NaT
+            
+        # Try parsing with specified dayfirst preference
+        parsed_date = pd.to_datetime(date_str, dayfirst=dayfirst, errors='coerce')
+        
+        # If parsing failed, try the opposite dayfirst setting
+        if pd.isna(parsed_date):
+            parsed_date = pd.to_datetime(date_str, dayfirst=not dayfirst, errors='coerce')
+            
+        return parsed_date
+    except Exception:
+        return pd.NaT
+
 def load_file_with_defaults(uploaded_file, default_columns=None):
     """Load file and ensure required columns exist with defaults"""
     df = load_file(uploaded_file)
@@ -447,3 +472,44 @@ def display_activity_log_sidebar():
             # Show details if present
             if entry.get('details'):
                 st.caption(f"   {entry['details']}")
+
+def normalize_date_to_timestamp(date_value):
+    """
+    Centralized date normalization - converts any date-like value to a normalized Timestamp.
+    This ensures consistent date handling across all modules.
+    
+    Args:
+        date_value: Any date-like value (string, datetime, Timestamp, etc.)
+    
+    Returns:
+        pd.Timestamp: Normalized timestamp (midnight) or pd.NaT for invalid dates
+    """
+    if pd.isna(date_value):
+        return pd.NaT
+    
+    try:
+        if isinstance(date_value, (pd.Timestamp, datetime)):
+            return pd.Timestamp(date_value.date()).normalize()
+        elif isinstance(date_value, (int, float)):
+            # Handle Excel date serial numbers
+            excel_date = pd.to_datetime(date_value, origin='1899-12-30', unit='D')
+            return pd.Timestamp(excel_date.date()).normalize()
+        else:
+            # Parse string and normalize
+            parsed = parse_date_safely(str(date_value))
+            return pd.Timestamp(parsed.date()).normalize() if pd.notna(parsed) else pd.NaT
+    except Exception:
+        return pd.NaT
+
+def get_screen_failure_key(patient_id, study):
+    """
+    Centralized function to generate consistent screen failure keys across all modules.
+    
+    Args:
+        patient_id: Patient identifier
+        study: Study name
+    
+    Returns:
+        str: Consistent key format for screen failure lookups
+    """
+    return f"{patient_id}_{study}"

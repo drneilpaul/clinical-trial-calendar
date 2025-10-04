@@ -7,7 +7,7 @@ import pandas as pd
 import re
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
-from helpers import log_activity
+from helpers import log_activity, parse_date_safely
 from payment_handler import normalize_payment_column, clean_payment_values, validate_payment_data
 
 class FileValidationError(Exception):
@@ -39,7 +39,7 @@ def clean_currency_value(value) -> float:
     try:
         return float(value_str)
     except ValueError:
-        log_activity(f"Could not convert currency value '{value}' to float, using 0", level='warning')
+        log_activity(f"[Payment Validation] Could not convert currency value '{value}' to float, using 0", level='warning')
         return 0.0
 
 def clean_date_value(value, expected_format='%d/%m/%Y') -> Optional[str]:
@@ -72,10 +72,11 @@ def clean_date_value(value, expected_format='%d/%m/%Y') -> Optional[str]:
     
     # If no format matches, try pandas parsing with UK format preference
     try:
-        parsed_date = pd.to_datetime(value_str, dayfirst=True)
+        # Use centralized date parsing
+        parsed_date = parse_date_safely(value_str, dayfirst=True)
         return parsed_date.strftime(expected_format)
     except:
-        log_activity(f"Could not parse date '{value}', using None", level='warning')
+        log_activity(f"[Date Parsing] Could not parse date '{value}', using None", level='warning')
         return None
 
 def clean_numeric_value(value, default=0) -> float:
@@ -95,10 +96,10 @@ def clean_numeric_value(value, default=0) -> float:
     try:
         return float(value_str)
     except ValueError:
-        log_activity(f"Could not convert numeric value '{value}' to float, using {default}", level='warning')
+        log_activity(f"[Data Cleaning] Could not convert numeric value '{value}' to float, using {default}", level='warning')
         return default
 
-def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+def validate_patients_file(df: pd.DataFrame, file_name: str = "patients_file") -> Tuple[pd.DataFrame, List[str]]:
     """Validate and clean patients file"""
     errors = []
     warnings = []
@@ -153,11 +154,11 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     if duplicates > 0:
         warnings.append(f"{duplicates} duplicate PatientIDs found")
     
-    log_activity(f"Validated patients file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
+    log_activity(f"[{file_name}] Validated patients file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
     
     return df_clean, errors + warnings
 
-def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+def validate_trials_file(df: pd.DataFrame, file_name: str = "trials_file") -> Tuple[pd.DataFrame, List[str]]:
     """Validate and clean trials file"""
     errors = []
     warnings = []
@@ -232,11 +233,11 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     if duplicates > 0:
         warnings.append(f"{duplicates} duplicate Study+Day combinations found")
     
-    log_activity(f"Validated trials file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
+    log_activity(f"[{file_name}] Validated trials file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
     
     return df_clean, errors + warnings
 
-def validate_visits_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+def validate_visits_file(df: pd.DataFrame, file_name: str = "visits_file") -> Tuple[pd.DataFrame, List[str]]:
     """Validate and clean visits file"""
     errors = []
     warnings = []
@@ -288,13 +289,23 @@ def validate_visits_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     if len(df_clean) == 0:
         errors.append("No valid visit records found")
     
-    log_activity(f"Validated visits file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
+    log_activity(f"[{file_name}] Validated visits file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
     
     return df_clean, errors + warnings
 
 def validate_file_upload(file, file_type: str) -> Tuple[Optional[pd.DataFrame], List[str]]:
     """Main validation function for file uploads"""
     try:
+        # Security checks
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+        if file.size > MAX_FILE_SIZE:
+            return None, [f"File too large: {file.size / (1024*1024):.1f}MB (max 10MB)"]
+        
+        # Check for suspicious file names
+        suspicious_patterns = ['..', '/', '\\', '<', '>', '|', '?', '*']
+        if any(pattern in file.name for pattern in suspicious_patterns):
+            return None, [f"Suspicious file name: {file.name}"]
+        
         # Read the file
         if file.name.endswith('.csv'):
             df = pd.read_csv(file)
@@ -305,11 +316,11 @@ def validate_file_upload(file, file_type: str) -> Tuple[Optional[pd.DataFrame], 
         
         # Validate based on file type
         if file_type == 'patients':
-            return validate_patients_file(df)
+            return validate_patients_file(df, file.name)
         elif file_type == 'trials':
-            return validate_trials_file(df)
+            return validate_trials_file(df, file.name)
         elif file_type == 'visits':
-            return validate_visits_file(df)
+            return validate_visits_file(df, file.name)
         else:
             return None, [f"Unknown file type: {file_type}"]
             

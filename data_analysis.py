@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from helpers import get_financial_year, log_activity
+from helpers import get_financial_year, log_activity, get_screen_failure_key
 
 def extract_screen_failures(actual_visits_df):
     """Extract screen failure information from actual visits"""
@@ -14,7 +14,7 @@ def extract_screen_failures(actual_visits_df):
         ]
         
         for _, visit in screen_fail_visits.iterrows():
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+            patient_study_key = get_screen_failure_key(visit['PatientID'], visit['Study'])
             screen_fail_date = visit['ActualDate']
             
             # Store the earliest screen failure date for each patient-study combination
@@ -389,7 +389,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         # Screen failures for patients who have visits at this site
         site_screen_failures = []
         for patient in site_related_patients.itertuples():
-            patient_study_key = f"{patient.PatientID}_{patient.Study}"
+            patient_study_key = get_screen_failure_key(patient.PatientID, patient.Study)
             if patient_study_key in screen_failures:
                 site_screen_failures.append({
                     'Patient': patient.PatientID,

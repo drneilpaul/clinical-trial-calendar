@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import timedelta
-from helpers import safe_string_conversion
+from helpers import safe_string_conversion, normalize_date_to_timestamp, get_screen_failure_key
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
 
@@ -52,7 +52,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         return None, []
     
     
-    visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
+    visit_date = normalize_date_to_timestamp(visit_date)  # Centralized date normalization
     
     # Get payment amount
     trial_payment = visit.get("Payment", 0)
@@ -139,11 +139,11 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     # Ensure baseline_date is a proper Timestamp and normalize to date only
     if not isinstance(baseline_date, pd.Timestamp):
         baseline_date = pd.Timestamp(baseline_date)
-    baseline_date = pd.Timestamp(baseline_date.date())  # Normalize to date only
+    baseline_date = normalize_date_to_timestamp(baseline_date)  # Centralized date normalization
     
     scheduled_date = baseline_date + timedelta(days=visit_day - 1)
     # Normalize scheduled_date to date only for calendar matching
-    scheduled_date = pd.Timestamp(scheduled_date.date())
+    scheduled_date = normalize_date_to_timestamp(scheduled_date)  # Centralized date normalization
     
     # Use patient-specific screen failure check
     if screen_fail_date is not None and scheduled_date > screen_fail_date:
@@ -222,9 +222,9 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         log_activity(f"Patient {patient_id} has invalid start_date: {start_date}", level='warning')
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
-    # Use patient-specific screen failure key
-    this_patient_screen_fail_key = f"{patient_id}_{study}"
-    screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
+    # Use centralized screen failure key generation
+    patient_study_key = get_screen_failure_key(patient_id, study)
+    screen_fail_date = screen_failures.get(patient_study_key)
     
     study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
     
@@ -275,8 +275,8 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             expected_date, _, _, _, _ = calculate_tolerance_windows(
                 visit, baseline_date, int(visit["Day"])
             )
-            expected_date = pd.Timestamp(expected_date.date())
-            actual_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
+            expected_date = normalize_date_to_timestamp(expected_date)  # Centralized date normalization
+            actual_date = normalize_date_to_timestamp(actual_visit_data["ActualDate"])  # Centralized date normalization
             
             # Only add planned marker if actual happened on a different date
             if expected_date != actual_date:

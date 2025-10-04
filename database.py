@@ -5,7 +5,7 @@ from typing import Optional, Dict, List
 import io
 from datetime import datetime
 import zipfile
-from helpers import log_activity
+from helpers import log_activity, parse_date_safely
 from payment_handler import normalize_payment_column, validate_payment_data
 
 def get_supabase_client() -> Optional[Client]:
@@ -14,8 +14,32 @@ def get_supabase_client() -> Optional[Client]:
     Returns None if connection fails
     """
     try:
+        # Check if secrets exist
+        if "supabase" not in st.secrets:
+            st.session_state.database_status = "Supabase configuration not found in secrets"
+            return None
+            
+        if "url" not in st.secrets["supabase"]:
+            st.session_state.database_status = "Supabase URL not found in secrets"
+            return None
+            
+        if "key" not in st.secrets["supabase"]:
+            st.session_state.database_status = "Supabase key not found in secrets"
+            return None
+        
         url = st.secrets["supabase"]["url"]
         key = st.secrets["supabase"]["key"]
+        
+        # Validate URL format
+        if not url.startswith(("http://", "https://")):
+            st.session_state.database_status = "Invalid Supabase URL format"
+            return None
+            
+        # Validate key format (should be a JWT-like string)
+        if not key or len(key) < 20:
+            st.session_state.database_status = "Invalid Supabase key format"
+            return None
+        
         return create_client(url, key)
     except Exception as e:
         st.session_state.database_status = f"Connection failed: {e}"
@@ -40,6 +64,7 @@ def test_database_connection() -> bool:
         return False
 
 # READ FUNCTIONS
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_all_patients() -> Optional[pd.DataFrame]:
     """Fetch all patients from database"""
     try:
@@ -74,6 +99,7 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
         st.error(f"Error fetching patients: {e}")
         return None
 
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
     """Fetch all trial schedules from database"""
     try:
@@ -101,6 +127,7 @@ def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
         st.error(f"Error fetching trial schedules: {e}")
         return None
 
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
     """Fetch all actual visits from database"""
     try:
@@ -122,10 +149,9 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'notes': 'Notes'
             })
             
-            
-            # Parse ActualDate to datetime objects
+            # Parse ActualDate to datetime objects using centralized function
             if 'ActualDate' in df.columns:
-                df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
+                df['ActualDate'] = df['ActualDate'].apply(lambda x: parse_date_safely(x, dayfirst=True))
                 
                 # Log any parsing failures
                 nat_count = df['ActualDate'].isna().sum()
@@ -139,10 +165,56 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
         st.error(f"Error fetching actual visits: {e}")
         return None
 
+def validate_patient_data(patients_df: pd.DataFrame) -> tuple[bool, List[str]]:
+    """Validate patient data before database operations"""
+    errors = []
+    
+    if patients_df.empty:
+        errors.append("No patient data provided")
+        return False, errors
+    
+    # Check required columns
+    required_columns = ['PatientID', 'Study', 'StartDate']
+    missing_columns = [col for col in required_columns if col not in patients_df.columns]
+    if missing_columns:
+        errors.append(f"Missing required columns: {missing_columns}")
+    
+    # Validate PatientID
+    if 'PatientID' in patients_df.columns:
+        invalid_ids = patients_df['PatientID'].isna() | (patients_df['PatientID'].astype(str).str.strip() == '')
+        if invalid_ids.any():
+            errors.append(f"Found {invalid_ids.sum()} patients with empty or invalid PatientID")
+        
+        # Check for special characters that could cause issues
+        special_chars = patients_df['PatientID'].astype(str).str.contains(r'[<>"\']', na=False)
+        if special_chars.any():
+            errors.append(f"Found {special_chars.sum()} patients with special characters in PatientID")
+    
+    # Validate Study
+    if 'Study' in patients_df.columns:
+        invalid_studies = patients_df['Study'].isna() | (patients_df['Study'].astype(str).str.strip() == '')
+        if invalid_studies.any():
+            errors.append(f"Found {invalid_studies.sum()} patients with empty or invalid Study")
+    
+    # Validate StartDate
+    if 'StartDate' in patients_df.columns:
+        invalid_dates = patients_df['StartDate'].isna()
+        if invalid_dates.any():
+            errors.append(f"Found {invalid_dates.sum()} patients with invalid StartDate")
+    
+    return len(errors) == 0, errors
+
 # WRITE FUNCTIONS
 def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
     """Save patients DataFrame to database"""
     try:
+        # Validate data first
+        is_valid, errors = validate_patient_data(patients_df)
+        if not is_valid:
+            for error in errors:
+                log_activity(f"❌ Patient validation error: {error}", level='error')
+            return False
+        
         client = get_supabase_client()
         if client is None:
             return False
@@ -334,8 +406,8 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
             df['Notes'] = ''
         
         # Format dates as DD/MM/YYYY
-            if 'ActualDate' in df.columns:
-                df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
+        if 'ActualDate' in df.columns:
+            df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
         
         # Select and order columns to match upload format
         export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes']

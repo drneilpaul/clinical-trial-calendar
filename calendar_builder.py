@@ -1,22 +1,25 @@
 import pandas as pd
+import streamlit as st
 from datetime import timedelta
-from helpers import safe_string_conversion, format_site_events, log_activity
+from helpers import safe_string_conversion, format_site_events, log_activity, normalize_date_to_timestamp
 
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
-    log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
-    
-    # DEBUG: Check visits_df state when calendar is built
-    if not visits_df.empty:
-        log_activity(f"Visits_df has data - date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
-    else:
-        log_activity(f"Visits_df is empty when building calendar!", level='warning')
+    if st.session_state.get('show_debug_info', False):
+        log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
+        
+        # DEBUG: Check visits_df state when calendar is built
+        if not visits_df.empty:
+            log_activity(f"Visits_df has data - date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+        else:
+            log_activity(f"Visits_df is empty when building calendar!", level='warning')
     
     # Create date range based on visits if available, otherwise use patient dates
     if not visits_df.empty and 'Date' in visits_df.columns and len(visits_df) > 0:
         min_date = visits_df["Date"].min() - timedelta(days=1)
         max_date = visits_df["Date"].max() + timedelta(days=1)
-        log_activity(f"Using visits date range: {min_date} to {max_date}", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Using visits date range: {min_date} to {max_date}", level='info')
     else:
         # Fallback: use patient start dates to create a reasonable date range
         if not patients_df.empty and 'StartDate' in patients_df.columns:
@@ -25,14 +28,16 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Create a range from 30 days before first patient to 2 years after last patient
             min_date = patient_min - timedelta(days=30)
             max_date = patient_max + timedelta(days=730)  # 2 years
-            log_activity(f"Using patient date range: {min_date} to {max_date}", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Using patient date range: {min_date} to {max_date}", level='info')
         else:
             # Ultimate fallback: use current date range
             from datetime import date
             today = date.today()
             min_date = today - timedelta(days=30)
             max_date = today + timedelta(days=365)
-            log_activity(f"Using fallback date range: {min_date} to {max_date}", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Using fallback date range: {min_date} to {max_date}", level='info')
     
     # IMPORTANT: Extend calendar range to include actual visits from database
     # This ensures all actual visits are visible even if they're outside the predicted visit range
@@ -45,18 +50,22 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Extend calendar range to include all actual visits
             if actual_min < min_date:
                 min_date = actual_min - timedelta(days=1)
-                log_activity(f"Extended min_date to include actual visits: {min_date}", level='info')
+                if st.session_state.get('show_debug_info', False):
+                    log_activity(f"Extended min_date to include actual visits: {min_date}", level='info')
             if actual_max > max_date:
                 max_date = actual_max + timedelta(days=1)
-                log_activity(f"Extended max_date to include actual visits: {max_date}", level='info')
+                if st.session_state.get('show_debug_info', False):
+                    log_activity(f"Extended max_date to include actual visits: {max_date}", level='info')
             
-            log_activity(f"Final calendar date range: {min_date} to {max_date}", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Final calendar date range: {min_date} to {max_date}", level='info')
     
     calendar_dates = pd.date_range(start=min_date, end=max_date)
     calendar_df = pd.DataFrame({"Date": calendar_dates})
     calendar_df["Day"] = calendar_df["Date"].dt.day_name()
     
-    log_activity(f"Created calendar with date range: {min_date} to {max_date} ({len(calendar_dates)} days)", level='info')
+    if st.session_state.get('show_debug_info', False):
+        log_activity(f"Created calendar with date range: {min_date} to {max_date} ({len(calendar_dates)} days)", level='info')
     
 
     # Group patients by visit site for three-level headers
@@ -73,7 +82,7 @@ def build_calendar_dataframe(visits_df, patients_df):
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
-    unique_visit_sites = sorted([site for site in all_sites if site and str(site) != 'nan'])
+    unique_visit_sites = sorted([site for site in all_sites if site and pd.notna(site)])
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
@@ -88,7 +97,8 @@ def build_calendar_dataframe(visits_df, patients_df):
         if not site_visits.empty:
             # Site has visits - get patients from visits
             unique_patient_studies = site_visits[['PatientID', 'Study']].drop_duplicates()
-            log_activity(f"Processing {len(unique_patient_studies)} unique patient-study combinations for site {visit_site}", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Processing {len(unique_patient_studies)} unique patient-study combinations for site {visit_site}", level='info')
             
             for patient_study in unique_patient_studies.itertuples():
                 patient_id = patient_study.PatientID
@@ -109,7 +119,7 @@ def build_calendar_dataframe(visits_df, patients_df):
                     for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
                         if candidate in patient_row.columns and not pd.isna(patient_row.iloc[0][candidate]):
                             origin_site = str(patient_row.iloc[0][candidate]).strip()
-                            if origin_site and origin_site != 'nan':
+                            if origin_site and pd.notna(origin_site):
                                 break
                     
                     # If still empty, use a default
@@ -126,7 +136,8 @@ def build_calendar_dataframe(visits_df, patients_df):
                     })
         else:
             # Site has no visits - only track recruitment income, don't create visit columns
-            log_activity(f"Site {visit_site} has no visits, will only track recruitment income", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"Site {visit_site} has no visits, will only track recruitment income", level='info')
             # Don't add any patient columns for sites with no visits
         
         # Sort by study then patient ID for consistent ordering
@@ -138,18 +149,29 @@ def build_calendar_dataframe(visits_df, patients_df):
         # Debug: Log patient info for this site
         # Process patients for this site
         for patient_info in site_patients_info:
-            log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
-        # Add patient columns for this visit site (handle duplicates with suffixes)
+        # Add patient columns for this visit site (handle duplicates with incrementing suffixes)
         # Only process if there are patients with visits at this site
         for patient_info in site_patients_info:
             col_id = patient_info['col_id']
             final_col_id = col_id
             
-            # Handle duplicates by adding site suffix
+            # Handle duplicates by checking only global_seen_columns (calendar_df.columns grows dynamically)
             if col_id in global_seen_columns:
-                final_col_id = f"{col_id}_{visit_site}"
-                log_activity(f"Patient {col_id} appears in multiple sites. Using column name: {final_col_id}", level='info')
+                # Generate unique suffix using incrementing numbers
+                suffix_counter = 1
+                base_name = f"{col_id}_{visit_site}"
+                final_col_id = base_name
+                
+                # Keep incrementing until we find a unique column name
+                while final_col_id in global_seen_columns:
+                    suffix_counter += 1
+                    final_col_id = f"{base_name}_{suffix_counter}"
+                
+                if st.session_state.get('show_debug_info', False):
+                    log_activity(f"🔄 Column rename: '{col_id}' → '{final_col_id}' (duplicate detected)", level='info')
             
             ordered_columns.append(final_col_id)
             site_columns.append(final_col_id)
@@ -161,19 +183,39 @@ def build_calendar_dataframe(visits_df, patients_df):
         
         # Add site events column (avoid duplicates) - ALL sites get events column
         events_col = f"{visit_site}_Events"
-        if events_col not in global_seen_columns:
-            ordered_columns.append(events_col)
-            site_columns.append(events_col)
-            calendar_df[events_col] = ""
-            global_seen_columns.add(events_col)
-        else:
-            log_activity(f"Warning: Duplicate events column {events_col} found. Skipping duplicate.", level='warning')
+        
+        # Handle duplicates by checking only global_seen_columns (calendar_df.columns grows dynamically)
+        if events_col in global_seen_columns:
+            # Generate unique suffix using incrementing numbers
+            suffix_counter = 1
+            base_name = events_col
+            final_events_col = f"{base_name}_{suffix_counter}"
+            
+            # Keep incrementing until we find a unique column name
+            while final_events_col in global_seen_columns:
+                suffix_counter += 1
+                final_events_col = f"{base_name}_{suffix_counter}"
+            
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"🔄 Events column rename: '{events_col}' → '{final_events_col}' (duplicate detected)", level='info')
+            
+            events_col = final_events_col
+        
+        ordered_columns.append(events_col)
+        site_columns.append(events_col)
+        calendar_df[events_col] = ""
+        global_seen_columns.add(events_col)
         
         site_column_mapping[visit_site] = {
             'columns': site_columns,
             'patient_info': site_patients_info,
             'events_column': events_col
         }
+
+    # Summary: Log total columns created
+    if st.session_state.get('show_debug_info', False):
+        log_activity(f"📊 Calendar DataFrame created with {len(ordered_columns)} columns total", level='info')
+        log_activity(f"📊 Site column mapping contains {len(site_column_mapping)} sites", level='info')
 
     return calendar_df, site_column_mapping, unique_visit_sites
 
@@ -185,7 +227,8 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     if 'IsActual' in visits_df.columns:
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         if actual_count > 0:
-            log_activity(f"📅 Processing {actual_count} actual visits", level='info')
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"📅 Processing {actual_count} actual visits", level='info')
     
     # Create income tracking columns
     for study in trials_df["Study"].unique():
@@ -198,9 +241,27 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     for i, row in calendar_df.iterrows():
         date = row["Date"]
         
-        # FIX: Ensure consistent Timestamp comparison
-        calendar_date = pd.Timestamp(date.date())  # Normalize to date-only Timestamp
-        visits_today = visits_df[visits_df["Date"] == calendar_date]
+        # FIX: Ensure consistent Timestamp comparison with proper normalization
+        calendar_date = normalize_date_to_timestamp(date)  # Centralized date normalization
+        
+        # Defensive checks for date comparison
+        try:
+            # Verify visits_df["Date"] is datetime64[ns] before .dt accessor
+            if not pd.api.types.is_datetime64_any_dtype(visits_df["Date"]):
+                if st.session_state.get('show_debug_info', False):
+                    log_activity(f"⚠️ visits_df['Date'] is not datetime type: {visits_df['Date'].dtype}", level='warning')
+                visits_today = pd.DataFrame()
+            else:
+                visits_today = visits_df[visits_df["Date"] == calendar_date]
+                
+                # Log when no visits match to help debugging
+                if len(visits_today) == 0 and st.session_state.get('show_debug_info', False):
+                    log_activity(f"📅 No visits found for date {calendar_date.date()}", level='info')
+                    
+        except Exception as e:
+            if st.session_state.get('show_debug_info', False):
+                log_activity(f"⚠️ Error in date comparison for {calendar_date.date()}: {e}", level='warning')
+            visits_today = pd.DataFrame()
         
         
         daily_total = 0.0
@@ -232,9 +293,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 study_name = safe_string_conversion(visit.get("Study", ""))
                 
                 # Skip if essential data is missing or invalid
-                if not event_type or event_type in ['NAN', 'NONE', '']:
+                if not event_type or pd.isna(event_type) or event_type == '':
                     continue
-                if not study_name or study_name in ['NAN', 'NONE', ''] or study_name.upper() == 'NAN':
+                if not study_name or pd.isna(study_name) or study_name == '':
                     continue
                 
                 # Format event for display
@@ -306,19 +367,22 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                                 if is_actual:
-                                    log_activity(f"    -> Placed in cell with tolerance markers", level='info')
+                                    if st.session_state.get('show_debug_info', False):
+                                        log_activity(f"    -> Placed in cell with tolerance markers", level='info')
                             else:
                                 # Check if there's already an actual visit
                                 if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                     # Multiple actual visits on same day
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                                     if is_actual:
-                                        log_activity(f"    -> Added to existing actual visit", level='info')
+                                        if st.session_state.get('show_debug_info', False):
+                                            log_activity(f"    -> Added to existing actual visit", level='info')
                                 else:
                                     # Replace predicted/planned with actual
                                     calendar_df.at[i, col_id] = visit_info
                                     if is_actual:
-                                        log_activity(f"    -> Replaced predicted/planned with actual", level='info')
+                                        if st.session_state.get('show_debug_info', False):
+                                            log_activity(f"    -> Replaced predicted/planned with actual", level='info')
                 else:
                     # NEW: Log when column not found
                     if is_actual:
@@ -342,12 +406,14 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     
     # Check for duplicate indices before returning
     if not calendar_df.index.is_unique:
-        log_activity(f"Reset duplicate indices in calendar DataFrame", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Reset duplicate indices in calendar DataFrame", level='info')
         calendar_df = calendar_df.reset_index(drop=True)
     
     # Check for duplicate column names
     if not calendar_df.columns.is_unique:
-        log_activity(f"Removed duplicate column names in calendar DataFrame", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"Removed duplicate column names in calendar DataFrame", level='info')
         # Keep first occurrence of each column name
         calendar_df = calendar_df.loc[:, ~calendar_df.columns.duplicated()]
     
@@ -371,6 +437,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     if "✅" in str(val):
                         actual_visits_in_calendar += 1
         
-        log_activity(f"DEBUG: {actual_visits_in_calendar} actual visit markers placed in calendar", level='info')
+        if st.session_state.get('show_debug_info', False):
+            log_activity(f"DEBUG: {actual_visits_in_calendar} actual visit markers placed in calendar", level='info')
     
     return calendar_df
