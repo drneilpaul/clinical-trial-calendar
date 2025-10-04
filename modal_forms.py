@@ -1,35 +1,90 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from helpers import load_file, log_activity
+
+def calculate_day_1_date(entered_date, study, trial_schedule_df):
+    """
+    Calculate Day 1 date from screening date based on trial schedule.
+    
+    Args:
+        entered_date: The date entered by user (screening date)
+        study: Selected study name
+        trial_schedule_df: Trial schedule DataFrame
+    
+    Returns:
+        tuple: (adjusted_date, offset_days, screening_day_found)
+    """
+    # Filter trial schedule for selected study
+    study_visits = trial_schedule_df[trial_schedule_df['Study'] == study].copy()
+    
+    if study_visits.empty:
+        return entered_date, 0, False
+    
+    # Find screening visits (negative day numbers)
+    screening_visits = study_visits[study_visits['Day'] < 1]
+    
+    if screening_visits.empty:
+        # No screening visits defined - use entered date as-is
+        return entered_date, 0, False
+    
+    # Get the earliest screening day (most negative)
+    screening_day = screening_visits['Day'].min()
+    
+    # Calculate offset: Day 1 - Screening Day
+    # e.g., if screening is Day -23, offset = 1 - (-23) = 24
+    offset_days = 1 - screening_day
+    
+    # Calculate adjusted date
+    adjusted_date = entered_date + timedelta(days=offset_days)
+    
+    return adjusted_date, offset_days, True
 
 def handle_patient_modal():
     """Handle patient entry modal"""
-    if st.session_state.get('show_patient_form', False):
+    if st.session_state.get('show_patient_form', False) and not st.session_state.get('any_dialog_open', False):
         try:
+            st.session_state.any_dialog_open = True
             patient_entry_modal()
         except AttributeError:
             st.error("Modal dialogs require Streamlit 1.28+")
             st.session_state.show_patient_form = False
+        except Exception as e:
+            st.error(f"Error opening patient form: {e}")
+            st.session_state.show_patient_form = False
+        finally:
+            st.session_state.any_dialog_open = False
 
 def handle_visit_modal():
     """Handle visit entry modal"""
-    if st.session_state.get('show_visit_form', False):
+    if st.session_state.get('show_visit_form', False) and not st.session_state.get('any_dialog_open', False):
         try:
+            st.session_state.any_dialog_open = True
             visit_entry_modal()
         except AttributeError:
             st.error("Modal dialogs require Streamlit 1.28+")
             st.session_state.show_visit_form = False
+        except Exception as e:
+            st.error(f"Error opening visit form: {e}")
+            st.session_state.show_visit_form = False
+        finally:
+            st.session_state.any_dialog_open = False
 
 def handle_study_event_modal():
     """Handle study event entry modal"""
-    if st.session_state.get('show_study_event_form', False):
+    if st.session_state.get('show_study_event_form', False) and not st.session_state.get('any_dialog_open', False):
         try:
+            st.session_state.any_dialog_open = True
             study_event_entry_modal()
         except AttributeError:
             st.error("Modal dialogs require Streamlit 1.28+")
             st.session_state.show_study_event_form = False
+        except Exception as e:
+            st.error(f"Error opening study event form: {e}")
+            st.session_state.show_study_event_form = False
+        finally:
+            st.session_state.any_dialog_open = False
 
 def show_download_sections():
     """Show download sections for added patients/visits"""
@@ -177,11 +232,31 @@ def patient_entry_modal():
         )
     
     with col2:
+        # Check if selected study has screening visits
+        has_screening_visits = False
+        if selected_study:
+            study_visits = trial_schedule_df[trial_schedule_df['Study'] == selected_study]
+            screening_visits = study_visits[study_visits['Day'] < 1]
+            has_screening_visits = not screening_visits.empty
+        
+        # Date type selection - only show screening option if screening visits exist
+        if has_screening_visits:
+            date_type = st.radio(
+                "Date Type*",
+                ["Screening Date", "Randomization Date (Day 1)"],
+                help="Screening = pre-study visit, Randomization = study start (Day 1)"
+            )
+        else:
+            # No screening visits - only show randomization option
+            date_type = "Randomization Date (Day 1)"
+            st.info("ℹ️ **This study has no screening visits defined.** Date will be used as Day 1 baseline.")
+            st.write("**Date Type:** Randomization Date (Day 1)")
+        
         start_date = st.date_input(
             "Start Date*",
             value=date.today(),
             format="DD/MM/YYYY",
-            help="Patient enrollment/start date"
+            help="Enter the actual date of the visit selected above"
         )
         
         recruitment_site = st.selectbox(
@@ -189,6 +264,28 @@ def patient_entry_modal():
             options=["Ashfields", "Kiltearn"],
             help="Which practice recruited this patient?"
         )
+    
+    # Show calculated information
+    if selected_study and start_date:
+        # Calculate Day 1 date if screening is selected
+        if date_type == "Screening Date" and has_screening_visits:
+            adjusted_date, offset_days, screening_found = calculate_day_1_date(
+                start_date, selected_study, trial_schedule_df
+            )
+            
+            if screening_found:
+                st.info(f"📅 **Calculated Day 1 Date:** {adjusted_date.strftime('%d/%m/%Y')} "
+                       f"(Screening + {offset_days} days)")
+            else:
+                st.warning("⚠️ **No screening visits defined** for this study. "
+                          "Date will be used as Day 1 baseline.")
+                adjusted_date = start_date
+        else:
+            # Randomization Date or no screening visits
+            adjusted_date = start_date
+            st.info(f"📅 **Day 1 Date:** {adjusted_date.strftime('%d/%m/%Y')}")
+    else:
+        adjusted_date = start_date
     
     # Validation and submission
     col_submit, col_cancel = st.columns([1, 1])
@@ -205,8 +302,19 @@ def patient_entry_modal():
                 st.error(f"Patient ID '{new_patient_id}' already exists!")
                 return
             
-            # Format the start date
-            formatted_date = start_date.strftime('%d/%m/%Y')
+            # Calculate the final date to use as baseline
+            if date_type == "Screening Date" and has_screening_visits:
+                final_date, offset_days, screening_found = calculate_day_1_date(
+                    start_date, selected_study, trial_schedule_df
+                )
+                if not screening_found:
+                    final_date = start_date
+            else:
+                # Randomization Date or no screening visits
+                final_date = start_date
+            
+            # Format the final date
+            formatted_date = final_date.strftime('%d/%m/%Y')
             
             # Create new patient data
             new_patient = {
