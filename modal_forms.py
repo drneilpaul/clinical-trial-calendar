@@ -132,11 +132,26 @@ def patient_entry_modal():
     
     st.markdown("### Enter New Patient Information")
     
-    # Load required data
-    patients_df = load_file('Patients')
-    trial_schedule_df = load_file('TrialSchedule')
+    # Load required data based on mode
+    if load_from_database:
+        import database as db
+        patients_df = db.fetch_all_patients()
+        trial_schedule_df = db.fetch_all_trial_schedules()
+    else:
+        patients_file = st.session_state.get('patients_file')
+        trials_file = st.session_state.get('trials_file')
+        
+        if not patients_file or not trials_file:
+            st.error("Files not available. Please upload files first.")
+            if st.button("Close"):
+                st.session_state.show_patient_form = False
+                st.rerun()
+            return
+        
+        patients_df = load_file(patients_file)
+        trial_schedule_df = load_file(trials_file)
     
-    if patients_df.empty or trial_schedule_df.empty:
+    if patients_df is None or patients_df.empty or trial_schedule_df is None or trial_schedule_df.empty:
         st.error("Unable to load required data files. Please check Patients and TrialSchedule files.")
         if st.button("Close"):
             st.session_state.show_patient_form = False
@@ -243,12 +258,29 @@ def visit_entry_modal():
     
     st.markdown("### Record Patient Visit")
     
-    # Load required data
-    patients_df = load_file('Patients')
-    trial_schedule_df = load_file('TrialSchedule')
-    visits_df = load_file('Visits')
+    # Load required data based on mode
+    if load_from_database:
+        import database as db
+        patients_df = db.fetch_all_patients()
+        trial_schedule_df = db.fetch_all_trial_schedules()
+        visits_df = db.fetch_all_actual_visits()
+    else:
+        patients_file = st.session_state.get('patients_file')
+        trials_file = st.session_state.get('trials_file')
+        actual_visits_file = st.session_state.get('actual_visits_file')
+        
+        if not patients_file or not trials_file:
+            st.error("Files not available. Please upload files first.")
+            if st.button("Close"):
+                st.session_state.show_visit_form = False
+                st.rerun()
+            return
+        
+        patients_df = load_file(patients_file)
+        trial_schedule_df = load_file(trials_file)
+        visits_df = load_file(actual_visits_file) if actual_visits_file else pd.DataFrame()
     
-    if patients_df.empty or trial_schedule_df.empty:
+    if patients_df is None or patients_df.empty or trial_schedule_df is None or trial_schedule_df.empty:
         st.error("Unable to load required data files.")
         if st.button("Close"):
             st.session_state.show_visit_form = False
@@ -380,10 +412,23 @@ def study_event_entry_modal():
     
     st.markdown("### Add New Study Event to Trial Schedule")
     
-    # Load required data
-    trial_schedule_df = load_file('TrialSchedule')
+    # Load required data based on mode
+    if load_from_database:
+        import database as db
+        trial_schedule_df = db.fetch_all_trial_schedules()
+    else:
+        trials_file = st.session_state.get('trials_file')
+        
+        if not trials_file:
+            st.error("Trials file not available. Please upload files first.")
+            if st.button("Close"):
+                st.session_state.show_study_event_form = False
+                st.rerun()
+            return
+        
+        trial_schedule_df = load_file(trials_file)
     
-    if trial_schedule_df.empty:
+    if trial_schedule_df is None or trial_schedule_df.empty:
         st.error("Unable to load Trial Schedule data.")
         if st.button("Close"):
             st.session_state.show_study_event_form = False
