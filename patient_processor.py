@@ -20,9 +20,9 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     ]
     
     for _, actual_visit in patient_actuals.iterrows():
-        visit_name = str(actual_visit["VisitName"]).strip()
+        visit_name = str(actual_visit["VisitName"])
         
-        matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
+        matching_trial = study_visits[study_visits["VisitName"] == visit_name]
         if len(matching_trial) == 0:
             unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials")
             continue
@@ -33,26 +33,11 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     return patient_actual_visits, actual_visits_used, unmatched_visits
 
 def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_data, 
-                        baseline_date, screen_fail_date, processing_messages, out_of_window_visits, skipped_counter=None):
+                        baseline_date, screen_fail_date, processing_messages, out_of_window_visits):
     """Process a single actual visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     visit_date = actual_visit_data["ActualDate"]
-    
-    # Ensure it's a proper Timestamp and normalize to date only for calendar matching
-    if not isinstance(visit_date, pd.Timestamp):
-        visit_date = pd.Timestamp(visit_date)
-    
-    # Skip visits with invalid dates
-    if pd.isna(visit_date):
-        from helpers import log_activity
-        log_activity(f"⚠️ Skipping visit '{visit_name}' for patient {patient_id} - invalid date: {actual_visit_data['ActualDate']}", level='warning')
-        if skipped_counter is not None:
-            skipped_counter[0] += 1
-        return None, []
-    
-    
-    visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
     # Get payment amount
     trial_payment = visit.get("Payment", 0)
@@ -131,19 +116,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, has_actual_visit=False):
+def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date):
     """Process a single scheduled (predicted) visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     
-    # Ensure baseline_date is a proper Timestamp and normalize to date only
-    if not isinstance(baseline_date, pd.Timestamp):
-        baseline_date = pd.Timestamp(baseline_date)
-    baseline_date = pd.Timestamp(baseline_date.date())  # Normalize to date only
-    
     scheduled_date = baseline_date + timedelta(days=visit_day - 1)
-    # Normalize scheduled_date to date only for calendar matching
-    scheduled_date = pd.Timestamp(scheduled_date.date())
     
     # Use patient-specific screen failure check
     if screen_fail_date is not None and scheduled_date > screen_fail_date:
@@ -156,19 +134,11 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
     
-    # Style the visit name based on whether there's an actual visit
-    if has_actual_visit:
-        # This visit has an actual visit - show as planned (grayed out)
-        visit_display = f"📅 {visit_name} (Planned)"
-    else:
-        # This visit has no actual visit - show as predicted
-        visit_display = f"📋 {visit_name} (Predicted)"
-    
     # Create main scheduled visit record
     main_record = {
         "Date": scheduled_date,
         "PatientID": patient_id,
-        "Visit": visit_display,
+        "Visit": visit_name,
         "Study": study,
         "Payment": payment,
         "SiteofVisit": site,
@@ -180,34 +150,24 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "VisitName": visit_name
     }
     
-    # Only create tolerance window records if there's NO actual visit
-    if not has_actual_visit:
-        expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
-            visit, baseline_date, visit_day
-        )
-        tolerance_records = create_tolerance_window_records(
-            patient_id, study, site, patient_origin, expected_date,
-            tolerance_before, tolerance_after, visit_day, visit_name,
-            screen_fail_date
-        )
-        return [main_record] + tolerance_records, 0
-    else:
-        # Has actual visit - only return the planned visit marker, no tolerance windows
-        return [main_record], 0
+    # Create tolerance window records
+    expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
+        visit, baseline_date, visit_day
+    )
+    tolerance_records = create_tolerance_window_records(
+        patient_id, study, site, patient_origin, expected_date,
+        tolerance_before, tolerance_after, visit_day, visit_name,
+        screen_fail_date
+    )
+    
+    return [main_record] + tolerance_records, 0
 
 def process_single_patient(patient, patient_visits, screen_failures, actual_visits_df=None):
     """Process all visits for a single patient"""
-    from helpers import log_activity
-    
-    # Debug: Track skipped visits due to invalid dates
-    skipped_invalid_dates = [0]  # Use list so it can be modified by reference
-    
     patient_id = str(patient["PatientID"])
     study = str(patient["Study"])
     start_date = patient["StartDate"]
     patient_origin = str(patient["OriginSite"])
-    
-    log_activity(f"Processing patient {patient_id} (Study: {study}, StartDate: {start_date}, Origin: {patient_origin})", level='info')
     
     visit_records = []
     actual_visits_used = 0
@@ -218,8 +178,6 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     patient_needs_recalc = False
     
     if pd.isna(start_date):
-        from helpers import log_activity
-        log_activity(f"Patient {patient_id} has invalid start_date: {start_date}", level='warning')
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
     # Use patient-specific screen failure key
@@ -256,44 +214,19 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         actual_visit_data = patient_actual_visits.get(visit_name)
         
         if actual_visit_data is not None:
-            # Debug: Log when we find a matching actual visit
-            from helpers import log_activity
-            log_activity(f"🎯 Found matching actual visit: {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
-            
-            # Process actual visit - includes its own tolerance windows
+            # Process actual visit
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, visit, actual_visit_data,
-                baseline_date, screen_fail_date, processing_messages, out_of_window_visits, skipped_invalid_dates
+                baseline_date, screen_fail_date, processing_messages, out_of_window_visits
             )
-            # Skip if visit was invalid (None returned)
-            if visit_record is not None:
-                visit_records.append(visit_record)
-                visit_records.extend(tolerance_records)
-            
-            # DON'T create a scheduled visit on the ACTUAL date
-            # Only create it on the EXPECTED date if different
-            expected_date, _, _, _, _ = calculate_tolerance_windows(
-                visit, baseline_date, int(visit["Day"])
-            )
-            expected_date = pd.Timestamp(expected_date.date())
-            actual_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
-            
-            # Only add planned marker if actual happened on a different date
-            if expected_date != actual_date:
-                scheduled_records, exclusions = process_scheduled_visit(
-                    patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-                    has_actual_visit=True
-                )
-                visit_records.extend(scheduled_records)
+            visit_records.append(visit_record)
+            visit_records.extend(tolerance_records)
         else:
-            # No actual visit - process scheduled with full tolerance windows
+            # Process scheduled visit
             scheduled_records, exclusions = process_scheduled_visit(
-                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-                has_actual_visit=False
+                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date
             )
             visit_records.extend(scheduled_records)
             screen_fail_exclusions += exclusions
     
-    if skipped_invalid_dates[0] > 0:
-        log_activity(f"⚠️ Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
     return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc

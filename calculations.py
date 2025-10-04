@@ -32,20 +32,10 @@ def prepare_financial_data(visits_df):
         return empty_df
         
     # Add all time period columns
-    # Check for NaN values in Date column
-    nan_dates = financial_df['Date'].isna().sum()
-    if nan_dates > 0:
-        # Filter out invalid dates silently
-        financial_df = financial_df.dropna(subset=['Date'])
-    
     financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
     financial_df['Quarter'] = financial_df['Date'].dt.quarter
     financial_df['Year'] = financial_df['Date'].dt.year
-    # Handle NaN values before converting to int
-    financial_df['QuarterYear'] = (
-        financial_df['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
-        financial_df['Quarter'].fillna(0).astype(int).astype(str)
-    )
+    financial_df['QuarterYear'] = financial_df['Year'].astype(str) + '-Q' + financial_df['Quarter'].astype(str)
     
     # FIXED: Use consistent FY calculation from helpers
     financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
@@ -104,11 +94,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
             period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)]
         elif period_column == 'QuarterYear':
             # Convert both to strings for comparison
-            # Handle NaN values before converting to int
-            patients_quarter = (
-                patients_df['StartDate'].dt.year.fillna(0).astype(int).astype(str) + '-Q' + 
-                patients_df['StartDate'].dt.quarter.fillna(0).astype(int).astype(str)
-            )
+            patients_quarter = patients_df['StartDate'].dt.year.astype(str) + '-Q' + patients_df['StartDate'].dt.quarter.astype(str)
             period_patients = patients_df[patients_quarter == str(period_value)]
         elif period_column == 'FinancialYear':
             # FIXED: Use centralized FY calculation from helpers
@@ -437,8 +423,7 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         
         # Calculate monthly breakdown
         monthly_data = []
-        month_values = fy_visits['MonthYear'].dropna().unique()
-        for month in sorted(month_values):
+        for month in sorted(fy_visits['MonthYear'].unique()):
             month_visits = fy_visits[fy_visits['MonthYear'] == month]
             
             completed = month_visits[month_visits.get('IsActual', False) == True]

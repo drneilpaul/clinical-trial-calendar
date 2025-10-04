@@ -3,6 +3,7 @@ import pandas as pd
 import io
 from datetime import date
 from helpers import load_file
+from database_service import db_service
 
 def handle_patient_modal():
     """Handle patient entry modal with compatibility check"""
@@ -56,29 +57,47 @@ def patient_entry_inline_form():
 
 def _render_patient_form(is_modal=True):
     """Render the patient form content"""
-    patients_file = st.session_state.get('patients_file')
-    trials_file = st.session_state.get('trials_file')
+    # Check if we're in database mode
+    use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
     
-    if not patients_file or not trials_file:
-        st.error("Files not available")
-        return
-    
-    try:
-        existing_patients = load_file(patients_file)
-        if existing_patients is None or existing_patients.empty:
-            st.error("Could not load patients file or file is empty")
-            return
-            
-        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
+    if use_database:
+        # Load from database
+        existing_patients = db_service.load_patients()
+        existing_trials = db_service.load_trials()
         
-        existing_trials = load_file(trials_file)
-        if existing_trials is None or existing_trials.empty:
-            st.error("Could not load trials file or file is empty")
+        if existing_patients.empty or existing_trials.empty:
+            st.error("Could not load data from database")
             return
-            
-        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
         
         available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
+    else:
+        # Load from files
+        patients_file = st.session_state.get('patients_file')
+        trials_file = st.session_state.get('trials_file')
+        
+        if not patients_file or not trials_file:
+            st.error("Files not available")
+            return
+        
+        try:
+            existing_patients = load_file(patients_file)
+            if existing_patients is None or existing_patients.empty:
+                st.error("Could not load patients file or file is empty")
+                return
+                
+            existing_patients.columns = existing_patients.columns.str.strip()
+            
+            existing_trials = load_file(trials_file)
+            if existing_trials is None or existing_trials.empty:
+                st.error("Could not load trials file or file is empty")
+                return
+                
+            existing_trials.columns = existing_trials.columns.str.strip()
+            
+            available_studies = sorted([str(s) for s in existing_trials["Study"].unique().tolist() if pd.notna(s)])
+        except Exception as e:
+            st.error(f"Error loading files: {e}")
+            return
         
         # Main form fields first
         new_patient_id = st.text_input("Patient ID")
@@ -155,31 +174,41 @@ def _render_patient_form(is_modal=True):
                 else:
                     new_patient_data["PatientPractice"] = str(new_site)
                 
-                # Add other columns with safe defaults
-                for col in existing_patients.columns:
-                    if col not in new_patient_data:
-                        new_patient_data[col] = ""
-                
-                new_row_df = pd.DataFrame([new_patient_data])
-                updated_patients_df = pd.concat([existing_patients, new_row_df], ignore_index=True)
-                
-                # Create download
-                output = io.BytesIO()
-                try:
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        updated_patients_df.to_excel(writer, index=False, sheet_name="Patients")
-                except ImportError:
-                    # Fallback to CSV if openpyxl not available
-                    updated_patients_df.to_csv(output, index=False)
-                
-                st.session_state.updated_patients_file = output.getvalue()
-                st.session_state.updated_filename = f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx"
-                st.session_state.patient_added = True
-                st.session_state.show_patient_form = False
-                
-                st.toast(f"Added patient {new_patient_id} to study {new_study}", icon="✅")
-                log_activity(f"Added patient {new_patient_id} to study {new_study}", level='success')
-                st.rerun()
+                if use_database:
+                    # Add to database
+                    success = db_service.add_patient(new_patient_data)
+                    if success:
+                        st.success("Patient added to database successfully!")
+                        st.session_state.show_patient_form = False
+                        st.rerun()
+                    else:
+                        st.error("Failed to add patient to database")
+                else:
+                    # Add to file (existing logic)
+                    # Add other columns with safe defaults
+                    for col in existing_patients.columns:
+                        if col not in new_patient_data:
+                            new_patient_data[col] = ""
+                    
+                    new_row_df = pd.DataFrame([new_patient_data])
+                    updated_patients_df = pd.concat([existing_patients, new_row_df], ignore_index=True)
+                    
+                    # Create download
+                    output = io.BytesIO()
+                    try:
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            updated_patients_df.to_excel(writer, index=False, sheet_name="Patients")
+                    except ImportError:
+                        # Fallback to CSV if openpyxl not available
+                        updated_patients_df.to_csv(output, index=False)
+                    
+                    st.session_state.updated_patients_file = output.getvalue()
+                    st.session_state.updated_filename = f"Patients_Updated_{new_start_date.strftime('%Y%m%d')}.xlsx"
+                    st.session_state.patient_added = True
+                    st.session_state.show_patient_form = False
+                    
+                    st.success("Patient added successfully!")
+                    st.rerun()
         
         with col2:
             if st.button("Cancel", use_container_width=True):
@@ -204,34 +233,51 @@ def visit_entry_inline_form():
 
 def _render_visit_form(is_modal=True):
     """Render the visit form content"""
-    patients_file = st.session_state.get('patients_file')
-    trials_file = st.session_state.get('trials_file')
-    actual_visits_file = st.session_state.get('actual_visits_file')
+    # Check if we're in database mode
+    use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
     
-    if not patients_file or not trials_file:
-        st.error("Files not available")
-        return
-    
-    try:
-        existing_patients = load_file(patients_file)
-        if existing_patients is None or existing_patients.empty:
-            st.error("Could not load patients file or file is empty")
-            return
-            
-        existing_patients.columns = [str(col).strip() for col in existing_patients.columns]
+    if use_database:
+        # Load from database
+        existing_patients = db_service.load_patients()
+        existing_trials = db_service.load_trials()
+        existing_visits = db_service.load_actual_visits()
         
-        existing_trials = load_file(trials_file)
-        if existing_trials is None or existing_trials.empty:
-            st.error("Could not load trials file or file is empty")
+        if existing_patients.empty or existing_trials.empty:
+            st.error("Could not load data from database")
             return
-            
-        existing_trials.columns = [str(col).strip() for col in existing_trials.columns]
+    else:
+        # Load from files
+        patients_file = st.session_state.get('patients_file')
+        trials_file = st.session_state.get('trials_file')
+        actual_visits_file = st.session_state.get('actual_visits_file')
         
-        # Load existing visits
-        existing_visits = pd.DataFrame()
-        if actual_visits_file:
-            existing_visits = load_file(actual_visits_file)
-            existing_visits.columns = [str(col).strip() for col in existing_visits.columns]
+        if not patients_file or not trials_file:
+            st.error("Files not available")
+            return
+        
+        try:
+            existing_patients = load_file(patients_file)
+            if existing_patients is None or existing_patients.empty:
+                st.error("Could not load patients file or file is empty")
+                return
+                
+            existing_patients.columns = existing_patients.columns.str.strip()
+            
+            existing_trials = load_file(trials_file)
+            if existing_trials is None or existing_trials.empty:
+                st.error("Could not load trials file or file is empty")
+                return
+                
+            existing_trials.columns = existing_trials.columns.str.strip()
+            
+            # Load existing visits
+            existing_visits = pd.DataFrame()
+            if actual_visits_file:
+                existing_visits = load_file(actual_visits_file)
+                existing_visits.columns = existing_visits.columns.str.strip()
+        except Exception as e:
+            st.error(f"Error loading files: {e}")
+            return
         
         # Patient selection
         patient_options = []
@@ -314,35 +360,45 @@ def _render_visit_form(is_modal=True):
                             "Notes": str(notes or "")
                         }
                         
-                        if len(existing_visits) > 0:
-                            new_visit_df = pd.DataFrame([new_visit_data])
-                            updated_visits_df = pd.concat([existing_visits, new_visit_df], ignore_index=True)
+                        if use_database:
+                            # Add to database
+                            success = db_service.add_visit(new_visit_data)
+                            if success:
+                                st.success("Visit recorded in database successfully!")
+                                st.session_state.show_visit_form = False
+                                st.rerun()
+                            else:
+                                st.error("Failed to record visit in database")
                         else:
-                            # Create new visits file with proper columns
-                            columns = ["PatientID", "Study", "VisitName", "ActualDate", "Notes"]
-                            updated_visits_df = pd.DataFrame([new_visit_data])
-                            # Ensure all columns exist
-                            for col in columns:
-                                if col not in updated_visits_df.columns:
-                                    updated_visits_df[col] = ""
-                        
-                        # Create download
-                        output = io.BytesIO()
-                        try:
-                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                updated_visits_df.to_excel(writer, index=False, sheet_name="ActualVisits")
-                        except ImportError:
-                            # Fallback to CSV if openpyxl not available
-                            updated_visits_df.to_csv(output, index=False)
-                        
-                        st.session_state.updated_visits_file = output.getvalue()
-                        st.session_state.updated_visits_filename = f"ActualVisits_Updated_{visit_date.strftime('%Y%m%d')}.xlsx"
-                        st.session_state.visit_added = True
-                        st.session_state.show_visit_form = False
-                        
-                        st.toast(f"Recorded visit {visit_name} for patient {patient_id}", icon="✅")
-                        log_activity(f"Recorded visit {visit_name} for patient {patient_id}", level='success')
-                        st.rerun()
+                            # Add to file (existing logic)
+                            if len(existing_visits) > 0:
+                                new_visit_df = pd.DataFrame([new_visit_data])
+                                updated_visits_df = pd.concat([existing_visits, new_visit_df], ignore_index=True)
+                            else:
+                                # Create new visits file with proper columns
+                                columns = ["PatientID", "Study", "VisitName", "ActualDate", "Notes"]
+                                updated_visits_df = pd.DataFrame([new_visit_data])
+                                # Ensure all columns exist
+                                for col in columns:
+                                    if col not in updated_visits_df.columns:
+                                        updated_visits_df[col] = ""
+                            
+                            # Create download
+                            output = io.BytesIO()
+                            try:
+                                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                    updated_visits_df.to_excel(writer, index=False, sheet_name="ActualVisits")
+                            except ImportError:
+                                # Fallback to CSV if openpyxl not available
+                                updated_visits_df.to_csv(output, index=False)
+                            
+                            st.session_state.updated_visits_file = output.getvalue()
+                            st.session_state.updated_visits_filename = f"ActualVisits_Updated_{visit_date.strftime('%Y%m%d')}.xlsx"
+                            st.session_state.visit_added = True
+                            st.session_state.show_visit_form = False
+                            
+                            st.success("Visit recorded successfully!")
+                            st.rerun()
                 
                 with col2:
                     if st.button("Cancel", use_container_width=True):
@@ -677,6 +733,9 @@ def update_study_event(original_event, new_date, new_notes, new_status):
 def create_study_event(study, event_type, visit_name, event_date, status, notes):
     """Create new study event"""
     try:
+        # Check if we're in database mode
+        use_database = st.session_state.get('use_database', False) and st.session_state.get('database_connected', False)
+        
         # Generate patient ID for event
         patient_id = f"{event_type.upper()}_{study}"
         
@@ -690,30 +749,43 @@ def create_study_event(study, event_type, visit_name, event_date, status, notes)
             "Status": status
         }
         
-        # Load existing visits or create new file
-        actual_visits_file = st.session_state.get('actual_visits_file')
-        if actual_visits_file:
-            existing_visits = load_file_with_defaults(
-                actual_visits_file,
-                {'VisitType': 'patient', 'Status': 'completed'}
-            )
-            updated_visits = pd.concat([existing_visits, pd.DataFrame([new_event_data])], ignore_index=True)
+        if use_database:
+            # Add to database
+            success = db_service.add_study_event(new_event_data)
+            if success:
+                st.session_state.event_added = True
+                return True
+            else:
+                st.error("Failed to create study event in database")
+                return False
         else:
-            updated_visits = pd.DataFrame([new_event_data])
-        
-        # Save file
-        output = io.BytesIO()
-        try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                updated_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
-        except ImportError:
-            updated_visits.to_csv(output, index=False)
-        
-        st.session_state.updated_events_file = output.getvalue()
-        st.session_state.updated_events_filename = f"ActualVisits_Updated_{event_date.strftime('%Y%m%d')}.xlsx"
-        st.session_state.event_added = True
-        
-        return True
+            # Add to file (existing logic)
+            from helpers import load_file_with_defaults
+            
+            # Load existing visits or create new file
+            actual_visits_file = st.session_state.get('actual_visits_file')
+            if actual_visits_file:
+                existing_visits = load_file_with_defaults(
+                    actual_visits_file,
+                    {'VisitType': 'patient', 'Status': 'completed'}
+                )
+                updated_visits = pd.concat([existing_visits, pd.DataFrame([new_event_data])], ignore_index=True)
+            else:
+                updated_visits = pd.DataFrame([new_event_data])
+            
+            # Save file
+            output = io.BytesIO()
+            try:
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    updated_visits.to_excel(writer, index=False, sheet_name="ActualVisits")
+            except ImportError:
+                updated_visits.to_csv(output, index=False)
+            
+            st.session_state.updated_events_file = output.getvalue()
+            st.session_state.updated_events_filename = f"ActualVisits_Updated_{event_date.strftime('%Y%m%d')}.xlsx"
+            st.session_state.event_added = True
+            
+            return True
         
     except Exception as e:
         st.error(f"Error creating event: {e}")
