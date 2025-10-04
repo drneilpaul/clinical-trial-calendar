@@ -217,28 +217,28 @@ def patient_entry_modal():
             # Handle database or file mode
             if load_from_database:
                 try:
-                    from database import append_patient_to_database
-                    success, message = append_patient_to_database(new_patient)
+                    import database as db
+                    # Convert dict to DataFrame
+                    patient_df = pd.DataFrame([new_patient])
+                    success = db.append_patient_to_database(patient_df)
                     
                     if success:
-                        st.success(f"✅ Patient {new_patient_id} added to database successfully!")
+                        st.success(f"Patient {new_patient_id} added to database successfully!")
                         log_activity(f"Added patient {new_patient_id} to database", level='success')
                         
                         # Trigger data refresh
-                        if 'check_and_refresh_data' in dir(st.session_state):
-                            st.session_state.check_and_refresh_data()
-                        
+                        st.session_state.data_refresh_needed = True
                         st.session_state.show_patient_form = False
                         st.rerun()
                     else:
-                        st.error(f"Failed to add patient: {message}")
-                        log_activity(f"Failed to add patient {new_patient_id}: {message}", level='error')
+                        st.error(f"Failed to add patient to database")
+                        log_activity(f"Failed to add patient {new_patient_id}", level='error')
                         
                 except Exception as e:
                     st.error(f"Database error: {str(e)}")
                     log_activity(f"Database error adding patient: {str(e)}", level='error')
             else:
-                # File mode - store for download
+                # File mode - update session state and offer download
                 st.session_state.new_patient_data = new_patient
                 log_activity(f"Created new patient record for {new_patient_id}", level='success')
                 st.session_state.show_patient_form = False
@@ -371,28 +371,28 @@ def visit_entry_modal():
             # Handle database or file mode
             if load_from_database:
                 try:
-                    from database import append_visit_to_database
-                    success, message = append_visit_to_database(new_visit)
+                    import database as db
+                    # Convert dict to DataFrame
+                    visit_df = pd.DataFrame([new_visit])
+                    success = db.append_visit_to_database(visit_df)
                     
                     if success:
-                        st.success(f"✅ Visit recorded successfully for patient {selected_patient_id}!")
+                        st.success(f"Visit recorded successfully for patient {selected_patient_id}!")
                         log_activity(f"Recorded visit {selected_visit_name} for patient {selected_patient_id}", level='success')
                         
                         # Trigger data refresh
-                        if 'check_and_refresh_data' in dir(st.session_state):
-                            st.session_state.check_and_refresh_data()
-                        
+                        st.session_state.data_refresh_needed = True
                         st.session_state.show_visit_form = False
                         st.rerun()
                     else:
-                        st.error(f"Failed to record visit: {message}")
-                        log_activity(f"Failed to record visit: {message}", level='error')
+                        st.error(f"Failed to record visit to database")
+                        log_activity(f"Failed to record visit", level='error')
                         
                 except Exception as e:
                     st.error(f"Database error: {str(e)}")
                     log_activity(f"Database error recording visit: {str(e)}", level='error')
             else:
-                # File mode - store for download
+                # File mode - update session state and offer download
                 st.session_state.new_visit_data = new_visit
                 log_activity(f"Created new visit record for {selected_patient_id}", level='success')
                 st.session_state.show_visit_form = False
@@ -506,28 +506,28 @@ def study_event_entry_modal():
             # Handle database or file mode
             if load_from_database:
                 try:
-                    from database import append_trial_schedule_to_database
-                    success, message = append_trial_schedule_to_database(new_event)
+                    import database as db
+                    # Convert dict to DataFrame
+                    event_df = pd.DataFrame([new_event])
+                    success = db.append_trial_schedule_to_database(event_df)
                     
                     if success:
-                        st.success(f"✅ Study event '{visit_name}' added successfully!")
+                        st.success(f"Study event '{visit_name}' added successfully!")
                         log_activity(f"Added study event {visit_name} to {selected_study}", level='success')
                         
                         # Trigger data refresh
-                        if 'check_and_refresh_data' in dir(st.session_state):
-                            st.session_state.check_and_refresh_data()
-                        
+                        st.session_state.data_refresh_needed = True
                         st.session_state.show_study_event_form = False
                         st.rerun()
                     else:
-                        st.error(f"Failed to add study event: {message}")
-                        log_activity(f"Failed to add study event: {message}", level='error')
+                        st.error(f"Failed to add study event to database")
+                        log_activity(f"Failed to add study event", level='error')
                         
                 except Exception as e:
                     st.error(f"Database error: {str(e)}")
                     log_activity(f"Database error adding study event: {str(e)}", level='error')
             else:
-                # File mode - store for download
+                # File mode - update session state and offer download
                 st.session_state.new_study_event_data = new_event
                 log_activity(f"Created new study event {visit_name} for {selected_study}", level='success')
                 st.session_state.show_study_event_form = False
