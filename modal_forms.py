@@ -184,10 +184,10 @@ def patient_entry_modal():
             help="Patient enrollment/start date"
         )
         
-        patient_site = st.selectbox(
-            "Patient Site*",
+        recruitment_site = st.selectbox(
+            "Recruited By*",
             options=["Ashfields", "Kiltearn"],
-            help="Site where patient was recruited"
+            help="Which practice recruited this patient?"
         )
     
     # Validation and submission
@@ -213,7 +213,9 @@ def patient_entry_modal():
                 'PatientID': new_patient_id,
                 'Study': selected_study,
                 'StartDate': formatted_date,
-                'Site': patient_site  # Use 'Site' to match database schema
+                'Site': recruitment_site,  # Which practice recruited them
+                'OriginSite': recruitment_site,  # Same value, different column name
+                'PatientPractice': recruitment_site  # Same value, for compatibility
             }
             
             # Handle database or file mode
