@@ -3,28 +3,9 @@ import pandas as pd
 import io
 from datetime import date
 
-# Import with error handling
-try:
-    from helpers import load_file
-except ImportError as e:
-    print(f"Failed to import helpers: {e}")
-    raise
-
-try:
-    from database_service import db_service
-except ImportError as e:
-    print(f"Failed to import database_service: {e}")
-    # Create a dummy service for fallback
-    class DummyDBService:
-        def __init__(self):
-            self.connected = False
-        def load_patients(self): return pd.DataFrame()
-        def load_trials(self): return pd.DataFrame()
-        def load_actual_visits(self): return pd.DataFrame()
-        def add_patient(self, data): return False
-        def add_visit(self, data): return False
-        def add_study_event(self, data): return False
-    db_service = DummyDBService()
+# Simple imports without error handling
+from helpers import load_file
+from database_service import db_service
 
 def handle_patient_modal():
     """Handle patient entry modal with compatibility check"""
@@ -496,6 +477,11 @@ def study_event_management_modal():
     
     study_event_form()
 
+def study_event_management_inline():
+    """Inline study event management (fallback)"""
+    st.subheader("Study Event Management")
+    _render_study_event_form(is_modal=False)
+
 def _render_study_event_form(is_modal=True):
     """Form for managing study events (SIV, Monitor)"""
     trials_file = st.session_state.get('trials_file')
@@ -805,3 +791,20 @@ def create_study_event(study, event_type, visit_name, event_date, status, notes)
     except Exception as e:
         st.error(f"Error creating event: {e}")
         return False
+
+def get_event_unique_key(patient_id, study, visit_name, visit_type):
+    """Generate unique key for event identification"""
+    return f"{patient_id}_{study}_{visit_name}_{visit_type}"
+
+def load_file_with_defaults(uploaded_file, default_columns=None):
+    """Load file and ensure required columns exist with defaults"""
+    df = load_file(uploaded_file)
+    if df is None or df.empty:
+        return df
+    
+    if default_columns:
+        for col, default_value in default_columns.items():
+            if col not in df.columns:
+                df[col] = default_value
+    
+    return df

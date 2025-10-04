@@ -8,7 +8,8 @@ from display_components import (
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
     display_verification_figures
 )
-from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
+# Import modal forms
+from modal_forms_cloud import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
