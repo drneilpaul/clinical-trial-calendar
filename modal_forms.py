@@ -22,6 +22,15 @@ def handle_visit_modal():
             st.error("Modal dialogs require Streamlit 1.28+")
             st.session_state.show_visit_form = False
 
+def handle_study_event_modal():
+    """Handle study event entry modal"""
+    if st.session_state.get('show_study_event_form', False):
+        try:
+            study_event_entry_modal()
+        except AttributeError:
+            st.error("Modal dialogs require Streamlit 1.28+")
+            st.session_state.show_study_event_form = False
+
 def show_download_sections():
     """Show download sections for added patients/visits"""
     if st.session_state.get('new_patient_data'):
@@ -31,6 +40,10 @@ def show_download_sections():
     if st.session_state.get('new_visit_data'):
         st.success("✅ New visit recorded successfully!")
         _show_visit_download()
+    
+    if st.session_state.get('new_study_event_data'):
+        st.success("✅ Study event added successfully!")
+        _show_study_event_download()
 
 def _show_patient_download():
     """Display download section for new patient"""
@@ -82,6 +95,32 @@ def _show_visit_download():
     
     if st.button("✖ Clear", key="clear_visit"):
         del st.session_state.new_visit_data
+        st.rerun()
+
+def _show_study_event_download():
+    """Display download section for new study event"""
+    event_data = st.session_state.new_study_event_data
+    
+    st.subheader("📥 Download New Study Event Data")
+    
+    df = pd.DataFrame([event_data])
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info(f"Study: {event_data['Study']} | Visit: {event_data['VisitName']} | Day: {event_data['Day']}")
+    with col2:
+        st.download_button(
+            label="⬇️ Download CSV",
+            data=csv_buffer.getvalue(),
+            file_name=f"new_study_event_{event_data['Study']}_{event_data['VisitName']}.csv",
+            mime="text/csv",
+            key="download_study_event"
+        )
+    
+    if st.button("✖ Clear", key="clear_study_event"):
+        del st.session_state.new_study_event_data
         st.rerun()
 
 @st.dialog("➕ Add New Patient", width="large")
@@ -332,6 +371,128 @@ def visit_entry_modal():
             st.session_state.show_visit_form = False
             st.rerun()
 
+@st.dialog("📅 Add Study Event", width="large")
+def study_event_entry_modal():
+    """Modal dialog for adding new study events to trial schedule"""
+    
+    # Check if we're using database
+    load_from_database = st.session_state.get('use_database', False)
+    
+    st.markdown("### Add New Study Event to Trial Schedule")
+    
+    # Load required data
+    trial_schedule_df = load_file('TrialSchedule')
+    
+    if trial_schedule_df.empty:
+        st.error("Unable to load Trial Schedule data.")
+        if st.button("Close"):
+            st.session_state.show_study_event_form = False
+            st.rerun()
+        return
+    
+    # Get unique studies
+    available_studies = sorted(trial_schedule_df['Study'].unique().tolist())
+    
+    # Form inputs
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        selected_study = st.selectbox(
+            "Study*",
+            options=available_studies,
+            help="Select the study for this event"
+        )
+        
+        visit_name = st.text_input(
+            "Visit Name*",
+            help="Enter the name of the visit/event (e.g., 'Follow-up 1')"
+        )
+    
+    with col2:
+        day = st.number_input(
+            "Day*",
+            min_value=-365,
+            max_value=365,
+            value=0,
+            help="Day relative to study start (negative for screening, positive for follow-up)"
+        )
+        
+        event_type = st.selectbox(
+            "Event Type",
+            options=["Visit", "Assessment", "Follow-up", "Screening", "Other"],
+            help="Optional: Type of event"
+        )
+    
+    notes = st.text_area(
+        "Notes (Optional)",
+        help="Any additional information about this event",
+        height=80
+    )
+    
+    # Validation and submission
+    col_submit, col_cancel = st.columns([1, 1])
+    
+    with col_submit:
+        if st.button("📅 Add Event", type="primary", use_container_width=True):
+            # Validate required fields
+            if not visit_name or not selected_study:
+                st.error("Please fill in all required fields (Study and Visit Name)")
+                return
+            
+            # Check for duplicate event
+            existing_events = trial_schedule_df[
+                (trial_schedule_df['Study'] == selected_study) &
+                (trial_schedule_df['VisitName'] == visit_name)
+            ]
+            
+            if not existing_events.empty:
+                st.error(f"Event '{visit_name}' already exists for study '{selected_study}'!")
+                return
+            
+            # Create new study event data
+            new_event = {
+                'Study': selected_study,
+                'VisitName': visit_name,
+                'Day': int(day),
+                'EventType': event_type,
+                'Notes': notes if notes else ''
+            }
+            
+            # Handle database or file mode
+            if load_from_database:
+                try:
+                    from database import append_trial_schedule_to_database
+                    success, message = append_trial_schedule_to_database(new_event)
+                    
+                    if success:
+                        st.success(f"✅ Study event '{visit_name}' added successfully!")
+                        log_activity(f"Added study event {visit_name} to {selected_study}", level='success')
+                        
+                        # Trigger data refresh
+                        if 'check_and_refresh_data' in dir(st.session_state):
+                            st.session_state.check_and_refresh_data()
+                        
+                        st.session_state.show_study_event_form = False
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to add study event: {message}")
+                        log_activity(f"Failed to add study event: {message}", level='error')
+                        
+                except Exception as e:
+                    st.error(f"Database error: {str(e)}")
+                    log_activity(f"Database error adding study event: {str(e)}", level='error')
+            else:
+                # File mode - store for download
+                st.session_state.new_study_event_data = new_event
+                log_activity(f"Created new study event {visit_name} for {selected_study}", level='success')
+                st.session_state.show_study_event_form = False
+                st.rerun()
+    
+    with col_cancel:
+        if st.button("✖ Cancel", use_container_width=True):
+            st.session_state.show_study_event_form = False
+            st.rerun()
+
 def open_patient_form():
     """Helper function to open patient entry form"""
     st.session_state.show_patient_form = True
@@ -339,3 +500,7 @@ def open_patient_form():
 def open_visit_form():
     """Helper function to open visit entry form"""
     st.session_state.show_visit_form = True
+
+def open_study_event_form():
+    """Helper function to open study event entry form"""
+    st.session_state.show_study_event_form = True
