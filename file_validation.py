@@ -54,13 +54,13 @@ def clean_date_value(value, expected_format='%d/%m/%Y') -> Optional[str]:
     # Convert to string and clean
     value_str = str(value).strip()
     
-    # Handle common date formats
+    # Handle common date formats - prioritize UK format (D/M/Y)
     date_formats = [
-        '%d/%m/%Y',      # 25/12/2024
-        '%d-%m-%Y',      # 25-12-2024
-        '%Y-%m-%d',      # 2024-12-25
-        '%m/%d/%Y',      # 12/25/2024
-        '%d.%m.%Y',      # 25.12.2024
+        '%d/%m/%Y',      # 25/12/2024 (UK format - highest priority)
+        '%d-%m-%Y',      # 25-12-2024 (UK format with dashes)
+        '%d.%m.%Y',      # 25.12.2024 (UK format with dots)
+        '%Y-%m-%d',      # 2024-12-25 (ISO format)
+        '%m/%d/%Y',      # 12/25/2024 (US format - lowest priority)
     ]
     
     for fmt in date_formats:

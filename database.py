@@ -225,7 +225,7 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
             actual_date = row['ActualDate']
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
-                    actual_date = pd.to_datetime(actual_date)
+                    actual_date = pd.to_datetime(actual_date, dayfirst=True)
                 actual_date_str = str(actual_date.date())
             else:
                 actual_date_str = None

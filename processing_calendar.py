@@ -162,25 +162,17 @@ def prepare_actual_visits_data(actual_visits_df):
     
     # Check if dates are already parsed (from database) or need parsing (from file upload)
     if not pd.api.types.is_datetime64_any_dtype(actual_visits_df["ActualDate"]):
-        # Try dayfirst=True first, but if that fails, try without dayfirst
+        # Parse dates with UK format preference (D/M/Y) - no fallback to M/D/Y
         actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"], dayfirst=True, errors="coerce")
         
-        # Check if we got NaT values and try alternative parsing
+        # Check for any dates that failed to parse
         nat_count = actual_visits_df["ActualDate"].isna().sum()
         if nat_count > 0:
-            log_activity(f"⚠️ {nat_count} dates failed to parse, trying alternative format", level='warning')
-            # Try without dayfirst for the NaT values
-            nat_mask = actual_visits_df["ActualDate"].isna()
-            actual_visits_df.loc[nat_mask, "ActualDate"] = pd.to_datetime(
-                actual_visits_df.loc[nat_mask, "ActualDate"], 
-                dayfirst=False, 
-                errors="coerce"
-            )
-            
-            # Check final result
-            final_nat_count = actual_visits_df["ActualDate"].isna().sum()
-            if final_nat_count > 0:
-                log_activity(f"⚠️ {final_nat_count} dates still failed to parse after trying both formats", level='warning')
+            log_activity(f"⚠️ {nat_count} dates failed to parse with D/M/Y format. Please check your date format.", level='warning')
+            # Log some examples of failed dates for debugging
+            failed_dates = actual_visits_df[actual_visits_df["ActualDate"].isna()]["ActualDate"].head(5).tolist()
+            if failed_dates:
+                log_activity(f"Examples of failed dates: {failed_dates}", level='warning')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""
