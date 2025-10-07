@@ -407,6 +407,66 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
             'pipeline_visits_count': 0
         }
 
+def calculate_predicted_income_by_site(visits_df, trials_df):
+    """Calculate predicted income by site from today to end of financial year"""
+    from datetime import date
+    from helpers import get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit
+    
+    try:
+        # Get current date and financial year end
+        today = pd.to_datetime(date.today())
+        fy_start, fy_end = get_current_financial_year_boundaries()
+        
+        # Filter visits from today to end of financial year
+        future_visits = visits_df[
+            (visits_df['Date'] >= today) & 
+            (visits_df['Date'] <= fy_end)
+        ].copy()
+        
+        if future_visits.empty:
+            return pd.DataFrame()
+        
+        # Filter for predicted visits only (not actual visits)
+        predicted_visits = future_visits[
+            (future_visits.get('IsActual', False) == False) &
+            (~future_visits['Visit'].isin(['-', '+']))  # Exclude tolerance markers
+        ].copy()
+        
+        if predicted_visits.empty:
+            return pd.DataFrame()
+        
+        # Create trial payment lookup
+        trials_lookup = create_trial_payment_lookup(trials_df)
+        
+        # Add trial payment amounts to predicted visits
+        def get_trial_payment(row):
+            study = str(row['Study'])
+            visit_name = str(row.get('VisitName', ''))
+            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
+        
+        predicted_visits['TrialPayment'] = predicted_visits.apply(get_trial_payment, axis=1)
+        
+        # Group by site and calculate totals
+        site_income = predicted_visits.groupby('SiteofVisit').agg({
+            'TrialPayment': 'sum',
+            'VisitName': 'count'
+        }).rename(columns={
+            'TrialPayment': 'Predicted Income',
+            'VisitName': 'Predicted Visits'
+        }).reset_index()
+        
+        # Sort by income descending
+        site_income = site_income.sort_values('Predicted Income', ascending=False)
+        
+        # Add financial year info
+        site_income['Period'] = f"Today to {fy_end.strftime('%d/%m/%Y')}"
+        
+        return site_income
+        
+    except Exception as e:
+        st.error(f"Error calculating predicted income: {e}")
+        return pd.DataFrame()
+
 def calculate_monthly_realization_breakdown(visits_df, trials_df):
     """Calculate month-by-month realization metrics"""
     try:

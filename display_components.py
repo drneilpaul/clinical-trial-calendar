@@ -125,6 +125,60 @@ def display_site_time_analysis(site_visits, site_patients, site_name, enhanced_v
     except Exception as e:
         st.error(f"Error displaying time analysis: {e}")
 
+def display_predicted_income_by_site(site_income_df):
+    """Display predicted income by site section"""
+    if site_income_df.empty:
+        st.info("No predicted visits found from today to end of financial year.")
+        return
+    
+    st.markdown("---")
+    st.subheader("💰 Predicted Income by Site")
+    st.caption("Income from predicted visits from today to end of financial year")
+    
+    try:
+        # Format the data for display
+        display_df = site_income_df.copy()
+        
+        # Format currency
+        display_df['Predicted Income'] = display_df['Predicted Income'].apply(lambda x: f"£{x:,.2f}")
+        
+        # Rename columns for display
+        display_df = display_df.rename(columns={
+            'SiteofVisit': 'Site',
+            'Predicted Income': 'Predicted Income',
+            'Predicted Visits': 'Predicted Visits',
+            'Period': 'Period'
+        })
+        
+        # Display the table
+        st.dataframe(
+            display_df[['Site', 'Predicted Income', 'Predicted Visits', 'Period']], 
+            width='stretch', 
+            hide_index=True,
+            column_config={
+                "Site": st.column_config.TextColumn("Site", width="medium"),
+                "Predicted Income": st.column_config.TextColumn("Predicted Income", width="medium"),
+                "Predicted Visits": st.column_config.NumberColumn("Predicted Visits", width="small"),
+                "Period": st.column_config.TextColumn("Period", width="medium")
+            }
+        )
+        
+        # Show summary metrics
+        total_predicted_income = site_income_df['Predicted Income'].sum()
+        total_predicted_visits = site_income_df['Predicted Visits'].sum()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Predicted Income", f"£{total_predicted_income:,.2f}")
+        with col2:
+            st.metric("Total Predicted Visits", f"{total_predicted_visits:,}")
+        with col3:
+            avg_income_per_visit = total_predicted_income / total_predicted_visits if total_predicted_visits > 0 else 0
+            st.metric("Average Income per Visit", f"£{avg_income_per_visit:,.2f}")
+            
+    except Exception as e:
+        st.error(f"Error displaying predicted income: {e}")
+
 def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     """Display complete income realization analysis"""
     try:
