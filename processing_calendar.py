@@ -281,15 +281,16 @@ def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
     if 'VisitType' in trials_df.columns:
         patient_visits = trials_df[
-            (trials_df['VisitType'] == 'patient') |
-            (pd.isna(trials_df['VisitType']))
+            ((trials_df['VisitType'] == 'patient') |
+            (pd.isna(trials_df['VisitType']))) &
+            (trials_df['Day'] > 0)  # Exclude Day 0 visits from scheduling
         ]
         
         study_event_templates = trials_df[
             trials_df['VisitType'].isin(['siv', 'monitor'])
         ]
     else:
-        patient_visits = trials_df.copy()
+        patient_visits = trials_df[trials_df['Day'] > 0].copy()  # Exclude Day 0 visits from scheduling
         study_event_templates = pd.DataFrame()
     
     return patient_visits, study_event_templates

@@ -24,7 +24,13 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
         
         matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
         if len(matching_trial) == 0:
-            unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials")
+            # Check if this might be a Day 0 visit (optional visit not in scheduled trials)
+            # For now, we'll still add it but mark it as unmatched for reporting
+            # In the future, we could add special handling for Day 0 visits
+            unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials (may be optional Day 0 visit)")
+            # Still add it to actual visits so it shows up on calendar
+            patient_actual_visits[visit_name] = actual_visit
+            actual_visits_used += 1
             continue
         
         patient_actual_visits[visit_name] = actual_visit
@@ -199,6 +205,13 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     
     study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
     
+    # Include Day 0 visits for matching actual visits (but not for scheduling)
+    all_study_visits = study_visits.copy()
+    if actual_visits_df is not None:
+        # Get all visits for this study including Day 0
+        all_trials_for_study = actual_visits_df[actual_visits_df["Study"] == study]["VisitName"].unique()
+        # This will be used for matching actual visits
+    
     if len(study_visits) == 0:
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
@@ -206,7 +219,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     day_1_visits = study_visits[study_visits["Day"] == 1]
     baseline_visit_name = str(day_1_visits.iloc[0]["VisitName"])
     
-    # Process actual visits for this patient
+    # Process actual visits for this patient (including Day 0 visits for matching)
     patient_actual_visits, patient_actual_count, patient_unmatched = process_patient_actual_visits(
         patient_id, study, actual_visits_df, study_visits
     )
@@ -264,6 +277,30 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             )
             visit_records.extend(scheduled_records)
             screen_fail_exclusions += exclusions
+    
+    # Handle unmatched actual visits (including Day 0 optional visits)
+    for visit_name, actual_visit_data in patient_actual_visits.items():
+        if visit_name not in [str(v["VisitName"]) for _, v in study_visits.iterrows()]:
+            # This is an unmatched actual visit (likely Day 0 optional visit)
+            from helpers import log_activity
+            log_activity(f"🎯 Processing unmatched actual visit (Day 0?): {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
+            
+            # Create a minimal visit record for Day 0 visits
+            visit_record = {
+                "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
+                "PatientID": patient_id,
+                "Visit": f"✅ {visit_name}",
+                "Study": study,
+                "Payment": 0.0,  # Day 0 visits typically don't have payment
+                "SiteofVisit": str(actual_visit_data.get("SiteofVisit", "Unknown Site")),
+                "PatientOrigin": patient_origin,
+                "IsActual": True,
+                "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),
+                "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
+                "VisitDay": 0,  # Mark as Day 0
+                "VisitName": visit_name
+            }
+            visit_records.append(visit_record)
     
     if skipped_invalid_dates[0] > 0:
         log_activity(f"⚠️ Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
