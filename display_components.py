@@ -182,15 +182,12 @@ def show_legend(actual_visits_df):
     **Legend with Color Coding:**
 
     **Actual Visits:**
-    - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
-    - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
+    - ✅ VisitName (Green background) = Completed Visit (shows when visit actually happened)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
 
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
     - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
-    - \\- (Light blue-gray, italic) = Before tolerance period
-    - \\+ (Light blue-gray, italic) = After tolerance period
 
     **Date Formatting:**
     - Red background = Today's date
@@ -204,12 +201,10 @@ def show_legend(actual_visits_df):
     - Medium blue header = Study_PatientID
     - Light blue header = Patient origin site (who recruited patient)
     
-    **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
+    **Note:** All actual visits are shown on the calendar on the date they actually occurred, regardless of the original schedule. No tolerance window checking is performed.
     """ if actual_visits_df is not None else """
     **Legend:** 
     - VisitName (Gray) = Scheduled Visit
-    - - (Light blue-gray) = Before tolerance period
-    - + (Light blue-gray) = After tolerance period
     - Light blue background = Month end (softer highlighting)
     - Dark blue background = Financial year end (31 March)
     - Gray background = Weekend

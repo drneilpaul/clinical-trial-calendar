@@ -71,31 +71,11 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         is_out_of_protocol = False
         processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure")
     else:
-        expected_date, earliest_acceptable, latest_acceptable, tolerance_before, tolerance_after = calculate_tolerance_windows(
-            visit, baseline_date, visit_day
-        )
-        
-        is_out_of_protocol = is_visit_out_of_protocol(
-            visit_date, visit_day, visit_name, earliest_acceptable, latest_acceptable
-        )
-        
-        if is_out_of_protocol:
-            days_early = max(0, (earliest_acceptable - visit_date).days)
-            days_late = max(0, (visit_date - latest_acceptable).days)
-            deviation = days_early + days_late
-            out_of_window_visits.append({
-                'patient': f"{patient_id} ({study})",
-                'visit': visit_name,
-                'expected': expected_date.strftime('%Y-%m-%d'),
-                'actual': visit_date.strftime('%Y-%m-%d'),
-                'deviation': f"{deviation} days {'early' if days_early > 0 else 'late'}",
-                'tolerance': f"+{tolerance_after}/-{tolerance_before} days"
-            })
+        # Simplified: All actual visits are just marked as completed (no tolerance window checking)
+        is_out_of_protocol = False  # Always False - we don't check tolerance windows anymore
         
         if is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
-        elif is_out_of_protocol:
-            visit_status = f"🔴 OUT OF PROTOCOL {visit_name}"
         else:
             visit_status = f"✅ {visit_name}"
     
@@ -117,17 +97,8 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "VisitName": visit_name
     }
     
-    # Create tolerance window records
+    # Simplified: No tolerance window records created
     tolerance_records = []
-    if screen_fail_date is None or visit_date <= screen_fail_date:
-        expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
-            visit, baseline_date, visit_day
-        )
-        tolerance_records = create_tolerance_window_records(
-            patient_id, study, site, patient_origin, expected_date,
-            tolerance_before, tolerance_after, visit_day, visit_name,
-            screen_fail_date, visit_date
-        )
     
     return visit_record, tolerance_records
 

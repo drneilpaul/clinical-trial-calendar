@@ -275,41 +275,30 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
                     else:
-                        # Handle multiple visits on same day - IMPROVED LOGIC
+                        # Handle multiple visits on same day - SIMPLIFIED LOGIC (no tolerance markers)
                         
-                        # If this is a tolerance marker
-                        if visit_info in ["-", "+"]:
-                            # Only add if there's no actual visit already there
-                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "📋"]):
-                                if current_value in ["-", "+", ""]:
-                                    calendar_df.at[i, col_id] = visit_info
-                                else:
-                                    calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
                         # If this is a planned visit (📅)
-                        elif "📅" in visit_info and "(Planned)" in visit_info:
+                        if "📅" in visit_info and "(Planned)" in visit_info:
                             # Only add if there's no actual visit on this date
-                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
-                                if current_value in ["-", "+", ""]:
-                                    calendar_df.at[i, col_id] = visit_info
-                                else:
-                                    calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                            if not any(symbol in str(current_value) for symbol in ["✅", "⚠️"]):
+                                calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                         # If this is a predicted visit (📋) 
                         elif "📋" in visit_info and "(Predicted)" in visit_info:
-                            # Only add if cell is empty or has tolerance markers
-                            if current_value in ["-", "+", ""]:
+                            # Only add if cell is empty
+                            if current_value == "":
                                 calendar_df.at[i, col_id] = visit_info
                             elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅"]):
                                 calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
-                        # If this is an actual visit (✅, 🔴, ⚠️)
+                        # If this is an actual visit (✅, ⚠️)
                         else:
                             # Actual visits take priority - always add them
-                            if current_value in ["-", "+", ""]:
+                            if current_value == "":
                                 calendar_df.at[i, col_id] = visit_info
                                 if is_actual:
-                                    log_activity(f"    -> Placed in cell with tolerance markers", level='info')
+                                    log_activity(f"    -> Placed in empty cell", level='info')
                             else:
                                 # Check if there's already an actual visit
-                                if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                if any(symbol in str(current_value) for symbol in ["✅", "⚠️"]):
                                     # Multiple actual visits on same day
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                                     if is_actual:

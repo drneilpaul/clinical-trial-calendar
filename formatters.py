@@ -158,11 +158,9 @@ def get_date_based_style(date_obj, today_date):
     return ""
 
 def get_visit_based_style(cell_str):
-    """Get styling based on visit type"""
+    """Get styling based on visit type - simplified without tolerance windows"""
     if '✅' in cell_str or ('Visit' in cell_str and any(symbol in cell_str for symbol in ["✅"])):
         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
-    elif '🔴 OUT OF PROTOCOL' in cell_str:
-        return 'background-color: #f5c6cb; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
     elif '⚠️ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
     elif '📋' in cell_str and '(Predicted)' in cell_str:
@@ -171,10 +169,8 @@ def get_visit_based_style(cell_str):
     elif '📅' in cell_str and '(Planned)' in cell_str:
         # Planned visits (actual visit also exists - show original schedule)
         return 'background-color: #f8f9fa; color: #6c757d; font-weight: normal; font-style: italic;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "🔴", "⚠️", "📋", "📅"]):
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "📋", "📅"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
-    elif cell_str in ["+", "-"]:
-        return 'background-color: #f1f5f9; color: #64748b; font-style: italic; font-size: 0.9em;'
     return ""
 
 def create_fy_highlighting_function():
@@ -196,15 +192,14 @@ def format_dataframe_index_as_string(df, index_col=None):
     return df_display
 
 def format_visit_display_string(visit_name, is_actual=False, is_screen_fail=False, is_out_of_protocol=False):
-    """Format visit display string with appropriate emoji and status"""    
+    """Format visit display string with appropriate emoji and status - simplified without tolerance windows"""    
     if is_screen_fail:
         return f"⚠️ Screen Fail {visit_name}"
     elif visit_name.lower() in ["randomisation", "randomization"] and is_actual:
-        # Randomisation is always just completed, never out of protocol
+        # Randomisation is always just completed
         return f"✅ {visit_name}"
-    elif is_out_of_protocol:
-        return f"🔴 OUT OF PROTOCOL {visit_name}"
     elif is_actual:
+        # All actual visits are just marked as completed (no tolerance checking)
         return f"✅ {visit_name}"
     else:
         return visit_name
