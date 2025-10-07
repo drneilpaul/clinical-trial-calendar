@@ -407,47 +407,57 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
             'pipeline_visits_count': 0
         }
 
-def calculate_predicted_income_by_site(visits_df, trials_df):
-    """Calculate predicted income by site from today to end of financial year"""
+def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
+    """Calculate actual and predicted income by site for current financial year"""
     from datetime import date
     from helpers import get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit
     
     try:
-        # Get current date and financial year end
+        # Get current date and financial year boundaries
         today = pd.to_datetime(date.today())
         fy_start, fy_end = get_current_financial_year_boundaries()
         
-        # Filter visits from today to end of financial year
-        future_visits = visits_df[
-            (visits_df['Date'] >= today) & 
+        # Filter visits for current financial year
+        fy_visits = visits_df[
+            (visits_df['Date'] >= fy_start) & 
             (visits_df['Date'] <= fy_end)
         ].copy()
         
-        if future_visits.empty:
+        if fy_visits.empty:
             return pd.DataFrame()
         
-        # Filter for predicted visits only (not actual visits)
-        predicted_visits = future_visits[
-            (future_visits.get('IsActual', False) == False) &
-            (~future_visits['Visit'].isin(['-', '+']))  # Exclude tolerance markers
-        ].copy()
+        # Exclude tolerance markers
+        fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])].copy()
         
-        if predicted_visits.empty:
+        if fy_visits.empty:
             return pd.DataFrame()
         
         # Create trial payment lookup
         trials_lookup = create_trial_payment_lookup(trials_df)
         
-        # Add trial payment amounts to predicted visits
+        # Add trial payment amounts to visits
         def get_trial_payment(row):
             study = str(row['Study'])
             visit_name = str(row.get('VisitName', ''))
             return get_trial_payment_for_visit(trials_lookup, study, visit_name)
         
-        predicted_visits['TrialPayment'] = predicted_visits.apply(get_trial_payment, axis=1)
+        fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
         
-        # Group by site and calculate totals
-        site_income = predicted_visits.groupby('SiteofVisit').agg({
+        # Separate actual and predicted visits
+        actual_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
+        predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False].copy()
+        
+        # Calculate actual income by site
+        actual_income = actual_visits.groupby('SiteofVisit').agg({
+            'TrialPayment': 'sum',
+            'VisitName': 'count'
+        }).rename(columns={
+            'TrialPayment': 'Actual Income',
+            'VisitName': 'Actual Visits'
+        }).reset_index()
+        
+        # Calculate predicted income by site
+        predicted_income = predicted_visits.groupby('SiteofVisit').agg({
             'TrialPayment': 'sum',
             'VisitName': 'count'
         }).rename(columns={
@@ -455,16 +465,28 @@ def calculate_predicted_income_by_site(visits_df, trials_df):
             'VisitName': 'Predicted Visits'
         }).reset_index()
         
-        # Sort by income descending
-        site_income = site_income.sort_values('Predicted Income', ascending=False)
+        # Merge actual and predicted data
+        site_income = pd.merge(
+            actual_income, 
+            predicted_income, 
+            on='SiteofVisit', 
+            how='outer'
+        ).fillna(0)
+        
+        # Calculate totals
+        site_income['Total Income'] = site_income['Actual Income'] + site_income['Predicted Income']
+        site_income['Total Visits'] = site_income['Actual Visits'] + site_income['Predicted Visits']
+        
+        # Sort by total income descending
+        site_income = site_income.sort_values('Total Income', ascending=False)
         
         # Add financial year info
-        site_income['Period'] = f"Today to {fy_end.strftime('%d/%m/%Y')}"
+        site_income['Financial Year'] = f"{fy_start.strftime('%d/%m/%Y')} to {fy_end.strftime('%d/%m/%Y')}"
         
         return site_income
         
     except Exception as e:
-        st.error(f"Error calculating predicted income: {e}")
+        st.error(f"Error calculating actual and predicted income: {e}")
         return pd.DataFrame()
 
 def calculate_monthly_realization_breakdown(visits_df, trials_df):

@@ -14,13 +14,13 @@ from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
-    display_predicted_income_by_site
+    display_actual_and_predicted_income_by_site
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
-from calculations import prepare_financial_data, calculate_predicted_income_by_site
+from calculations import prepare_financial_data, calculate_actual_and_predicted_income_by_site
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
@@ -560,9 +560,9 @@ def main():
 
             display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
-            # Display predicted income by site
-            predicted_income_df = calculate_predicted_income_by_site(visits_df, trials_df)
-            display_predicted_income_by_site(predicted_income_df)
+            # Display actual and predicted income by site
+            site_income_df = calculate_actual_and_predicted_income_by_site(visits_df, trials_df)
+            display_actual_and_predicted_income_by_site(site_income_df)
 
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, actual_visits_df)
 

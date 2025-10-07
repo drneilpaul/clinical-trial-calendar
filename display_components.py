@@ -125,59 +125,76 @@ def display_site_time_analysis(site_visits, site_patients, site_name, enhanced_v
     except Exception as e:
         st.error(f"Error displaying time analysis: {e}")
 
-def display_predicted_income_by_site(site_income_df):
-    """Display predicted income by site section"""
+def display_actual_and_predicted_income_by_site(site_income_df):
+    """Display actual and predicted income by site for current financial year"""
     if site_income_df.empty:
-        st.info("No predicted visits found from today to end of financial year.")
+        st.info("No visits found for the current financial year.")
         return
     
     st.markdown("---")
-    st.subheader("💰 Predicted Income by Site")
-    st.caption("Income from predicted visits from today to end of financial year")
+    st.subheader("💰 Income by Site - Current Financial Year")
+    st.caption("Actual income earned and predicted income for the current financial year")
     
     try:
         # Format the data for display
         display_df = site_income_df.copy()
         
-        # Format currency
-        display_df['Predicted Income'] = display_df['Predicted Income'].apply(lambda x: f"£{x:,.2f}")
+        # Format currency columns
+        currency_columns = ['Actual Income', 'Predicted Income', 'Total Income']
+        for col in currency_columns:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(lambda x: f"£{x:,.2f}")
         
         # Rename columns for display
         display_df = display_df.rename(columns={
             'SiteofVisit': 'Site',
+            'Actual Income': 'Actual Income',
+            'Actual Visits': 'Actual Visits',
             'Predicted Income': 'Predicted Income',
             'Predicted Visits': 'Predicted Visits',
-            'Period': 'Period'
+            'Total Income': 'Total Income',
+            'Total Visits': 'Total Visits',
+            'Financial Year': 'Financial Year'
         })
         
         # Display the table
         st.dataframe(
-            display_df[['Site', 'Predicted Income', 'Predicted Visits', 'Period']], 
+            display_df[['Site', 'Actual Income', 'Actual Visits', 'Predicted Income', 'Predicted Visits', 'Total Income', 'Total Visits']], 
             width='stretch', 
             hide_index=True,
             column_config={
                 "Site": st.column_config.TextColumn("Site", width="medium"),
+                "Actual Income": st.column_config.TextColumn("Actual Income", width="medium"),
+                "Actual Visits": st.column_config.NumberColumn("Actual Visits", width="small"),
                 "Predicted Income": st.column_config.TextColumn("Predicted Income", width="medium"),
                 "Predicted Visits": st.column_config.NumberColumn("Predicted Visits", width="small"),
-                "Period": st.column_config.TextColumn("Period", width="medium")
+                "Total Income": st.column_config.TextColumn("Total Income", width="medium"),
+                "Total Visits": st.column_config.NumberColumn("Total Visits", width="small")
             }
         )
         
         # Show summary metrics
+        total_actual_income = site_income_df['Actual Income'].sum()
         total_predicted_income = site_income_df['Predicted Income'].sum()
-        total_predicted_visits = site_income_df['Predicted Visits'].sum()
+        total_income = site_income_df['Total Income'].sum()
         
-        col1, col2, col3 = st.columns(3)
+        total_actual_visits = site_income_df['Actual Visits'].sum()
+        total_predicted_visits = site_income_df['Predicted Visits'].sum()
+        total_visits = site_income_df['Total Visits'].sum()
+        
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Predicted Income", f"£{total_predicted_income:,.2f}")
+            st.metric("Actual Income Earned", f"£{total_actual_income:,.2f}")
         with col2:
-            st.metric("Total Predicted Visits", f"{total_predicted_visits:,}")
+            st.metric("Predicted Income", f"£{total_predicted_income:,.2f}")
         with col3:
-            avg_income_per_visit = total_predicted_income / total_predicted_visits if total_predicted_visits > 0 else 0
-            st.metric("Average Income per Visit", f"£{avg_income_per_visit:,.2f}")
+            st.metric("Total Income", f"£{total_income:,.2f}")
+        with col4:
+            actual_percentage = (total_actual_income / total_income * 100) if total_income > 0 else 0
+            st.metric("Actual %", f"{actual_percentage:.1f}%")
             
     except Exception as e:
-        st.error(f"Error displaying predicted income: {e}")
+        st.error(f"Error displaying income by site: {e}")
 
 def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     """Display complete income realization analysis"""
