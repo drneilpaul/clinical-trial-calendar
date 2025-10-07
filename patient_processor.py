@@ -87,6 +87,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
     
+    # If site is "Unknown Site", try to get it from trials data
+    if site == "Unknown Site" and 'SiteforVisit' in visit.index:
+        site_value = visit.get("SiteforVisit")
+        if pd.notna(site_value) and str(site_value).strip() and str(site_value).strip() != 'nan':
+            site = str(site_value).strip()
+    
     # Create main visit record
     visit_record = {
         "Date": visit_date,
@@ -132,6 +138,12 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         payment = 0.0
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
+    
+    # If site is "Unknown Site", try to get it from trials data
+    if site == "Unknown Site" and 'SiteforVisit' in visit.index:
+        site_value = visit.get("SiteforVisit")
+        if pd.notna(site_value) and str(site_value).strip() and str(site_value).strip() != 'nan':
+            site = str(site_value).strip()
     
     # Style the visit name based on whether there's an actual visit
     if has_actual_visit:
