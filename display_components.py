@@ -28,7 +28,7 @@ def display_income_table_pair(financial_df):
             monthly_df = monthly_totals.reset_index()
             monthly_df.columns = ['Month', 'Total Income']
             monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-            st.dataframe(monthly_df, use_container_width=True)
+            st.dataframe(monthly_df, width='stretch')
         else:
             st.info("No monthly data available")
     except Exception as e:
@@ -44,7 +44,7 @@ def display_profit_sharing_table(quarterly_ratios):
                 lambda x: ['background-color: #e6f3ff; font-weight: bold;' if x['Type'] == 'Financial Year' else '' for _ in x], 
                 axis=1
             )
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            st.dataframe(styled_df, width='stretch', hide_index=True)
         else:
             st.info("No quarterly data available for profit sharing analysis")
     except Exception as e:
@@ -56,7 +56,7 @@ def display_ratio_breakdown_table(ratio_data, title):
         if ratio_data:
             st.write(f"**{title}**")
             df = pd.DataFrame(ratio_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
         else:
             st.info(f"No data available for {title}")
     except Exception as e:
@@ -93,7 +93,7 @@ def display_breakdown_by_study(site_visits, site_patients, site_name):
             combined_breakdown['Visit Count'] = 0
             combined_breakdown['Total Income'] = "£0.00"
         
-        st.dataframe(combined_breakdown, use_container_width=True)
+        st.dataframe(combined_breakdown, width='stretch')
     except Exception as e:
         st.error(f"Error displaying study breakdown: {e}")
 
@@ -121,7 +121,7 @@ def display_site_time_analysis(site_visits, site_patients, site_name, enhanced_v
                 quarterly_display = quarterly_stats.copy()
                 quarterly_display['Income'] = quarterly_display['Income'].apply(format_currency)
                 st.write("*Quarterly Summary*")
-                st.dataframe(quarterly_display, use_container_width=True)
+                st.dataframe(quarterly_display, width='stretch')
     except Exception as e:
         st.error(f"Error displaying time analysis: {e}")
 
@@ -152,7 +152,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             monthly_df['Completed_Income'] = monthly_df['Completed_Income'].apply(format_currency)
             monthly_df['Scheduled_Income'] = monthly_df['Scheduled_Income'].apply(format_currency)
             monthly_df['Realization_Rate'] = monthly_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(monthly_df, use_container_width=True, hide_index=True)
+            st.dataframe(monthly_df, width='stretch', hide_index=True)
         
         # Study pipeline breakdown
         study_pipeline = calculate_study_pipeline_breakdown(visits_df, trials_df)
@@ -160,7 +160,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             st.write("**Pipeline by Study**")
             study_display = study_pipeline.copy()
             study_display['Pipeline_Value'] = study_display['Pipeline_Value'].apply(format_currency)
-            st.dataframe(study_display, use_container_width=True, hide_index=True)
+            st.dataframe(study_display, width='stretch', hide_index=True)
         
         # Site realization breakdown
         site_data = calculate_site_realization_breakdown(visits_df, trials_df)
@@ -171,7 +171,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             site_df['Total_Scheduled_Income'] = site_df['Total_Scheduled_Income'].apply(format_currency)
             site_df['Pipeline_Income'] = site_df['Pipeline_Income'].apply(format_currency)
             site_df['Realization_Rate'] = site_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(site_df, use_container_width=True, hide_index=True)
+            st.dataframe(site_df, width='stretch', hide_index=True)
             
     except Exception as e:
         st.error(f"Error in realization analysis: {e}")
@@ -324,7 +324,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
             log_activity(f"Styling error details: {str(e)}", level='error')
-            st.dataframe(display_with_headers, use_container_width=True)
+            st.dataframe(display_with_headers, width='stretch')
 
         if excluded_visits and len(excluded_visits) > 0:
             st.warning("Some visits were excluded due to screen failure:")
@@ -337,7 +337,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         # Try to show basic calendar without headers
         try:
             st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, use_container_width=True)
+            st.dataframe(calendar_df, width='stretch')
         except Exception as fallback_error:
             st.error(f"Even basic display failed: {fallback_error}")
             log_activity(f"Basic display also failed: {str(fallback_error)}", level='error')
@@ -347,7 +347,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             st.write(f"Shape: {calendar_df.shape}")
             st.write(f"Columns: {list(calendar_df.columns)}")
             st.write(f"First few rows:")
-            st.dataframe(calendar_df.head(), use_container_width=True)
+            st.dataframe(calendar_df.head(), width='stretch')
 
 def _generate_calendar_html_with_separators(styled_df):
     """Generate HTML calendar with month separators"""
@@ -398,7 +398,7 @@ def _generate_calendar_html_with_separators(styled_df):
 def display_site_statistics(site_summary_df):
     """Display basic site summary statistics"""
     st.subheader("Site Summary")
-    st.dataframe(site_summary_df, use_container_width=True)
+    st.dataframe(site_summary_df, width='stretch')
 
 def display_monthly_income_tables(visits_df):
     """Display monthly income analysis with tables only"""
@@ -463,7 +463,7 @@ def display_quarterly_profit_sharing_tables(financial_df, patients_df):
 
 def _display_weight_adjustment_interface():
     """Display the weight adjustment interface"""
-    if st.button("⚙️ Adjust Profit Sharing Weights", use_container_width=False):
+    if st.button("⚙️ Adjust Profit Sharing Weights", width='content'):
         st.session_state.show_weights_form = True
 
     # Initialize default weights
@@ -648,7 +648,7 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         if site_col:
             origin_breakdown = site_related_patients.groupby(site_col)['PatientID'].count().reset_index()
             origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-            st.dataframe(origin_breakdown, use_container_width=True)
+            st.dataframe(origin_breakdown, width='stretch')
         else:
             st.info("No patient origin site information available")
         
@@ -672,7 +672,7 @@ def _display_site_screen_failures(site_patients, screen_failures):
         
         if site_screen_failures:
             st.write("**Screen Failures**")
-            st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(site_screen_failures), width='stretch', hide_index=True)
     except Exception as e:
         st.error(f"Error displaying screen failures: {e}")
 

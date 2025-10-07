@@ -186,13 +186,13 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
             combined_breakdown['Visit Count'] = 0
             combined_breakdown['Total Income'] = "£0.00"
         
-        st.dataframe(combined_breakdown, use_container_width=True)
+        st.dataframe(combined_breakdown, width='stretch')
         
         # Patient origin breakdown (who recruited the patients)
         st.write("**Patient Origins (Who Recruited):**")
         origin_breakdown = site_related_patients.groupby('Site')['PatientID'].count().reset_index()
         origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-        st.dataframe(origin_breakdown, use_container_width=True)
+        st.dataframe(origin_breakdown, width='stretch')
         
         # Quarterly Analysis
         if len(site_visits) > 0:
@@ -228,11 +228,11 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("*Visit Counts by Quarter*")
-                    st.dataframe(quarterly_stats[['Visit Count']], use_container_width=True)
+                    st.dataframe(quarterly_stats[['Visit Count']], width='stretch')
                 
                 with col2:
                     st.write("*Income by Quarter*")
-                    st.dataframe(quarterly_display[['Income']], use_container_width=True)
+                    st.dataframe(quarterly_display[['Income']], width='stretch')
         
         # Financial Year Analysis
         if len(site_visits) > 0:
@@ -255,11 +255,11 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("*Visit Counts by Financial Year*")
-                    st.dataframe(fy_stats[['Visit Count']], use_container_width=True)
+                    st.dataframe(fy_stats[['Visit Count']], width='stretch')
                 
                 with col2:
                     st.write("*Income by Financial Year*")
-                    st.dataframe(fy_display[['Income']], use_container_width=True)
+                    st.dataframe(fy_display[['Income']], width='stretch')
         
         # Patient recruitment by time period (for patients who have visits at this site)
         st.write("**Patient Recruitment Analysis**")
@@ -297,14 +297,14 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                     st.write("*Patients Recruited by Quarter*")
                     quarterly_recruitment_df = quarterly_recruitment.to_frame()
                     quarterly_recruitment_df.columns = ['Patients Recruited']
-                    st.dataframe(quarterly_recruitment_df, use_container_width=True)
+                    st.dataframe(quarterly_recruitment_df, width='stretch')
             
             with col2:
                 if not fy_recruitment.empty:
                     st.write("*Patients Recruited by Financial Year*")
                     fy_recruitment_df = fy_recruitment.to_frame()
                     fy_recruitment_df.columns = ['Patients Recruited']
-                    st.dataframe(fy_recruitment_df, use_container_width=True)
+                    st.dataframe(fy_recruitment_df, width='stretch')
         
         # Combined quarterly summary
         st.write("**Quarterly Summary Table**")
@@ -344,7 +344,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         if quarterly_summary_data:
             quarterly_summary_df = pd.DataFrame(quarterly_summary_data)
-            st.dataframe(quarterly_summary_df, use_container_width=True)
+            st.dataframe(quarterly_summary_df, width='stretch')
         
         # Combined financial year summary
         st.write("**Financial Year Summary Table**")
@@ -384,7 +384,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         if fy_summary_data:
             fy_summary_df = pd.DataFrame(fy_summary_data)
-            st.dataframe(fy_summary_df, use_container_width=True)
+            st.dataframe(fy_summary_df, width='stretch')
         
         # Screen failures for patients who have visits at this site
         site_screen_failures = []
@@ -399,7 +399,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         if site_screen_failures:
             st.write("**Screen Failures**")
-            st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True)
+            st.dataframe(pd.DataFrame(site_screen_failures), width='stretch')
         
     except Exception as e:
         st.error(f"Error displaying site statistics: {e}")
@@ -428,7 +428,7 @@ def display_monthly_analysis_by_site(visits_df):
     # Display visit counts
     st.write("**Monthly Visit Counts by Visit Site:**")
     monthly_visits.index = monthly_visits.index.astype(str)
-    st.dataframe(monthly_visits, use_container_width=True)
+    st.dataframe(monthly_visits, width='stretch')
     
     # Display income
     st.write("**Monthly Income by Visit Site:**")
@@ -439,7 +439,7 @@ def display_monthly_analysis_by_site(visits_df):
     for col in monthly_income_display.columns:
         monthly_income_display[col] = monthly_income_display[col].apply(lambda x: f"£{x:,.2f}")
     
-    st.dataframe(monthly_income_display, use_container_width=True)
+    st.dataframe(monthly_income_display, width='stretch')
     
     # Chart showing monthly trends
     if len(monthly_visits.columns) > 1:

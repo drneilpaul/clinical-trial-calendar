@@ -291,7 +291,7 @@ def patient_entry_modal():
     col_submit, col_cancel = st.columns([1, 1])
     
     with col_submit:
-        if st.button("➕ Add Patient", type="primary", use_container_width=True):
+        if st.button("➕ Add Patient", type="primary", width='stretch'):
             # Validate required fields
             if not new_patient_id or not selected_study:
                 st.error("Please fill in all required fields (Patient ID and Study)")
@@ -357,7 +357,7 @@ def patient_entry_modal():
                 st.rerun()
     
     with col_cancel:
-        if st.button("✖ Cancel", use_container_width=True):
+        if st.button("✖ Cancel", width='stretch'):
             st.session_state.show_patient_form = False
             st.rerun()
 
@@ -464,7 +464,7 @@ def visit_entry_modal():
     col_submit, col_cancel = st.columns([1, 1])
     
     with col_submit:
-        if st.button("📝 Record Visit", type="primary", use_container_width=True):
+        if st.button("📝 Record Visit", type="primary", width='stretch'):
             # Format the visit date
             formatted_date = visit_date.strftime('%d/%m/%Y')
             
@@ -512,7 +512,7 @@ def visit_entry_modal():
                 st.rerun()
     
     with col_cancel:
-        if st.button("✖ Cancel", use_container_width=True):
+        if st.button("✖ Cancel", width='stretch'):
             st.session_state.show_visit_form = False
             st.rerun()
 
@@ -591,7 +591,7 @@ def study_event_entry_modal():
     col_submit, col_cancel = st.columns([1, 1])
     
     with col_submit:
-        if st.button("📅 Add Event", type="primary", use_container_width=True):
+        if st.button("📅 Add Event", type="primary", width='stretch'):
             # Validate required fields
             if not visit_name or not selected_study:
                 st.error("Please fill in all required fields (Study and Visit Name)")
@@ -647,7 +647,7 @@ def study_event_entry_modal():
                 st.rerun()
     
     with col_cancel:
-        if st.button("✖ Cancel", use_container_width=True):
+        if st.button("✖ Cancel", width='stretch'):
             st.session_state.show_study_event_form = False
             st.rerun()
 

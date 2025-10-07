@@ -283,7 +283,7 @@ def setup_file_uploaders():
         with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
             st.caption("Database management and debugging tools")
             
-            if st.button("🧪 Test DB Connection", use_container_width=True):
+            if st.button("🧪 Test DB Connection", width='stretch'):
                 try:
                     if db.test_database_connection():
                         st.success("✅ Database connected and tables found")
@@ -294,13 +294,13 @@ def setup_file_uploaders():
             
             st.divider()
             
-            if st.button("🔍 Check All Database Tables", use_container_width=True):
+            if st.button("🔍 Check All Database Tables", width='stretch'):
                 st.session_state.show_database_contents = True
                 st.rerun()
             
             st.divider()
             
-            if st.button("🔄 Refresh App Data", use_container_width=True):
+            if st.button("🔄 Refresh App Data", width='stretch'):
                 if 'patients_df' in st.session_state:
                     del st.session_state['patients_df']
                 if 'trials_df' in st.session_state:
@@ -318,7 +318,7 @@ def setup_file_uploaders():
             
             st.divider()
             
-            if st.button("📦 Download DB Backup", use_container_width=True):
+            if st.button("📦 Download DB Backup", width='stretch'):
                 backup_zip = db.create_backup_zip()
                 if backup_zip:
                     st.download_button(
@@ -326,7 +326,7 @@ def setup_file_uploaders():
                         data=backup_zip.getvalue(),
                         file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                         mime="application/zip",
-                        use_container_width=True
+                        width='stretch'
                     )
                     log_activity("Database backup created successfully", level='success')
                 else:
@@ -342,15 +342,15 @@ def display_action_buttons():
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
-        if st.button("Add New Patient", use_container_width=True):
+        if st.button("Add New Patient", width='stretch'):
             st.session_state.show_patient_form = True
     
     with col2:
-        if st.button("Record Patient Visit", use_container_width=True):
+        if st.button("Record Patient Visit", width='stretch'):
             st.session_state.show_visit_form = True
     
     with col3:
-        if st.button("Manage Study Events", use_container_width=True):
+        if st.button("Manage Study Events", width='stretch'):
             st.session_state.show_study_event_form = True
 
 def main():
@@ -390,23 +390,23 @@ def main():
             
             if patients_db is not None and not patients_db.empty:
                 st.subheader("👥 Patients Table")
-                st.dataframe(patients_db, use_container_width=True, height=300)
+                st.dataframe(patients_db, width='stretch', height=300)
             else:
                 st.info("No patients found")
             
             if trials_db is not None and not trials_db.empty:
                 st.subheader("🧪 Trials Table")
-                st.dataframe(trials_db, use_container_width=True, height=300)
+                st.dataframe(trials_db, width='stretch', height=300)
             else:
                 st.info("No trials found")
             
             if visits_db is not None and not visits_db.empty:
                 st.subheader("📅 Actual Visits Table")
-                st.dataframe(visits_db, use_container_width=True, height=300)
+                st.dataframe(visits_db, width='stretch', height=300)
             else:
                 st.info("No actual visits found")
             
-            if st.button("❌ Close Database View", use_container_width=True):
+            if st.button("❌ Close Database View", width='stretch'):
                 st.session_state.show_database_contents = False
                 st.rerun()
                 
