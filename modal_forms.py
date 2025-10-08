@@ -34,10 +34,20 @@ def calculate_day_1_date(entered_date, study, trial_schedule_df):
     
     # Calculate offset: Day 1 - Screening Day
     # e.g., if screening is Day -23, offset = 1 - (-23) = 24
-    offset_days = 1 - screening_day
+    offset_days = int(1 - screening_day)
     
     # Calculate adjusted date
-    adjusted_date = entered_date + timedelta(days=offset_days)
+    # Convert date to datetime for timedelta operations
+    if isinstance(entered_date, date) and not isinstance(entered_date, datetime):
+        entered_datetime = datetime.combine(entered_date, datetime.min.time())
+    else:
+        entered_datetime = entered_date
+    
+    adjusted_date = entered_datetime + timedelta(days=offset_days)
+    
+    # Return as date object for consistency with input
+    if isinstance(entered_date, date) and not isinstance(entered_date, datetime):
+        adjusted_date = adjusted_date.date()
     
     return adjusted_date, offset_days, True
 
