@@ -116,13 +116,20 @@ def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=Non
     patient_sites = set()
     for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
         if candidate in patients_df.columns:
-            patient_sites.update(patients_df[candidate].dropna().unique())
+            candidate_values = patients_df[candidate].dropna().unique()
+            log_activity(f"Patient {candidate} values: {candidate_values}", level='info')
+            patient_sites.update(candidate_values)
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
-    all_sites = [site for site in all_sites if site and str(site).strip() and str(site).strip() not in ['nan', 'None', '', 'null', 'NULL']]
+    log_activity(f"All sites before filtering: {all_sites}", level='info')
     
-    log_activity(f"All sites (visits + recruitment): {all_sites}", level='info')
+    # Filter out invalid site names
+    invalid_sites = ['nan', 'None', '', 'null', 'NULL', 'Unknown Site', 'Unknown Origin']
+    all_sites = [site for site in all_sites if site and str(site).strip() and str(site).strip() not in invalid_sites]
+    
+    log_activity(f"All sites after filtering: {all_sites}", level='info')
+    log_activity(f"Filtered out sites: {[site for site in set(site_values) | patient_sites if site not in all_sites]}", level='info')
     
     if not all_sites:
         log_activity("No valid sites found", level='warning')
