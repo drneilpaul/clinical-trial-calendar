@@ -291,42 +291,33 @@ def display_income_table_pair(financial_df):
             st.info("No financial data available")
             return
             
-        # Group by MonthYear directly (Period objects work fine with groupby)
-        # No need to convert to string - Period objects group correctly
-        monthly_totals = financial_df.groupby('MonthYear')['Payment'].fillna(0).sum()
+        # Fix: Move fillna operation BEFORE groupby
+        financial_df['Payment'] = financial_df['Payment'].fillna(0)
+        monthly_totals = financial_df.groupby('MonthYear')['Payment'].sum()
         
-        # Handle both Series and scalar results
-        if hasattr(monthly_totals, 'empty'):
-            # It's a Series
-            if not monthly_totals.empty:
-                monthly_df = monthly_totals.reset_index()
-                monthly_df.columns = ['Month', 'Total Income']
-                
-                # Convert Period objects to strings for display
-                monthly_df['Month'] = monthly_df['Month'].astype(str)
-                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-                
-                # Sort by month (convert to datetime for proper sorting)
-                monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
-                monthly_df = monthly_df.sort_values('SortDate')
-                monthly_df = monthly_df.drop('SortDate', axis=1)
-                
-                st.dataframe(monthly_df, width='stretch')
-            else:
-                st.info("No monthly data available")
-        else:
-            # It's a scalar (single value) - convert to DataFrame
-            if pd.notna(monthly_totals) and monthly_totals != 0:
-                # Get the month from the original data
-                month = str(financial_df['MonthYear'].iloc[0]) if not financial_df.empty else 'Unknown'
-                monthly_df = pd.DataFrame({
-                    'Month': [month],
-                    'Total Income': [monthly_totals]
-                })
-                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-                st.dataframe(monthly_df, width='stretch')
-            else:
-                st.info("No monthly data available")
+        # Simplify: Handle only Series case since groupby should always return a Series
+        if not isinstance(monthly_totals, pd.Series):
+            st.error("Unexpected data format in monthly analysis")
+            return
+        
+        if monthly_totals.empty:
+            st.info("No monthly data available")
+            return
+        
+        # Convert to DataFrame for display
+        monthly_df = monthly_totals.reset_index()
+        monthly_df.columns = ['Month', 'Total Income']
+        
+        # Convert Period objects to strings for display
+        monthly_df['Month'] = monthly_df['Month'].astype(str)
+        monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+        
+        # Sort by month (convert to datetime for proper sorting)
+        monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
+        monthly_df = monthly_df.sort_values('SortDate')
+        monthly_df = monthly_df.drop('SortDate', axis=1)
+        
+        st.dataframe(monthly_df, width='stretch')
     except Exception as e:
         st.error(f"Error displaying monthly income: {e}")
 

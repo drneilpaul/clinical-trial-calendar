@@ -67,47 +67,42 @@ def display_income_table_pair(financial_df):
             return
             
         log_activity(f"Valid data for grouping - shape: {valid_data.shape}", level='info')
-        monthly_totals = valid_data.groupby('MonthYear')['Payment'].fillna(0).sum()
+        log_activity(f"Unique months in data: {valid_data['MonthYear'].nunique()}", level='info')
+        
+        # Fix: Move fillna operation BEFORE groupby
+        valid_data['Payment'] = valid_data['Payment'].fillna(0)
+        monthly_totals = valid_data.groupby('MonthYear')['Payment'].sum()
         
         # Debug: Log grouping result
         log_activity(f"Monthly totals type: {type(monthly_totals)}", level='info')
         log_activity(f"Monthly totals: {monthly_totals}", level='info')
         log_activity(f"Monthly totals length: {len(monthly_totals) if hasattr(monthly_totals, '__len__') else 'No length'}", level='info')
         
-        # Handle both Series and scalar results
-        if hasattr(monthly_totals, 'empty'):
-            # It's a Series
-            if not monthly_totals.empty:
-                monthly_df = monthly_totals.reset_index()
-                monthly_df.columns = ['Month', 'Total Income']
-                
-                # Convert Period objects to strings for display
-                monthly_df['Month'] = monthly_df['Month'].astype(str)
-                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-                
-                # Sort by month (convert to datetime for proper sorting)
-                monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
-                monthly_df = monthly_df.sort_values('SortDate')
-                monthly_df = monthly_df.drop('SortDate', axis=1)
-                
-                log_activity(f"Final monthly breakdown: {monthly_df.to_dict('records')}", level='info')
-                st.dataframe(monthly_df, width='stretch')
-            else:
-                st.info("No monthly data available")
-        else:
-            # It's a scalar (single value) - convert to DataFrame
-            if pd.notna(monthly_totals) and monthly_totals != 0:
-                # Get the month from the original data
-                month = str(financial_df['MonthYear'].iloc[0]) if not financial_df.empty else 'Unknown'
-                monthly_df = pd.DataFrame({
-                    'Month': [month],
-                    'Total Income': [monthly_totals]
-                })
-                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-                log_activity(f"Single month breakdown: {monthly_df.to_dict('records')}", level='info')
-                st.dataframe(monthly_df, width='stretch')
-            else:
-                st.info("No monthly data available")
+        # Simplify: Handle only Series case since groupby should always return a Series
+        if not isinstance(monthly_totals, pd.Series):
+            log_activity(f"ERROR: Expected Series but got {type(monthly_totals)}", level='error')
+            st.error("Unexpected data format in monthly analysis")
+            return
+        
+        if monthly_totals.empty:
+            st.info("No monthly data available")
+            return
+        
+        # Convert to DataFrame for display
+        monthly_df = monthly_totals.reset_index()
+        monthly_df.columns = ['Month', 'Total Income']
+        
+        # Convert Period objects to strings for display
+        monthly_df['Month'] = monthly_df['Month'].astype(str)
+        monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+        
+        # Sort by month (convert to datetime for proper sorting)
+        monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
+        monthly_df = monthly_df.sort_values('SortDate')
+        monthly_df = monthly_df.drop('SortDate', axis=1)
+        
+        log_activity(f"Final monthly breakdown: {monthly_df.to_dict('records')}", level='info')
+        st.dataframe(monthly_df, width='stretch')
     except Exception as e:
         st.error(f"Error displaying monthly income: {e}")
         log_activity(f"Error details: {str(e)}", level='error')
