@@ -96,6 +96,71 @@ def extract_site_summary(patients_df, screen_failures=None):
     
     return site_summary
 
+def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=None):
+    """Extract site summary statistics from visits data (same source as calendar)"""
+    if visits_df.empty:
+        return pd.DataFrame()
+
+    from helpers import log_activity
+    
+    # Debug: Log visits data
+    log_activity(f"Visits columns: {list(visits_df.columns)}", level='info')
+    if 'SiteofVisit' in visits_df.columns:
+        log_activity(f"SiteofVisit values in visits: {visits_df['SiteofVisit'].unique()}", level='info')
+    
+    # Get unique sites from visits data (same logic as calendar)
+    site_values = visits_df["SiteofVisit"].dropna().unique()
+    log_activity(f"Unique visit sites: {site_values}", level='info')
+    
+    # Also include sites that have recruited patients (even if they have no visits)
+    patient_sites = set()
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in patients_df.columns:
+            patient_sites.update(patients_df[candidate].dropna().unique())
+    
+    # Combine visit sites and patient recruitment sites
+    all_sites = set(site_values) | patient_sites
+    all_sites = [site for site in all_sites if site and str(site).strip() and str(site).strip() not in ['nan', 'None', '', 'null', 'NULL']]
+    
+    log_activity(f"All sites (visits + recruitment): {all_sites}", level='info')
+    
+    if not all_sites:
+        log_activity("No valid sites found", level='warning')
+        return pd.DataFrame(columns=['Site', 'Patient_Count', 'Studies'])
+    
+    # Create site summary
+    site_summary_data = []
+    
+    for site in all_sites:
+        # Count patients by site
+        if site in site_values:
+            # This site has visits - count patients from visits
+            site_visits = visits_df[visits_df['SiteofVisit'] == site]
+            unique_patients = site_visits['PatientID'].nunique()
+            studies = site_visits['Study'].unique()
+        else:
+            # This site only has recruitment - count from patients data
+            site_patients = patients_df[
+                (patients_df['PatientPractice'] == site) | 
+                (patients_df['PatientSite'] == site) |
+                (patients_df['OriginSite'] == site) |
+                (patients_df['Practice'] == site) |
+                (patients_df['HomeSite'] == site)
+            ]
+            unique_patients = len(site_patients)
+            studies = site_patients['Study'].unique()
+        
+        site_summary_data.append({
+            'Site': site,
+            'Patient_Count': unique_patients,
+            'Studies': ', '.join(sorted(map(str, studies)))
+        })
+    
+    site_summary_df = pd.DataFrame(site_summary_data)
+    log_activity(f"Final site summary from visits: {site_summary_df.to_dict('records')}", level='info')
+    
+    return site_summary_df
+
 def check_and_refresh_data():
     """Check if data refresh is needed and reload from database"""
     if st.session_state.get('data_refresh_needed', False):
@@ -593,8 +658,8 @@ def main():
             
             show_legend(actual_visits_df)
             
-            # Use the processed patients_df from build_calendar which has proper site mapping
-            site_summary_df = extract_site_summary(processed_patients_df, screen_failures)
+            # Use the visits data to get site information (same source as calendar)
+            site_summary_df = extract_site_summary_from_visits(visits_df, processed_patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
