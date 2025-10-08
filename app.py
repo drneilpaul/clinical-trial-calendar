@@ -682,6 +682,15 @@ def main():
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
+            # Debug: Log visits data before monthly income analysis
+            log_activity(f"About to call display_monthly_income_tables with visits_df shape: {visits_df.shape}", level='info')
+            log_activity(f"visits_df columns: {list(visits_df.columns)}", level='info')
+            if 'Date' in visits_df.columns:
+                log_activity(f"Date column type: {visits_df['Date'].dtype}", level='info')
+                log_activity(f"Sample dates: {visits_df['Date'].head().tolist()}", level='info')
+            if 'Payment' in visits_df.columns:
+                log_activity(f"Payment column sample: {visits_df['Payment'].head().tolist()}", level='info')
+            
             display_monthly_income_tables(visits_df)
             
             financial_df = prepare_financial_data(visits_df)

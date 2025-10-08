@@ -526,13 +526,24 @@ def display_monthly_income_tables(visits_df):
     st.subheader("📊 Monthly Income Analysis")
     
     try:
+        # Debug: Log input data
+        log_activity(f"display_monthly_income_tables called with visits_df shape: {visits_df.shape}", level='info')
+        log_activity(f"visits_df columns: {list(visits_df.columns)}", level='info')
+        if 'Date' in visits_df.columns:
+            log_activity(f"Date column type: {visits_df['Date'].dtype}", level='info')
+            log_activity(f"Sample dates: {visits_df['Date'].head().tolist()}", level='info')
+        
         financial_df = prepare_financial_data(visits_df)
+        log_activity(f"prepare_financial_data returned shape: {financial_df.shape}", level='info')
+        
         if not financial_df.empty:
             display_income_table_pair(financial_df)
         else:
             st.warning("No financial data available for monthly analysis")
+            log_activity("No financial data available for monthly analysis", level='warning')
     except Exception as e:
         st.error(f"Error displaying monthly income tables: {e}")
+        log_activity(f"Error in display_monthly_income_tables: {str(e)}", level='error')
 
 def display_quarterly_profit_sharing_tables(financial_df, patients_df):
     """Display quarterly profit sharing analysis with tables and calculations"""
