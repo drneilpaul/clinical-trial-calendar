@@ -151,7 +151,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         "out_of_window_visits": processing_stats['out_of_window_visits']
     }
 
-    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites
+    return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites, patients_df
 
 def prepare_actual_visits_data(actual_visits_df):
     """Prepare actual visits data with proper data types"""

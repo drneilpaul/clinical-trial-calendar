@@ -38,7 +38,22 @@ def extract_site_summary(patients_df, screen_failures=None):
         df['__Site'] = 'Unknown Site'
         site_col = '__Site'
 
-    df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
+    # Clean up site values more thoroughly
+    df[site_col] = df[site_col].astype(str).str.strip()
+    # Replace various null-like values with 'Unknown Site'
+    df[site_col] = df[site_col].replace({
+        'nan': 'Unknown Site',
+        'None': 'Unknown Site', 
+        '': 'Unknown Site',
+        'null': 'Unknown Site',
+        'NULL': 'Unknown Site'
+    })
+    
+    # Filter out any remaining empty or invalid values
+    df = df[df[site_col].notna() & (df[site_col] != '') & (df[site_col] != 'nan')]
+
+    if df.empty:
+        return pd.DataFrame(columns=['Site', 'Patient_Count', 'Studies'])
 
     site_summary = df.groupby(site_col).agg({
         'PatientID': 'count',

@@ -23,7 +23,7 @@ from formatters import (
 def display_income_table_pair(financial_df):
     """Display monthly income analysis tables"""
     try:
-        monthly_totals = financial_df.groupby('MonthYear')['Payment'].sum()
+        monthly_totals = financial_df.groupby('MonthYear')['Payment'].fillna(0).sum()
         if not monthly_totals.empty:
             monthly_df = monthly_totals.reset_index()
             monthly_df.columns = ['Month', 'Total Income']

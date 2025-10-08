@@ -11,9 +11,12 @@ def prepare_financial_data(visits_df):
     # Create copy first
     financial_df = visits_df.copy()
     
-    # Ensure Payment column exists for financial calculations
+    # Ensure Payment column exists for financial calculations and is numeric
     if 'Payment' not in financial_df.columns:
         financial_df['Payment'] = 0.0
+    else:
+        # Convert to numeric, replacing non-numeric values with 0
+        financial_df['Payment'] = pd.to_numeric(financial_df['Payment'], errors='coerce').fillna(0.0)
     
     # Filter for relevant visits (exclude only tolerance periods '-' and '+')
     # Include: actual visits (with ✅, 🔴, ⚠  ), scheduled visits (plain visit names), but exclude tolerance periods
@@ -232,8 +235,8 @@ def build_profit_sharing_analysis(financial_df, patients_df, weights):
             
         ratios = calculate_period_ratios(financial_df, patients_df, 'QuarterYear', quarter, weights)
         
-        # Calculate quarter income
-        quarter_total_income = quarter_data['Payment'].sum()
+        # Calculate quarter income - handle NaN values safely
+        quarter_total_income = quarter_data['Payment'].fillna(0).sum()
         ashfields_income = quarter_total_income * ratios['combined']['ashfields_final_ratio']
         kiltearn_income = quarter_total_income * ratios['combined']['kiltearn_final_ratio']
         
@@ -270,8 +273,8 @@ def build_profit_sharing_analysis(financial_df, patients_df, weights):
             
         ratios = calculate_period_ratios(financial_df, patients_df, 'FinancialYear', fy, weights)
         
-        # Calculate financial year income
-        fy_total_income = fy_data['Payment'].sum()
+        # Calculate financial year income - handle NaN values safely
+        fy_total_income = fy_data['Payment'].fillna(0).sum()
         ashfields_income = fy_total_income * ratios['combined']['ashfields_final_ratio']
         kiltearn_income = fy_total_income * ratios['combined']['kiltearn_final_ratio']
         
@@ -375,15 +378,15 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
         completed_visits = completed_visits[~completed_visits['Visit'].isin(['-', '+'])]
         all_visits = all_visits[~all_visits['Visit'].isin(['-', '+'])]
         
-        # Calculate totals
-        completed_income = completed_visits['TrialPayment'].sum()
-        total_scheduled_income = all_visits['TrialPayment'].sum()
+        # Calculate totals - handle NaN values safely
+        completed_income = completed_visits['TrialPayment'].fillna(0).sum()
+        total_scheduled_income = all_visits['TrialPayment'].fillna(0).sum()
         
         # Pipeline = remaining scheduled income
         remaining_visits = all_visits[all_visits.get('IsActual', False) == False]
-        pipeline_income = remaining_visits['TrialPayment'].sum()
+        pipeline_income = remaining_visits['TrialPayment'].fillna(0).sum()
         
-        # Realization rate
+        # Realization rate - prevent division by zero
         realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
         
         return {
@@ -468,18 +471,18 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         actual_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
         predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False].copy()
         
-        # Calculate actual income by site
+        # Calculate actual income by site - handle NaN values safely
         actual_income = actual_visits.groupby('SiteofVisit').agg({
-            'TrialPayment': 'sum',
+            'TrialPayment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
             'TrialPayment': 'Actual Income',
             'VisitName': 'Actual Visits'
         }).reset_index()
         
-        # Calculate predicted income by site
+        # Calculate predicted income by site - handle NaN values safely
         predicted_income = predicted_visits.groupby('SiteofVisit').agg({
-            'TrialPayment': 'sum',
+            'TrialPayment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
             'TrialPayment': 'Predicted Income',
@@ -636,15 +639,15 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
             site_visits = fy_visits[fy_visits['SiteofVisit'] == site]
             
             completed = site_visits[site_visits.get('IsActual', False) == True]
-            completed_income = completed['TrialPayment'].sum()
+            completed_income = completed['TrialPayment'].fillna(0).sum()
             
-            total_scheduled_income = site_visits['TrialPayment'].sum()
+            total_scheduled_income = site_visits['TrialPayment'].fillna(0).sum()
             
             # Remaining pipeline for this site
             from datetime import date
             today = pd.to_datetime(date.today())
             remaining = site_visits[(site_visits['Date'] >= today) & (site_visits.get('IsActual', False) == False)]
-            pipeline_income = remaining['TrialPayment'].sum()
+            pipeline_income = remaining['TrialPayment'].fillna(0).sum()
             
             realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
             
