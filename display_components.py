@@ -740,7 +740,7 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Find patients who have visits at this site (may be from different origin sites)
         patients_with_visits_here = visits_df[visits_df['SiteofVisit'] == site]['PatientID'].unique()
-        site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
+        site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)].copy()
         
         # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:

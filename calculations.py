@@ -152,7 +152,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
     
     try:
         if period_column == 'MonthYear':
-            period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)]
+            period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)].copy()
         elif period_column == 'QuarterYear':
             # Convert both to strings for comparison
             # Handle NaN values before converting to int
@@ -160,11 +160,11 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 patients_df['StartDate'].dt.year.fillna(0).astype(int).astype(str) + '-Q' + 
                 patients_df['StartDate'].dt.quarter.fillna(0).astype(int).astype(str)
             )
-            period_patients = patients_df[patients_quarter == str(period_value)]
+            period_patients = patients_df[patients_quarter == str(period_value)].copy()
         elif period_column == 'FinancialYear':
             # FIXED: Use centralized FY calculation from helpers
             patient_fy = patients_df['StartDate'].apply(get_financial_year)
-            period_patients = patients_df[patient_fy == str(period_value)]
+            period_patients = patients_df[patient_fy == str(period_value)].copy()
         else:
             return {
                 'ashfields_recruitment_ratio': 0,
