@@ -465,26 +465,8 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         if fy_visits.empty:
             return pd.DataFrame()
         
-        # Clean up site names - replace "Unknown Site" with actual site names from trials
-        if not trials_df.empty and 'SiteforVisit' in trials_df.columns:
-            # Get unique sites from trials file
-            trial_sites = trials_df['SiteforVisit'].dropna().unique()
-            trial_sites = [site for site in trial_sites if site and str(site).strip() and str(site).strip() != 'nan']
-            
-            # Replace "Unknown Site" with the first available trial site if we have visits but unknown sites
-            if len(trial_sites) > 0:
-                default_site = trial_sites[0]  # Use first available site
-                fy_visits['SiteofVisit'] = fy_visits['SiteofVisit'].replace('Unknown Site', default_site)
-        
-        # Filter out sites that have no trials (like Kiltearn if it has no trials)
-        if not trials_df.empty and 'SiteforVisit' in trials_df.columns:
-            valid_sites = trials_df['SiteforVisit'].dropna().unique()
-            valid_sites = [site for site in valid_sites if site and str(site).strip() and str(site).strip() != 'nan']
-            if len(valid_sites) > 0:
-                fy_visits = fy_visits[fy_visits['SiteofVisit'].isin(valid_sites)]
-        
-        if fy_visits.empty:
-            return pd.DataFrame()
+        # Use all visits as-is without filtering or modifying site assignments
+        # This ensures consistency with Quarterly Profit Sharing calculations
         
         # Create trial payment lookup
         trials_lookup = create_trial_payment_lookup(trials_df)

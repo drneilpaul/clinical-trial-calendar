@@ -73,7 +73,13 @@ def build_calendar_dataframe(visits_df, patients_df):
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
-    unique_visit_sites = sorted([site for site in all_sites if site and str(site) != 'nan'])
+    
+    # Filter out invalid site names
+    invalid_sites = ['nan', 'None', '', 'null', 'NULL', 'Unknown Site', 'Unknown Origin', 'Default Site']
+    unique_visit_sites = sorted([
+        site for site in all_sites 
+        if site and str(site).strip() and str(site).strip() not in invalid_sites
+    ])
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
