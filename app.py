@@ -140,15 +140,24 @@ def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=Non
             studies = site_visits['Study'].unique()
         else:
             # This site only has recruitment - count from patients data
-            site_patients = patients_df[
-                (patients_df['PatientPractice'] == site) | 
-                (patients_df['PatientSite'] == site) |
-                (patients_df['OriginSite'] == site) |
-                (patients_df['Practice'] == site) |
-                (patients_df['HomeSite'] == site)
-            ]
+            # Build conditions only for columns that exist
+            conditions = []
+            for candidate in ['PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    conditions.append(patients_df[candidate] == site)
+            
+            if conditions:
+                # Combine all conditions with OR
+                combined_condition = conditions[0]
+                for condition in conditions[1:]:
+                    combined_condition = combined_condition | condition
+                site_patients = patients_df[combined_condition]
+            else:
+                # No matching columns found
+                site_patients = pd.DataFrame()
+            
             unique_patients = len(site_patients)
-            studies = site_patients['Study'].unique()
+            studies = site_patients['Study'].unique() if not site_patients.empty else []
         
         site_summary_data.append({
             'Site': site,
