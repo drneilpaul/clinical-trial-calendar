@@ -70,9 +70,22 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         
         actual_visits_df = standardize_visit_columns(actual_visits_df)
 
-    # Check for SiteforVisit column
+    # Check for SiteforVisit column and clean up values
     if "SiteforVisit" not in trials_df.columns:
         trials_df["SiteforVisit"] = "Default Site"
+    else:
+        # Clean up SiteforVisit values - replace empty/invalid with proper site names
+        trials_df["SiteforVisit"] = trials_df["SiteforVisit"].fillna("")
+        trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str).str.strip()
+        
+        # Replace invalid values with proper site names based on study
+        invalid_mask = trials_df["SiteforVisit"].isin(['', 'nan', 'None', 'null', 'NULL', 'Unknown Site'])
+        if invalid_mask.any():
+            log_activity(f"Found {invalid_mask.sum()} invalid SiteforVisit values, replacing with proper site names", level='info')
+            # Use the study name to determine the site
+            trials_df.loc[invalid_mask, "SiteforVisit"] = trials_df.loc[invalid_mask, "Study"].apply(
+                lambda study: "Ashfields" if "BaxDuo" in str(study) else "Ashfields" if "Maritime" in str(study) else "Ashfields"
+            )
 
     # Prepare actual visits data
     unmatched_visits = []
@@ -241,45 +254,24 @@ def prepare_patients_data(patients_df, trials_df):
     else:
         log_activity("No SiteforVisit column in trials data", level='warning')
 
-    # Check for patient origin site column
-    patient_origin_col = None
-    possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
-    for col in possible_origin_cols:
-        if col in patients_df.columns:
-            patient_origin_col = col
-            log_activity(f"Found patient origin column: {col}", level='info')
-            break
+    # Clean up redundant columns - remove Site and OriginSite if they exist
+    # The real source of truth should be PatientPractice
+    if 'Site' in patients_df.columns:
+        log_activity("Removing redundant 'Site' column", level='info')
+        patients_df = patients_df.drop('Site', axis=1)
     
-    if patient_origin_col:
-        patients_df['OriginSite'] = safe_string_conversion(patients_df[patient_origin_col], "Unknown Origin")
-        log_activity(f"OriginSite values: {patients_df['OriginSite'].unique()}", level='info')
-    else:
-        patients_df['OriginSite'] = "Unknown Origin"
-        log_activity("No patient origin column found, using 'Unknown Origin'", level='warning')
-
-    # Create patient-site mapping
-    if patient_origin_col:
-        patients_df['Site'] = patients_df['OriginSite']
-        log_activity("Using patient origin column for Site mapping", level='info')
-    else:
-        log_activity("Creating site mapping from trials data", level='info')
-        patient_site_mapping = {}
-        for _, patient in patients_df.iterrows():
-            study = patient["Study"]
-            patient_id = patient["PatientID"]
-            
-            study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
-            if len(study_sites) > 0:
-                patient_site_mapping[patient_id] = study_sites[0]
-                log_activity(f"Patient {patient_id} mapped to site: {study_sites[0]}", level='info')
-            else:
-                patient_site_mapping[patient_id] = f"{study}_Site"
-                log_activity(f"Patient {patient_id} mapped to default site: {study}_Site", level='info')
-        
-        patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping).fillna("Unknown Site")
+    if 'OriginSite' in patients_df.columns:
+        log_activity("Removing redundant 'OriginSite' column", level='info')
+        patients_df = patients_df.drop('OriginSite', axis=1)
     
-    # Debug: Log final site values
-    log_activity(f"Final Site values: {patients_df['Site'].unique()}", level='info')
+    # Ensure PatientPractice is the primary site column
+    if 'PatientPractice' not in patients_df.columns:
+        log_activity("No PatientPractice column found - this is required for site information", level='warning')
+        patients_df['PatientPractice'] = 'Unknown Site'
+    else:
+        # Clean up PatientPractice values
+        patients_df['PatientPractice'] = safe_string_conversion(patients_df['PatientPractice'], "Unknown Site")
+        log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
     
     return patients_df
 

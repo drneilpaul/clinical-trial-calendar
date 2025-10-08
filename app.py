@@ -113,12 +113,19 @@ def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=Non
     log_activity(f"Unique visit sites: {site_values}", level='info')
     
     # Also include sites that have recruited patients (even if they have no visits)
+    # Use PatientPractice as the primary source of site information
     patient_sites = set()
-    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-        if candidate in patients_df.columns:
-            candidate_values = patients_df[candidate].dropna().unique()
-            log_activity(f"Patient {candidate} values: {candidate_values}", level='info')
-            patient_sites.update(candidate_values)
+    if 'PatientPractice' in patients_df.columns:
+        candidate_values = patients_df['PatientPractice'].dropna().unique()
+        log_activity(f"Patient PatientPractice values: {candidate_values}", level='info')
+        patient_sites.update(candidate_values)
+    else:
+        # Fallback to other columns if PatientPractice doesn't exist
+        for candidate in ['PatientSite', 'Practice', 'HomeSite']:
+            if candidate in patients_df.columns:
+                candidate_values = patients_df[candidate].dropna().unique()
+                log_activity(f"Patient {candidate} values: {candidate_values}", level='info')
+                patient_sites.update(candidate_values)
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
@@ -147,21 +154,25 @@ def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=Non
             studies = site_visits['Study'].unique()
         else:
             # This site only has recruitment - count from patients data
-            # Build conditions only for columns that exist
-            conditions = []
-            for candidate in ['PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-                if candidate in patients_df.columns:
-                    conditions.append(patients_df[candidate] == site)
-            
-            if conditions:
-                # Combine all conditions with OR
-                combined_condition = conditions[0]
-                for condition in conditions[1:]:
-                    combined_condition = combined_condition | condition
-                site_patients = patients_df[combined_condition]
+            # Use PatientPractice as the primary source
+            if 'PatientPractice' in patients_df.columns:
+                site_patients = patients_df[patients_df['PatientPractice'] == site]
             else:
-                # No matching columns found
-                site_patients = pd.DataFrame()
+                # Fallback to other columns if PatientPractice doesn't exist
+                conditions = []
+                for candidate in ['PatientSite', 'Practice', 'HomeSite']:
+                    if candidate in patients_df.columns:
+                        conditions.append(patients_df[candidate] == site)
+                
+                if conditions:
+                    # Combine all conditions with OR
+                    combined_condition = conditions[0]
+                    for condition in conditions[1:]:
+                        combined_condition = combined_condition | condition
+                    site_patients = patients_df[combined_condition]
+                else:
+                    # No matching columns found
+                    site_patients = pd.DataFrame()
             
             unique_patients = len(site_patients)
             studies = site_patients['Study'].unique() if not site_patients.empty else []
