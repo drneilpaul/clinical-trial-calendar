@@ -39,12 +39,40 @@ def display_income_table_pair(financial_df):
         # No need to convert to string - Period objects group correctly
         log_activity(f"Grouping by MonthYear directly", level='info')
         
+        # Debug: Check data before grouping
+        log_activity(f"Data before grouping - shape: {financial_df.shape}", level='info')
+        log_activity(f"MonthYear column: {financial_df['MonthYear'].dtype}", level='info')
+        log_activity(f"Payment column: {financial_df['Payment'].dtype}", level='info')
+        log_activity(f"Sample MonthYear values: {financial_df['MonthYear'].head().tolist()}", level='info')
+        log_activity(f"Sample Payment values: {financial_df['Payment'].head().tolist()}", level='info')
+        
         # Group by month and sum payments
-        monthly_totals = financial_df.groupby('MonthYear')['Payment'].fillna(0).sum()
+        # Ensure we have valid data before grouping
+        if financial_df.empty:
+            log_activity("Financial data is empty, cannot group", level='warning')
+            st.info("No financial data available")
+            return
+            
+        # Check if MonthYear column exists and has data
+        if 'MonthYear' not in financial_df.columns:
+            log_activity("MonthYear column not found", level='error')
+            st.error("MonthYear column not found in financial data")
+            return
+            
+        # Remove any rows with NaN MonthYear values
+        valid_data = financial_df.dropna(subset=['MonthYear'])
+        if valid_data.empty:
+            log_activity("No valid MonthYear data after removing NaN values", level='warning')
+            st.info("No valid monthly data available")
+            return
+            
+        log_activity(f"Valid data for grouping - shape: {valid_data.shape}", level='info')
+        monthly_totals = valid_data.groupby('MonthYear')['Payment'].fillna(0).sum()
         
         # Debug: Log grouping result
         log_activity(f"Monthly totals type: {type(monthly_totals)}", level='info')
         log_activity(f"Monthly totals: {monthly_totals}", level='info')
+        log_activity(f"Monthly totals length: {len(monthly_totals) if hasattr(monthly_totals, '__len__') else 'No length'}", level='info')
         
         # Handle both Series and scalar results
         if hasattr(monthly_totals, 'empty'):

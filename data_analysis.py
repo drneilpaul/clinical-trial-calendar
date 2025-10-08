@@ -190,9 +190,13 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         # Patient origin breakdown (who recruited the patients)
         st.write("**Patient Origins (Who Recruited):**")
-        origin_breakdown = site_related_patients.groupby('Site')['PatientID'].count().reset_index()
-        origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-        st.dataframe(origin_breakdown, width='stretch')
+        # Use PatientPractice as the source of site information
+        if 'PatientPractice' in site_related_patients.columns:
+            origin_breakdown = site_related_patients.groupby('PatientPractice')['PatientID'].count().reset_index()
+            origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+            st.dataframe(origin_breakdown, width='stretch')
+        else:
+            st.info("No patient practice information available")
         
         # Quarterly Analysis
         if len(site_visits) > 0:
