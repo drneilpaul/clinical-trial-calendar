@@ -29,14 +29,25 @@ def extract_site_summary(patients_df, screen_failures=None):
         return pd.DataFrame()
 
     df = patients_df.copy()
+    
+    # Debug: Log available columns
+    from helpers import log_activity
+    log_activity(f"Available columns in patients_df: {list(df.columns)}", level='info')
+    
     site_col = None
     for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
         if candidate in df.columns:
             site_col = candidate
+            log_activity(f"Found site column: {candidate}", level='info')
             break
+    
     if site_col is None:
+        log_activity("No site column found, creating default", level='warning')
         df['__Site'] = 'Unknown Site'
         site_col = '__Site'
+
+    # Debug: Log site column values before cleaning
+    log_activity(f"Site column '{site_col}' values before cleaning: {df[site_col].unique()[:10]}", level='info')
 
     # Clean up site values more thoroughly
     df[site_col] = df[site_col].astype(str).str.strip()
@@ -49,10 +60,14 @@ def extract_site_summary(patients_df, screen_failures=None):
         'NULL': 'Unknown Site'
     })
     
+    # Debug: Log site column values after cleaning
+    log_activity(f"Site column '{site_col}' values after cleaning: {df[site_col].unique()[:10]}", level='info')
+    
     # Filter out any remaining empty or invalid values
     df = df[df[site_col].notna() & (df[site_col] != '') & (df[site_col] != 'nan')]
 
     if df.empty:
+        log_activity("No valid site data found after filtering", level='warning')
         return pd.DataFrame(columns=['Site', 'Patient_Count', 'Studies'])
 
     site_summary = df.groupby(site_col).agg({
@@ -62,6 +77,10 @@ def extract_site_summary(patients_df, screen_failures=None):
 
     site_summary = site_summary.reset_index()
     site_summary = site_summary.rename(columns={site_col: 'Site'})
+    
+    # Debug: Log final result
+    log_activity(f"Final site summary: {site_summary.to_dict('records')}", level='info')
+    
     return site_summary
 
 def check_and_refresh_data():
@@ -549,7 +568,7 @@ def main():
         show_download_sections()
 
         try:
-            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
+            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, processed_patients_df = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
@@ -561,7 +580,8 @@ def main():
             
             show_legend(actual_visits_df)
             
-            site_summary_df = extract_site_summary(patients_df, screen_failures)
+            # Use the processed patients_df from build_calendar which has proper site mapping
+            site_summary_df = extract_site_summary(processed_patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
@@ -569,11 +589,11 @@ def main():
             
             financial_df = prepare_financial_data(visits_df)
             if not financial_df.empty:
-                display_quarterly_profit_sharing_tables(financial_df, patients_df)
+                display_quarterly_profit_sharing_tables(financial_df, processed_patients_df)
 
-            display_income_realization_analysis(visits_df, trials_df, patients_df)
+            display_income_realization_analysis(visits_df, trials_df, processed_patients_df)
 
-            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
+            display_site_wise_statistics(visits_df, processed_patients_df, unique_visit_sites, screen_failures)
 
             # Display actual and predicted income by site
             site_income_df = calculate_actual_and_predicted_income_by_site(visits_df, trials_df)
