@@ -58,7 +58,7 @@ def process_study_events(event_templates, actual_visits_df):
         else:
             continue
         
-        site = safe_string_conversion(template_row.get('SiteforVisit', 'Unknown Site'))
+        site = safe_string_conversion(template_row.get('SiteforVisit', f"{study}_Site"))
         
         event_records.append({
             "Date": event_visit['ActualDate'],
