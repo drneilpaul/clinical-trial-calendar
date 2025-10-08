@@ -288,7 +288,7 @@ def display_income_table_pair(financial_df):
     """Display monthly income analysis tables"""
     try:
         monthly_totals = financial_df.groupby('MonthYear')['Payment'].sum()
-        if not monthly_totals.empty:
+        if len(monthly_totals) > 0:
             monthly_df = monthly_totals.reset_index()
             monthly_df.columns = ['Month', 'Total Income']
             monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
