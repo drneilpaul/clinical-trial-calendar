@@ -63,6 +63,19 @@ def extract_site_summary(patients_df, screen_failures=None):
     # Debug: Log site column values after cleaning
     log_activity(f"Site column '{site_col}' values after cleaning: {df[site_col].unique()[:10]}", level='info')
     
+    # If all values are "Unknown Site", try to get better site information
+    if all(site == 'Unknown Site' for site in df[site_col].unique()):
+        log_activity("All sites are 'Unknown Site', attempting to get better site information", level='warning')
+        # Try to use OriginSite if available
+        if 'OriginSite' in df.columns:
+            origin_sites = df['OriginSite'].dropna().unique()
+            origin_sites = [site for site in origin_sites if site and str(site).strip() and str(site).strip() not in ['nan', 'None', '', 'null', 'NULL']]
+            if len(origin_sites) > 0:
+                log_activity(f"Using OriginSite values: {origin_sites}", level='info')
+                df[site_col] = df['OriginSite'].fillna('Unknown Site')
+            else:
+                log_activity("OriginSite also has no valid values", level='warning')
+    
     # Filter out any remaining empty or invalid values
     df = df[df[site_col].notna() & (df[site_col] != '') & (df[site_col] != 'nan')]
 

@@ -233,23 +233,36 @@ def prepare_patients_data(patients_df, trials_df):
     if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
 
+    # Debug: Log available columns and trials data
+    log_activity(f"Patients columns: {list(patients_df.columns)}", level='info')
+    log_activity(f"Trials columns: {list(trials_df.columns)}", level='info')
+    if 'SiteforVisit' in trials_df.columns:
+        log_activity(f"SiteforVisit values: {trials_df['SiteforVisit'].unique()}", level='info')
+    else:
+        log_activity("No SiteforVisit column in trials data", level='warning')
+
     # Check for patient origin site column
     patient_origin_col = None
     possible_origin_cols = ['PatientSite', 'OriginSite', 'Practice', 'PatientPractice', 'HomeSite', 'Site']
     for col in possible_origin_cols:
         if col in patients_df.columns:
             patient_origin_col = col
+            log_activity(f"Found patient origin column: {col}", level='info')
             break
     
     if patient_origin_col:
         patients_df['OriginSite'] = safe_string_conversion(patients_df[patient_origin_col], "Unknown Origin")
+        log_activity(f"OriginSite values: {patients_df['OriginSite'].unique()}", level='info')
     else:
         patients_df['OriginSite'] = "Unknown Origin"
+        log_activity("No patient origin column found, using 'Unknown Origin'", level='warning')
 
     # Create patient-site mapping
     if patient_origin_col:
         patients_df['Site'] = patients_df['OriginSite']
+        log_activity("Using patient origin column for Site mapping", level='info')
     else:
+        log_activity("Creating site mapping from trials data", level='info')
         patient_site_mapping = {}
         for _, patient in patients_df.iterrows():
             study = patient["Study"]
@@ -258,10 +271,15 @@ def prepare_patients_data(patients_df, trials_df):
             study_sites = trials_df[trials_df["Study"] == study]["SiteforVisit"].unique()
             if len(study_sites) > 0:
                 patient_site_mapping[patient_id] = study_sites[0]
+                log_activity(f"Patient {patient_id} mapped to site: {study_sites[0]}", level='info')
             else:
                 patient_site_mapping[patient_id] = f"{study}_Site"
+                log_activity(f"Patient {patient_id} mapped to default site: {study}_Site", level='info')
         
         patients_df['Site'] = patients_df['PatientID'].map(patient_site_mapping).fillna("Unknown Site")
+    
+    # Debug: Log final site values
+    log_activity(f"Final Site values: {patients_df['Site'].unique()}", level='info')
     
     return patients_df
 
