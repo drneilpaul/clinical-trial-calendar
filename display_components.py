@@ -34,19 +34,35 @@ def display_income_table_pair(financial_df):
         # Group by month and sum payments
         monthly_totals = financial_df.groupby('MonthYearStr')['Payment'].fillna(0).sum()
         
-        if not monthly_totals.empty:
-            monthly_df = monthly_totals.reset_index()
-            monthly_df.columns = ['Month', 'Total Income']
-            monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-            
-            # Sort by month (convert back to period for sorting, then back to string)
-            monthly_df['MonthPeriod'] = pd.to_datetime(monthly_df['Month']).dt.to_period('M')
-            monthly_df = monthly_df.sort_values('MonthPeriod')
-            monthly_df = monthly_df.drop('MonthPeriod', axis=1)
-            
-            st.dataframe(monthly_df, width='stretch')
+        # Handle both Series and scalar results
+        if hasattr(monthly_totals, 'empty'):
+            # It's a Series
+            if not monthly_totals.empty:
+                monthly_df = monthly_totals.reset_index()
+                monthly_df.columns = ['Month', 'Total Income']
+                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+                
+                # Sort by month (convert back to period for sorting, then back to string)
+                monthly_df['MonthPeriod'] = pd.to_datetime(monthly_df['Month']).dt.to_period('M')
+                monthly_df = monthly_df.sort_values('MonthPeriod')
+                monthly_df = monthly_df.drop('MonthPeriod', axis=1)
+                
+                st.dataframe(monthly_df, width='stretch')
+            else:
+                st.info("No monthly data available")
         else:
-            st.info("No monthly data available")
+            # It's a scalar (single value) - convert to DataFrame
+            if pd.notna(monthly_totals) and monthly_totals != 0:
+                # Get the month from the original data
+                month = financial_df['MonthYearStr'].iloc[0] if not financial_df.empty else 'Unknown'
+                monthly_df = pd.DataFrame({
+                    'Month': [month],
+                    'Total Income': [monthly_totals]
+                })
+                monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+                st.dataframe(monthly_df, width='stretch')
+            else:
+                st.info("No monthly data available")
     except Exception as e:
         st.error(f"Error displaying monthly income: {e}")
 
