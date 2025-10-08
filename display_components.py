@@ -745,15 +745,14 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            # Look for patients recruited by this site (based on patient origin)
-            site_col = None
-            for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
-                if candidate in patients_df.columns:
-                    site_col = candidate
-                    break
+            # Use centralized helper function for consistent site detection
+            from helpers import get_patient_origin_site
             
-            if site_col:
-                site_related_patients = patients_df[patients_df[site_col] == site]
+            # Create a standardized origin site column and filter
+            patients_df['_OriginSite'] = patients_df.apply(
+                lambda row: get_patient_origin_site(row), axis=1
+            )
+            site_related_patients = patients_df[patients_df['_OriginSite'] == site]
             
             if site_related_patients.empty:
                 st.warning(f"No patients found for site: {site}")
@@ -793,19 +792,17 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Patient origin analysis
         st.write("**Patient Origins (Who Recruited):**")
-        # Find the appropriate site column for patient origins
-        site_col = None
-        for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-            if candidate in site_related_patients.columns:
-                site_col = candidate
-                break
+        # Use centralized helper function for consistent site detection
+        from helpers import get_patient_origin_site
         
-        if site_col:
-            origin_breakdown = site_related_patients.groupby(site_col)['PatientID'].count().reset_index()
-            origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-            st.dataframe(origin_breakdown, width='stretch')
-        else:
-            st.info("No patient origin site information available")
+        # Create a standardized origin site column
+        site_related_patients['_OriginSite'] = site_related_patients.apply(
+            lambda row: get_patient_origin_site(row), axis=1
+        )
+        
+        origin_breakdown = site_related_patients.groupby('_OriginSite')['PatientID'].count().reset_index()
+        origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+        st.dataframe(origin_breakdown, width='stretch')
         
         # Screen failures for patients with visits at this site
         _display_site_screen_failures(site_related_patients, screen_failures)

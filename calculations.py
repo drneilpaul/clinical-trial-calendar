@@ -100,8 +100,33 @@ def calculate_work_ratios(data_df, period_column, period_value):
             'kiltearn_work_count': 0
         }
     
-    site_work = period_data.groupby('SiteofVisit').size()
+    # CRITICAL FIX: Only count work at Ashfields and Kiltearn
+    # Exclude third-party sites from profit sharing work calculations
+    relevant_sites = ['Ashfields', 'Kiltearn']
+    period_data_filtered = period_data[period_data['SiteofVisit'].isin(relevant_sites)]
+    
+    if len(period_data_filtered) == 0:
+        # No work at either practice this period
+        return {
+            'ashfields_work_ratio': 0,
+            'kiltearn_work_ratio': 0,
+            'total_work': 0,
+            'ashfields_work_count': 0,
+            'kiltearn_work_count': 0
+        }
+    
+    site_work = period_data_filtered.groupby('SiteofVisit').size()
     total_work = site_work.sum()
+    
+    # Verification logging
+    log_activity(f"Work calculation for period {period_value}:", level='info')
+    log_activity(f"  Total work items in period: {len(period_data)}", level='info')
+    if 'period_data_filtered' in locals():
+        log_activity(f"  Work items at Ashfields/Kiltearn: {len(period_data_filtered)}", level='info')
+        excluded_count = len(period_data) - len(period_data_filtered)
+        if excluded_count > 0:
+            excluded_sites = period_data[~period_data['SiteofVisit'].isin(['Ashfields', 'Kiltearn'])]['SiteofVisit'].unique()
+            log_activity(f"  Excluded {excluded_count} visits at third-party sites: {excluded_sites}", level='warning')
     
     ashfields_count = site_work.get('Ashfields', 0)
     kiltearn_count = site_work.get('Kiltearn', 0)
@@ -149,14 +174,16 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 'kiltearn_recruitment_count': 0
             }
         
-        # Determine which column to use for patient site/practice information
-        site_column = None
-        for candidate in ['PatientPractice', 'PatientSite', 'Site', 'Practice', 'HomeSite']:
-            if candidate in period_patients.columns:
-                site_column = candidate
-                break
+        # Use centralized helper function for consistent site detection
+        from helpers import get_patient_origin_site
+        
+        # Create a temporary column with standardized origin site
+        period_patients['_OriginSite'] = period_patients.apply(
+            lambda row: get_patient_origin_site(row), axis=1
+        )
+        site_column = '_OriginSite'
 
-        if period_patients.empty or site_column is None:
+        if period_patients.empty:
             return {
                 'ashfields_recruitment_ratio': 0,
                 'kiltearn_recruitment_ratio': 0,

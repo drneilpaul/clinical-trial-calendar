@@ -2,6 +2,62 @@ import pandas as pd
 from dateutil.parser import parse
 from datetime import datetime
 
+def get_patient_origin_site(patient_row, default="Unknown Site"):
+    """
+    Get patient origin site with consistent column priority.
+    
+    Args:
+        patient_row: DataFrame row or dict with patient data
+        default: Default value if no valid site found
+    
+    Returns:
+        str: Patient origin site name
+    """
+    # Standard priority order for site columns
+    site_columns = ['PatientPractice', 'PatientSite', 'Site', 'Practice', 'HomeSite']
+    
+    for col in site_columns:
+        if col in patient_row and pd.notna(patient_row[col]):
+            site_value = str(patient_row[col]).strip()
+            # Validate it's not an invalid placeholder
+            if site_value and site_value not in ['nan', 'None', '', 'null', 'NULL', 'Unknown Site']:
+                return site_value
+    
+    return default
+
+def log_site_detection_summary(patients_df, function_name="Unknown"):
+    """
+    Log a summary of site detection results for verification.
+    
+    Args:
+        patients_df: DataFrame with patient data
+        function_name: Name of the calling function for context
+    """
+    from helpers import log_activity
+    
+    log_activity(f"SITE DETECTION SUMMARY - {function_name}", level='info')
+    log_activity("=" * 40, level='info')
+    
+    # Get all detected sites using the helper function
+    detected_sites = set()
+    for _, patient_row in patients_df.iterrows():
+        site = get_patient_origin_site(patient_row)
+        detected_sites.add(site)
+    
+    log_activity(f"Total patients processed: {len(patients_df)}", level='info')
+    log_activity(f"Unique sites detected: {sorted(detected_sites)}", level='info')
+    
+    # Count sites
+    site_counts = {}
+    for _, patient_row in patients_df.iterrows():
+        site = get_patient_origin_site(patient_row)
+        site_counts[site] = site_counts.get(site, 0) + 1
+    
+    for site, count in sorted(site_counts.items()):
+        log_activity(f"  {site}: {count} patients", level='info')
+    
+    log_activity("=" * 40, level='info')
+
 def load_file(uploaded_file):
     """Load CSV or Excel file with proper handling"""
     if uploaded_file is None:

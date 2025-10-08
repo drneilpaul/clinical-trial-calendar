@@ -115,14 +115,17 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         
         # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            # Look for patients recruited by this site (based on patient origin)
-            # Check multiple possible columns for patient origin site
-            for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
-                if candidate in patients_df.columns:
-                    site_related_patients = patients_df[patients_df[candidate] == site]
-                    if not site_related_patients.empty:
-                        log_activity(f"Found {len(site_related_patients)} patients recruited by {site} via {candidate} column", level='info')
-                        break
+            # Use centralized helper function for consistent site detection
+            from helpers import get_patient_origin_site
+            
+            # Create a standardized origin site column and filter
+            patients_df['_OriginSite'] = patients_df.apply(
+                lambda row: get_patient_origin_site(row), axis=1
+            )
+            site_related_patients = patients_df[patients_df['_OriginSite'] == site]
+            
+            if not site_related_patients.empty:
+                log_activity(f"Found {len(site_related_patients)} patients recruited by {site} via standardized site detection", level='info')
             
             if site_related_patients.empty:
                 st.warning(f"No patients found for site: {site}")

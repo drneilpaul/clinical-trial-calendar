@@ -268,6 +268,9 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                     patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
                     has_actual_visit=True
                 )
+                # CRITICAL FIX: Set payment to 0 for planned markers
+                for record in scheduled_records:
+                    record['Payment'] = 0.0
                 visit_records.extend(scheduled_records)
         else:
             # No actual visit - process scheduled with full tolerance windows

@@ -34,17 +34,13 @@ def extract_site_summary(patients_df, screen_failures=None):
     from helpers import log_activity
     log_activity(f"Available columns in patients_df: {list(df.columns)}", level='info')
     
-    site_col = None
-    for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
-        if candidate in df.columns:
-            site_col = candidate
-            log_activity(f"Found site column: {candidate}", level='info')
-            break
+    # Use centralized helper function for consistent site detection
+    from helpers import get_patient_origin_site
     
-    if site_col is None:
-        log_activity("No site column found, creating default", level='warning')
-        df['__Site'] = 'Unknown Site'
-        site_col = '__Site'
+    # Create a standardized site column
+    df['__Site'] = df.apply(lambda row: get_patient_origin_site(row), axis=1)
+    site_col = '__Site'
+    log_activity(f"Using standardized site detection via helper function", level='info')
 
     # Debug: Log site column values before cleaning
     log_activity(f"Site column '{site_col}' values before cleaning: {df[site_col].unique()[:10]}", level='info')
@@ -105,19 +101,18 @@ def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=Non
     log_activity(f"Unique visit sites: {site_values}", level='info')
     
     # Also include sites that have recruited patients (even if they have no visits)
-    # Use PatientPractice as the primary source of site information
+    # Use centralized helper function for consistent site detection
+    from helpers import get_patient_origin_site
     patient_sites = set()
-    if 'PatientPractice' in patients_df.columns:
-        candidate_values = patients_df['PatientPractice'].dropna().unique()
-        log_activity(f"Patient PatientPractice values: {candidate_values}", level='info')
-        patient_sites.update(candidate_values)
-    else:
-        # Fallback to other columns if PatientPractice doesn't exist
-        for candidate in ['PatientSite', 'Practice', 'HomeSite']:
-            if candidate in patients_df.columns:
-                candidate_values = patients_df[candidate].dropna().unique()
-                log_activity(f"Patient {candidate} values: {candidate_values}", level='info')
-                patient_sites.update(candidate_values)
+    for _, patient_row in patients_df.iterrows():
+        site = get_patient_origin_site(patient_row)
+        if site and site not in ['Unknown Site', 'Unknown Origin', 'Default Site']:
+            patient_sites.add(site)
+    log_activity(f"Patient sites from standardized detection: {sorted(patient_sites)}", level='info')
+    
+    # Add site detection summary logging
+    from helpers import log_site_detection_summary
+    log_site_detection_summary(patients_df, "extract_site_summary_from_visits")
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
