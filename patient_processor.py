@@ -152,20 +152,16 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "VisitName": visit_name
     }
     
-    # Only create tolerance window records if there's NO actual visit
-    if not has_actual_visit:
-        expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
-            visit, baseline_date, visit_day
-        )
-        tolerance_records = create_tolerance_window_records(
-            patient_id, study, site, patient_origin, expected_date,
-            tolerance_before, tolerance_after, visit_day, visit_name,
-            screen_fail_date
-        )
-        return [main_record] + tolerance_records, 0
-    else:
-        # Has actual visit - only return the planned visit marker, no tolerance windows
-        return [main_record], 0
+    # Create tolerance window records for predicted visits
+    expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
+        visit, baseline_date, visit_day
+    )
+    tolerance_records = create_tolerance_window_records(
+        patient_id, study, site, patient_origin, expected_date,
+        tolerance_before, tolerance_after, visit_day, visit_name,
+        screen_fail_date
+    )
+    return [main_record] + tolerance_records, 0
 
 def process_single_patient(patient, patient_visits, screen_failures, actual_visits_df=None):
     """Process all visits for a single patient"""
