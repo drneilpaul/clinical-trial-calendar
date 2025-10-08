@@ -291,12 +291,9 @@ def display_income_table_pair(financial_df):
             st.info("No financial data available")
             return
             
-        # Convert MonthYear to string for proper grouping
-        financial_df = financial_df.copy()
-        financial_df['MonthYearStr'] = financial_df['MonthYear'].astype(str)
-        
-        # Group by month and sum payments
-        monthly_totals = financial_df.groupby('MonthYearStr')['Payment'].fillna(0).sum()
+        # Group by MonthYear directly (Period objects work fine with groupby)
+        # No need to convert to string - Period objects group correctly
+        monthly_totals = financial_df.groupby('MonthYear')['Payment'].fillna(0).sum()
         
         # Handle both Series and scalar results
         if hasattr(monthly_totals, 'empty'):
@@ -304,12 +301,15 @@ def display_income_table_pair(financial_df):
             if not monthly_totals.empty:
                 monthly_df = monthly_totals.reset_index()
                 monthly_df.columns = ['Month', 'Total Income']
+                
+                # Convert Period objects to strings for display
+                monthly_df['Month'] = monthly_df['Month'].astype(str)
                 monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
                 
-                # Sort by month (convert back to period for sorting, then back to string)
-                monthly_df['MonthPeriod'] = pd.to_datetime(monthly_df['Month']).dt.to_period('M')
-                monthly_df = monthly_df.sort_values('MonthPeriod')
-                monthly_df = monthly_df.drop('MonthPeriod', axis=1)
+                # Sort by month (convert to datetime for proper sorting)
+                monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
+                monthly_df = monthly_df.sort_values('SortDate')
+                monthly_df = monthly_df.drop('SortDate', axis=1)
                 
                 st.dataframe(monthly_df, width='stretch')
             else:
@@ -318,7 +318,7 @@ def display_income_table_pair(financial_df):
             # It's a scalar (single value) - convert to DataFrame
             if pd.notna(monthly_totals) and monthly_totals != 0:
                 # Get the month from the original data
-                month = financial_df['MonthYearStr'].iloc[0] if not financial_df.empty else 'Unknown'
+                month = str(financial_df['MonthYear'].iloc[0]) if not financial_df.empty else 'Unknown'
                 monthly_df = pd.DataFrame({
                     'Month': [month],
                     'Total Income': [monthly_totals]
