@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import date
-from helpers import get_financial_year, get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit
+from helpers import get_financial_year, get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit, log_activity
 
 def prepare_financial_data(visits_df):
     """Prepare visits data with financial period columns"""
