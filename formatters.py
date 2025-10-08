@@ -166,10 +166,7 @@ def get_visit_based_style(cell_str):
     elif '📋' in cell_str and '(Predicted)' in cell_str:
         # Predicted visits (no actual visit yet)
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
-    elif '📅' in cell_str and '(Planned)' in cell_str:
-        # Planned visits (actual visit also exists - show original schedule)
-        return 'background-color: #f8f9fa; color: #6c757d; font-weight: normal; font-style: italic;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "📋", "📅"]):
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "📋"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
     return ""
 

@@ -108,7 +108,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, has_actual_visit=False):
+def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date):
     """Process a single scheduled (predicted) visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -133,13 +133,8 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
     
-    # Style the visit name based on whether there's an actual visit
-    if has_actual_visit:
-        # This visit has an actual visit - show as planned (grayed out)
-        visit_display = f"📅 {visit_name} (Planned)"
-    else:
-        # This visit has no actual visit - show as predicted
-        visit_display = f"📋 {visit_name} (Predicted)"
+    # Style the visit name as predicted (no actual visit yet)
+    visit_display = f"📋 {visit_name} (Predicted)"
     
     # Create main scheduled visit record
     main_record = {
@@ -262,21 +257,11 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             expected_date = pd.Timestamp(expected_date.date())
             actual_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
             
-            # Only add planned marker if actual happened on a different date
-            if expected_date != actual_date:
-                scheduled_records, exclusions = process_scheduled_visit(
-                    patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-                    has_actual_visit=True
-                )
-                # CRITICAL FIX: Set payment to 0 for planned markers
-                for record in scheduled_records:
-                    record['Payment'] = 0.0
-                visit_records.extend(scheduled_records)
+            # No planned marker needed - actual visit is sufficient
         else:
             # No actual visit - process scheduled with full tolerance windows
             scheduled_records, exclusions = process_scheduled_visit(
-                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date, 
-                has_actual_visit=False
+                patient_id, study, patient_origin, visit, baseline_date, screen_fail_date
             )
             visit_records.extend(scheduled_records)
             screen_fail_exclusions += exclusions

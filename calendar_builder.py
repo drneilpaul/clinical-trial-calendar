@@ -288,17 +288,12 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     else:
                         # Handle multiple visits on same day - SIMPLIFIED LOGIC (no tolerance markers)
                         
-                        # If this is a planned visit (📅)
-                        if "📅" in visit_info and "(Planned)" in visit_info:
-                            # Only add if there's no actual visit on this date
-                            if not any(symbol in str(current_value) for symbol in ["✅", "⚠️"]):
-                                calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                         # If this is a predicted visit (📋) 
-                        elif "📋" in visit_info and "(Predicted)" in visit_info:
+                        if "📋" in visit_info and "(Predicted)" in visit_info:
                             # Only add if cell is empty
                             if current_value == "":
                                 calendar_df.at[i, col_id] = visit_info
-                            elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅"]):
+                            elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                 calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                         # If this is an actual visit (✅, ⚠️)
                         else:
@@ -399,13 +394,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     total_in_calendar = sum(calendar_df[col].sum() for col in income_columns)
     log_activity(f"Total payment counted in calendar: £{total_in_calendar:,.2f}", level='info')
 
-    # Check for planned markers (should have 0 payment)
-    planned_markers = visits_df[visits_df['Visit'].str.contains('Planned', na=False)]
-    planned_payments = planned_markers['Payment'].sum()
-    if planned_payments > 0:
-        log_activity(f"WARNING: Planned markers have non-zero payments: £{planned_payments:,.2f}", level='error')
-    else:
-        log_activity(f"✅ Planned markers correctly have zero payments", level='success')
+    # Planned markers removed - no verification needed
 
     log_activity("=" * 50, level='info')
     

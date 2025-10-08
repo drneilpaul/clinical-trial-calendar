@@ -331,7 +331,6 @@ def show_legend(actual_visits_df):
 
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
-    - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
 
     **Date Formatting:**
     - Red background = Today's date
