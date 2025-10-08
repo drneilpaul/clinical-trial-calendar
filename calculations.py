@@ -11,6 +11,14 @@ def prepare_financial_data(visits_df):
     # Create copy first
     financial_df = visits_df.copy()
     
+    # Debug: Log input data
+    from helpers import log_activity
+    log_activity(f"Input visits_df shape: {visits_df.shape}", level='info')
+    log_activity(f"Input columns: {list(visits_df.columns)}", level='info')
+    if 'Date' in visits_df.columns:
+        log_activity(f"Date column type: {visits_df['Date'].dtype}", level='info')
+        log_activity(f"Sample dates: {visits_df['Date'].head().tolist()}", level='info')
+    
     # Ensure Payment column exists for financial calculations and is numeric
     if 'Payment' not in financial_df.columns:
         financial_df['Payment'] = 0.0
@@ -23,6 +31,10 @@ def prepare_financial_data(visits_df):
     mask = ~financial_df['Visit'].isin(['-', '+'])
     
     financial_df = financial_df[mask].copy()
+    
+    # Debug: Log after filtering
+    log_activity(f"After filtering shape: {financial_df.shape}", level='info')
+    log_activity(f"Visit values: {financial_df['Visit'].unique() if not financial_df.empty else 'Empty'}", level='info')
 
     if financial_df.empty:
         # If filtering results in empty df, create empty df with required columns and proper structure
@@ -39,7 +51,13 @@ def prepare_financial_data(visits_df):
     nan_dates = financial_df['Date'].isna().sum()
     if nan_dates > 0:
         # Filter out invalid dates silently
+        log_activity(f"Removing {nan_dates} rows with NaN dates", level='info')
         financial_df = financial_df.dropna(subset=['Date'])
+    
+    # Debug: Log before creating time columns
+    log_activity(f"Before time columns - shape: {financial_df.shape}", level='info')
+    log_activity(f"Date column type: {financial_df['Date'].dtype}", level='info')
+    log_activity(f"Sample dates: {financial_df['Date'].head().tolist()}", level='info')
     
     financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
     financial_df['Quarter'] = financial_df['Date'].dt.quarter
@@ -52,6 +70,11 @@ def prepare_financial_data(visits_df):
     
     # FIXED: Use consistent FY calculation from helpers
     financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
+    
+    # Debug: Log final result
+    log_activity(f"Final financial_df shape: {financial_df.shape}", level='info')
+    log_activity(f"Unique MonthYear values: {financial_df['MonthYear'].unique()}", level='info')
+    log_activity(f"Payment sum: {financial_df['Payment'].sum()}", level='info')
     
     return financial_df
 

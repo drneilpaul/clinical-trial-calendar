@@ -26,13 +26,28 @@ def display_income_table_pair(financial_df):
         if financial_df.empty:
             st.info("No financial data available")
             return
+        
+        # Debug: Log the data we're working with
+        log_activity(f"Financial data shape: {financial_df.shape}", level='info')
+        log_activity(f"Date column type: {financial_df['Date'].dtype}", level='info')
+        log_activity(f"Sample dates: {financial_df['Date'].head().tolist()}", level='info')
+        log_activity(f"MonthYear column type: {financial_df['MonthYear'].dtype}", level='info')
+        log_activity(f"Unique MonthYear values: {financial_df['MonthYear'].unique()}", level='info')
+        log_activity(f"Payment column sample: {financial_df['Payment'].head().tolist()}", level='info')
             
         # Convert MonthYear to string for proper grouping
         financial_df = financial_df.copy()
         financial_df['MonthYearStr'] = financial_df['MonthYear'].astype(str)
         
+        # Debug: Log after conversion
+        log_activity(f"Unique MonthYearStr values: {financial_df['MonthYearStr'].unique()}", level='info')
+        
         # Group by month and sum payments
         monthly_totals = financial_df.groupby('MonthYearStr')['Payment'].fillna(0).sum()
+        
+        # Debug: Log grouping result
+        log_activity(f"Monthly totals type: {type(monthly_totals)}", level='info')
+        log_activity(f"Monthly totals: {monthly_totals}", level='info')
         
         # Handle both Series and scalar results
         if hasattr(monthly_totals, 'empty'):
@@ -47,6 +62,7 @@ def display_income_table_pair(financial_df):
                 monthly_df = monthly_df.sort_values('MonthPeriod')
                 monthly_df = monthly_df.drop('MonthPeriod', axis=1)
                 
+                log_activity(f"Final monthly breakdown: {monthly_df.to_dict('records')}", level='info')
                 st.dataframe(monthly_df, width='stretch')
             else:
                 st.info("No monthly data available")
@@ -60,11 +76,13 @@ def display_income_table_pair(financial_df):
                     'Total Income': [monthly_totals]
                 })
                 monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+                log_activity(f"Single month breakdown: {monthly_df.to_dict('records')}", level='info')
                 st.dataframe(monthly_df, width='stretch')
             else:
                 st.info("No monthly data available")
     except Exception as e:
         st.error(f"Error displaying monthly income: {e}")
+        log_activity(f"Error details: {str(e)}", level='error')
 
 def display_profit_sharing_table(quarterly_ratios):
     """Display profit sharing analysis table"""
