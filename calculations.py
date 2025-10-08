@@ -417,55 +417,33 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     completed_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
     all_visits = fy_visits.copy()  # Both completed and scheduled
     
-    # Create trial payment lookup using centralized function
-    trials_lookup = create_trial_payment_lookup(trials_df)
+    # Use existing Payment column directly - already has correct values
+    # (No need to recalculate from trial schedule as this causes double-counting)
     
-    # Add trial payment amounts to visits
-    def get_trial_payment(row):
-        study = str(row['Study'])
-        visit_name = str(row.get('VisitName', ''))  # Use VisitName from visits_df
-        return get_trial_payment_for_visit(trials_lookup, study, visit_name)
+    # Remove tolerance periods (-, +) from calculations
+    completed_visits = completed_visits[~completed_visits['Visit'].isin(['-', '+'])]
+    all_visits = all_visits[~all_visits['Visit'].isin(['-', '+'])]
     
-    # Calculate metrics safely
-    try:
-        completed_visits['TrialPayment'] = completed_visits.apply(get_trial_payment, axis=1)
-        all_visits['TrialPayment'] = all_visits.apply(get_trial_payment, axis=1)
-        
-        # Remove tolerance periods (-, +) from calculations
-        completed_visits = completed_visits[~completed_visits['Visit'].isin(['-', '+'])]
-        all_visits = all_visits[~all_visits['Visit'].isin(['-', '+'])]
-        
-        # Calculate totals - handle NaN values safely
-        completed_income = completed_visits['TrialPayment'].fillna(0).sum()
-        total_scheduled_income = all_visits['TrialPayment'].fillna(0).sum()
-        
-        # Pipeline = remaining scheduled income
-        remaining_visits = all_visits[all_visits.get('IsActual', False) == False]
-        pipeline_income = remaining_visits['TrialPayment'].fillna(0).sum()
-        
-        # Realization rate - prevent division by zero
-        realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
-        
-        return {
-            'completed_income': completed_income,
-            'total_scheduled_income': total_scheduled_income,
-            'pipeline_income': pipeline_income,
-            'realization_rate': realization_rate,
-            'completed_visits_count': len(completed_visits),
-            'total_scheduled_visits_count': len(all_visits),
-            'pipeline_visits_count': len(remaining_visits)
-        }
-    except Exception as e:
-        st.error(f"Error calculating realization metrics: {e}")
-        return {
-            'completed_income': 0,
-            'total_scheduled_income': 0,
-            'pipeline_income': 0,
-            'realization_rate': 0,
-            'completed_visits_count': 0,
-            'total_scheduled_visits_count': 0,
-            'pipeline_visits_count': 0
-        }
+    # Calculate totals - handle NaN values safely
+    completed_income = completed_visits['Payment'].fillna(0).sum()
+    total_scheduled_income = all_visits['Payment'].fillna(0).sum()
+    
+    # Pipeline = remaining scheduled income
+    remaining_visits = all_visits[all_visits.get('IsActual', False) == False]
+    pipeline_income = remaining_visits['Payment'].fillna(0).sum()
+    
+    # Realization rate - prevent division by zero
+    realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
+    
+    return {
+        'completed_income': completed_income,
+        'total_scheduled_income': total_scheduled_income,
+        'pipeline_income': pipeline_income,
+        'realization_rate': realization_rate,
+        'completed_visits_count': len(completed_visits),
+        'total_scheduled_visits_count': len(all_visits),
+        'pipeline_visits_count': len(remaining_visits)
+    }
 
 def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
     """Calculate actual and predicted income by site for current financial year"""
@@ -495,16 +473,8 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         # Use all visits as-is without filtering or modifying site assignments
         # This ensures consistency with Quarterly Profit Sharing calculations
         
-        # Create trial payment lookup
-        trials_lookup = create_trial_payment_lookup(trials_df)
-        
-        # Add trial payment amounts to visits
-        def get_trial_payment(row):
-            study = str(row['Study'])
-            visit_name = str(row.get('VisitName', ''))
-            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
-        
-        fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
+        # Use existing Payment column directly - already has correct values
+        # (No need to recalculate from trial schedule as this causes double-counting)
         
         # Separate actual and predicted visits
         actual_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
@@ -512,19 +482,19 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         
         # Calculate actual income by site - handle NaN values safely
         actual_income = actual_visits.groupby('SiteofVisit').agg({
-            'TrialPayment': lambda x: x.fillna(0).sum(),
+            'Payment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
-            'TrialPayment': 'Actual Income',
+            'Payment': 'Actual Income',
             'VisitName': 'Actual Visits'
         }).reset_index()
         
         # Calculate predicted income by site - handle NaN values safely
         predicted_income = predicted_visits.groupby('SiteofVisit').agg({
-            'TrialPayment': lambda x: x.fillna(0).sum(),
+            'Payment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
-            'TrialPayment': 'Predicted Income',
+            'Payment': 'Predicted Income',
             'VisitName': 'Predicted Visits'
         }).reset_index()
         
@@ -567,15 +537,8 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         # Add month-year column
         fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
         
-        # Create trial payment lookup using centralized function
-        trials_lookup = create_trial_payment_lookup(trials_df)
-        
-        def get_trial_payment(row):
-            study = str(row['Study'])
-            visit_name = str(row.get('VisitName', ''))
-            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
-        
-        fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
+        # Use existing Payment column directly - already has correct values
+        # (No need to recalculate from trial schedule as this causes double-counting)
         
         # Remove tolerance periods
         fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]
@@ -587,9 +550,9 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
             month_visits = fy_visits[fy_visits['MonthYear'] == month]
             
             completed = month_visits[month_visits.get('IsActual', False) == True]
-            completed_income = completed['TrialPayment'].sum()
+            completed_income = completed['Payment'].sum()
             
-            total_scheduled_income = month_visits['TrialPayment'].sum()
+            total_scheduled_income = month_visits['Payment'].sum()
             
             realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
             
@@ -626,21 +589,14 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
         if remaining_visits.empty:
             return pd.DataFrame(columns=['Study', 'Pipeline_Value', 'Remaining_Visits'])
         
-        # Create trial payment lookup using centralized function
-        trials_lookup = create_trial_payment_lookup(trials_df)
-        
-        def get_trial_payment(row):
-            study = str(row['Study'])
-            visit_name = str(row.get('VisitName', ''))
-            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
-        
-        remaining_visits['TrialPayment'] = remaining_visits.apply(get_trial_payment, axis=1)
+        # Use existing Payment column directly - already has correct values
+        # (No need to recalculate from trial schedule as this causes double-counting)
         
         # Group by study
         study_pipeline = remaining_visits.groupby('Study').agg({
-            'TrialPayment': 'sum',
+            'Payment': 'sum',
             'Visit': 'count'
-        }).rename(columns={'TrialPayment': 'Pipeline_Value', 'Visit': 'Remaining_Visits'})
+        }).rename(columns={'Payment': 'Pipeline_Value', 'Visit': 'Remaining_Visits'})
         
         # Sort by pipeline value descending
         study_pipeline = study_pipeline.sort_values('Pipeline_Value', ascending=False)
@@ -653,13 +609,8 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
 def calculate_site_realization_breakdown(visits_df, trials_df):
     """Calculate realization rates by site"""
     try:
-        # Create trial payment lookup using centralized function
-        trials_lookup = create_trial_payment_lookup(trials_df)
-        
-        def get_trial_payment(row):
-            study = str(row['Study'])
-            visit_name = str(row.get('VisitName', ''))
-            return get_trial_payment_for_visit(trials_lookup, study, visit_name)
+        # Use existing Payment column directly - already has correct values
+        # (No need to recalculate from trial schedule as this causes double-counting)
         
         # Get current financial year boundaries using centralized function
         fy_start, fy_end = get_current_financial_year_boundaries()
@@ -670,23 +621,21 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
         if fy_visits.empty:
             return []
         
-        fy_visits['TrialPayment'] = fy_visits.apply(get_trial_payment, axis=1)
-        
         # Calculate by site
         site_data = []
         for site in fy_visits['SiteofVisit'].unique():
             site_visits = fy_visits[fy_visits['SiteofVisit'] == site]
             
             completed = site_visits[site_visits.get('IsActual', False) == True]
-            completed_income = completed['TrialPayment'].fillna(0).sum()
+            completed_income = completed['Payment'].fillna(0).sum()
             
-            total_scheduled_income = site_visits['TrialPayment'].fillna(0).sum()
+            total_scheduled_income = site_visits['Payment'].fillna(0).sum()
             
             # Remaining pipeline for this site
             from datetime import date
             today = pd.to_datetime(date.today())
             remaining = site_visits[(site_visits['Date'] >= today) & (site_visits.get('IsActual', False) == False)]
-            pipeline_income = remaining['TrialPayment'].fillna(0).sum()
+            pipeline_income = remaining['Payment'].fillna(0).sum()
             
             realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
             
