@@ -67,7 +67,7 @@ def build_calendar_dataframe(visits_df, patients_df):
     
     # Also include sites that have recruited patients (even if they have no visits)
     patient_sites = set()
-    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+    for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
         if candidate in patients_df.columns:
             patient_sites.update(patients_df[candidate].dropna().unique())
     
@@ -106,7 +106,7 @@ def build_calendar_dataframe(visits_df, patients_df):
                 if not patient_row.empty:
                     # Try to get origin site from various possible columns
                     origin_site = ""
-                    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                    for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
                         if candidate in patient_row.columns and not pd.isna(patient_row.iloc[0][candidate]):
                             origin_site = str(patient_row.iloc[0][candidate]).strip()
                             if origin_site and origin_site != 'nan':

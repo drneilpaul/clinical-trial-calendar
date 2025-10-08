@@ -87,15 +87,6 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
     
-    # Clean up site value - replace invalid values with a better default
-    if site in ['Unknown Site', 'nan', 'None', '', 'null', 'NULL'] or not site.strip():
-        # Try to get a better site name from the study
-        study = str(visit.get("Study", ""))
-        if study and study != 'nan':
-            site = f"{study}_Site"  # Use study name as site
-        else:
-            site = "Unknown Site"
-    
     # Create main visit record
     visit_record = {
         "Date": visit_date,
@@ -141,15 +132,6 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         payment = 0.0
     
     site = str(visit.get("SiteforVisit", "Unknown Site"))
-    
-    # Clean up site value - replace invalid values with a better default
-    if site in ['Unknown Site', 'nan', 'None', '', 'null', 'NULL'] or not site.strip():
-        # Try to get a better site name from the study
-        study = str(visit.get("Study", ""))
-        if study and study != 'nan':
-            site = f"{study}_Site"  # Use study name as site
-        else:
-            site = "Unknown Site"
     
     # Style the visit name based on whether there's an actual visit
     if has_actual_visit:
@@ -200,7 +182,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
     patient_id = str(patient["PatientID"])
     study = str(patient["Study"])
     start_date = patient["StartDate"]
-    patient_origin = str(patient["OriginSite"])
+    patient_origin = str(patient.get("PatientPractice", "Unknown Site"))
     
     log_activity(f"Processing patient {patient_id} (Study: {study}, StartDate: {start_date}, Origin: {patient_origin})", level='info')
     
@@ -310,7 +292,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 "Visit": f"✅ {visit_name}",
                 "Study": study,
                 "Payment": 0.0,  # Day 0 visits typically don't have payment
-                "SiteofVisit": str(actual_visit_data.get("SiteofVisit", f"{study}_Site")),
+                "SiteofVisit": str(actual_visit_data.get("SiteofVisit", "Unknown Site")),
                 "PatientOrigin": patient_origin,
                 "IsActual": True,
                 "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),

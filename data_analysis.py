@@ -117,7 +117,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         if site_related_patients.empty:
             # Look for patients recruited by this site (based on patient origin)
             # Check multiple possible columns for patient origin site
-            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+            for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
                 if candidate in patients_df.columns:
                     site_related_patients = patients_df[patients_df[candidate] == site]
                     if not site_related_patients.empty:

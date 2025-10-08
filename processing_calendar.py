@@ -25,8 +25,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         patients_df['Site'] = ''
     if 'PatientPractice' not in patients_df.columns:
         patients_df['PatientPractice'] = ''
-    if 'OriginSite' not in patients_df.columns:
-        patients_df['OriginSite'] = ''
+    # OriginSite column is no longer used - removed for simplicity
     
     # Trials: Add optional columns if missing
     if 'SiteforVisit' not in trials_df.columns:

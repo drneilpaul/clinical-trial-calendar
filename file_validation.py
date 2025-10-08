@@ -134,7 +134,7 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     optional_columns = {
         'Site': str,
         'PatientPractice': str,
-        'OriginSite': str
+        # OriginSite column removed - using PatientPractice only
     }
     
     for col, dtype in optional_columns.items():

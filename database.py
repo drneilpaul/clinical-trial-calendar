@@ -50,9 +50,7 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
                 'patient_id': 'PatientID',
                 'study': 'Study',
                 'start_date': 'StartDate',
-                'site': 'Site',
-                'patient_practice': 'PatientPractice',
-                'origin_site': 'OriginSite'
+                'patient_practice': 'PatientPractice'
             })
             
             if 'StartDate' in df.columns:
@@ -61,7 +59,7 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
             log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
         log_activity("No patients found in database", level='info')
-        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
     except Exception as e:
         st.error(f"Error fetching patients: {e}")
         return None
@@ -150,9 +148,7 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
                 'patient_id': str(row['PatientID']),
                 'study': str(row['Study']),
                 'start_date': str(start_date) if start_date else None,
-                'site': str(row.get('Site', '')),
-                'patient_practice': str(row.get('PatientPractice', '')),
-                'origin_site': str(row.get('OriginSite', ''))
+                'patient_practice': str(row.get('PatientPractice', ''))
             }
             records.append(record)
         
@@ -275,9 +271,7 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
                 'patient_id': str(row['PatientID']),
                 'study': str(row['Study']),
                 'start_date': str(start_date) if start_date else None,
-                'site': str(row.get('Site', '')),
-                'patient_practice': str(row.get('PatientPractice', '')),
-                'origin_site': str(row.get('OriginSite', ''))
+                'patient_practice': str(row.get('PatientPractice', ''))
             }
             records.append(record)
         
@@ -368,16 +362,16 @@ def export_patients_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_patients()
         if df is None or df.empty:
-            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite'])
+            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
         
-        for col in ['PatientPractice', 'OriginSite']:
+        for col in ['PatientPractice']:
             if col not in df.columns:
                 df[col] = ''
         
         if 'StartDate' in df.columns:
             df['StartDate'] = pd.to_datetime(df['StartDate']).dt.strftime('%d/%m/%Y')
         
-        export_columns = ['PatientID', 'Study', 'StartDate', 'Site', 'PatientPractice', 'OriginSite']
+        export_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice']
         df = df[export_columns]
         
         return df

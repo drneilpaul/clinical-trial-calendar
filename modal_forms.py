@@ -322,7 +322,7 @@ def patient_entry_modal():
                 'Study': selected_study,
                 'StartDate': formatted_date,
                 'Site': recruitment_site,  # Which practice recruited them
-                'OriginSite': recruitment_site,  # Same value, different column name
+                # OriginSite column removed - using PatientPractice only
                 'PatientPractice': recruitment_site  # Same value, for compatibility
             }
             

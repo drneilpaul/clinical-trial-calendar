@@ -680,7 +680,7 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         if site_related_patients.empty:
             # Look for patients recruited by this site (based on patient origin)
             site_col = None
-            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+            for candidate in ['PatientPractice', 'PatientSite', 'Practice', 'HomeSite']:
                 if candidate in patients_df.columns:
                     site_col = candidate
                     break
