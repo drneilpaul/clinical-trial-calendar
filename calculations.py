@@ -149,7 +149,14 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 'kiltearn_recruitment_count': 0
             }
         
-        if period_patients.empty or 'Site' not in period_patients.columns:
+        # Determine which column to use for patient site/practice information
+        site_column = None
+        for candidate in ['PatientPractice', 'PatientSite', 'Site', 'Practice', 'HomeSite']:
+            if candidate in period_patients.columns:
+                site_column = candidate
+                break
+
+        if period_patients.empty or site_column is None:
             return {
                 'ashfields_recruitment_ratio': 0,
                 'kiltearn_recruitment_ratio': 0,
@@ -158,7 +165,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 'kiltearn_recruitment_count': 0
             }
         
-        recruitment = period_patients.groupby('Site')['PatientID'].count()
+        recruitment = period_patients.groupby(site_column)['PatientID'].count()
         total_recruitment = recruitment.sum()
         
         ashfields_count = recruitment.get('Ashfields', 0)
