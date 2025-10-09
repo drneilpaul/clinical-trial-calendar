@@ -19,6 +19,43 @@ from formatters import (
     create_fy_highlighting_function
 )
 
+def verify_export_consistency(calendar_df, excel_df):
+    """
+    Verify that exports match the display data.
+    Call this before any download buttons.
+    """
+    issues = []
+    
+    # Check 1: Date format
+    if 'Date' in calendar_df.columns and 'Date' in excel_df.columns:
+        cal_dates = calendar_df['Date'].head(5)
+        exp_dates = excel_df['Date'].head(5)
+        print(f"Display dates: {cal_dates.tolist()}")
+        print(f"Export dates: {exp_dates.tolist()}")
+    
+    # Check 2: Currency columns - totals should match
+    currency_cols = [col for col in calendar_df.columns if 'Income' in col or 'Total' in col]
+    for col in currency_cols:
+        if col in calendar_df.columns and col in excel_df.columns:
+            cal_sum = calendar_df[col].sum()
+            exp_sum = pd.to_numeric(excel_df[col], errors='coerce').sum()
+            
+            if abs(cal_sum - exp_sum) > 0.01:  # Allow 1p rounding difference
+                issues.append(f"{col}: Display sum £{cal_sum:.2f} != Export sum £{exp_sum:.2f}")
+    
+    # Check 3: Row count
+    if len(calendar_df) != len(excel_df):
+        issues.append(f"Row count mismatch: Display {len(calendar_df)} != Export {len(excel_df)}")
+    
+    if issues:
+        st.warning("⚠️ Export consistency issues detected:")
+        for issue in issues:
+            st.text(f"  • {issue}")
+    else:
+        st.success("✅ Export data matches display data")
+    
+    return len(issues) == 0
+
 # Move table builder functions directly into this file to avoid circular imports
 def display_income_table_pair(financial_df):
     """Display monthly income analysis tables"""
@@ -831,24 +868,82 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
+    # DEBUG LOGGING - Remove after issues are fixed
+    from helpers import log_activity
+    log_activity("=== EXPORT DEBUG START ===", level='info')
+    log_activity(f"Input calendar_df shape: {calendar_df.shape}", level='info')
+    log_activity(f"Input calendar_df columns: {calendar_df.columns.tolist()}", level='info')
+    log_activity(f"Input calendar_df dtypes: {calendar_df.dtypes.to_dict()}", level='info')
+    
+    # Check for Period columns
+    period_cols = [col for col in calendar_df.columns 
+                   if hasattr(calendar_df[col].dtype, 'name') and 'period' in str(calendar_df[col].dtype).lower()]
+    if period_cols:
+        log_activity(f"Found Period columns: {period_cols}", level='warning')
+    
+    # Check for datetime columns
+    datetime_cols = [col for col in calendar_df.columns 
+                     if pd.api.types.is_datetime64_any_dtype(calendar_df[col])]
+    log_activity(f"Found datetime columns: {datetime_cols}", level='info')
+    
+    # Check currency columns
+    currency_cols = [col for col in calendar_df.columns if 'Income' in col or 'Total' in col]
+    log_activity(f"Found currency columns: {currency_cols}", level='info')
+    for col in currency_cols[:3]:  # Sample first 3
+        if col in calendar_df.columns:
+            log_activity(f"{col} sample values: {calendar_df[col].head(3).tolist()}", level='info')
+            log_activity(f"{col} dtype: {calendar_df[col].dtype}", level='info')
+    
+    log_activity("=== EXPORT DEBUG END ===", level='info')
+
     try:
-        # Prepare Excel-safe dataframe by converting Period objects to strings
+        # Prepare export-safe dataframe - handles Period objects, dates, and currency
         excel_df = calendar_df.copy()
-        
-        # Convert any Period columns to strings for Excel compatibility
+
+        # 1. Convert ALL Period-type columns to strings FIRST (before any other operations)
         for col in excel_df.columns:
             if hasattr(excel_df[col].dtype, 'name') and 'period' in str(excel_df[col].dtype).lower():
                 excel_df[col] = excel_df[col].astype(str)
             elif excel_df[col].dtype == 'object':
-                # Check if any values are Period objects
-                sample_vals = excel_df[col].dropna().head(5)
-                if len(sample_vals) > 0 and any(str(type(val)).find('Period') != -1 for val in sample_vals):
-                    excel_df[col] = excel_df[col].astype(str)
-        
-        # Format dates properly for Excel
+                # Check if column contains Period objects
+                sample_vals = excel_df[col].dropna().head(1)
+                if len(sample_vals) > 0:
+                    first_val = sample_vals.iloc[0]
+                    if 'Period' in str(type(first_val)):
+                        excel_df[col] = excel_df[col].astype(str)
+
+        # 2. Format Date column specifically as DD/MM/YYYY
         if 'Date' in excel_df.columns:
             if excel_df['Date'].dtype == 'datetime64[ns]':
                 excel_df['Date'] = excel_df['Date'].dt.strftime('%d/%m/%Y')
+            elif excel_df['Date'].dtype == 'object':
+                # Handle mixed types
+                excel_df['Date'] = pd.to_datetime(excel_df['Date'], errors='coerce').dt.strftime('%d/%m/%Y')
+
+        # 3. Format currency columns - remove £ symbol for Excel compatibility
+        currency_columns = [col for col in excel_df.columns if 'Income' in col or 'Total' in col]
+        for col in currency_columns:
+            if col in excel_df.columns:
+                # Convert to numeric if it's a string with £ symbols
+                if excel_df[col].dtype == 'object':
+                    excel_df[col] = excel_df[col].astype(str).str.replace('£', '').str.replace(',', '')
+                    excel_df[col] = pd.to_numeric(excel_df[col], errors='coerce').fillna(0)
+                # Ensure it's float type
+                excel_df[col] = excel_df[col].astype(float)
+
+        # 4. Replace any remaining NA values
+        excel_df = excel_df.fillna('')
+
+        # Add this temporarily after the excel_df preparation to log what's being exported
+        print("CSV Export Debug Info:")
+        print(f"Columns: {excel_df.columns.tolist()}")
+        print(f"Date sample: {excel_df['Date'].head(3).tolist()}")
+        print(f"Data types: {excel_df.dtypes.to_dict()}")
+        if 'Daily Total' in excel_df.columns:
+            print(f"Daily Total sample: {excel_df['Daily Total'].head(3).tolist()}")
+
+        # VERIFICATION STEP - Add this:
+        verify_export_consistency(calendar_df, excel_df)
 
         col1, col2, col3 = st.columns(3)
         
@@ -863,10 +958,35 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             )
 
         with col2:
-            # Basic Excel download with Period handling
+            # Basic Excel download - ensure clean numeric and date data
             buf = io.BytesIO()
             try:
-                excel_df.to_excel(buf, index=False, engine='openpyxl')
+                # Create Excel writer with xlsxwriter for better formatting support
+                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                    # Write the dataframe
+                    excel_df.to_excel(writer, index=False, sheet_name='Calendar')
+                    
+                    # Get the worksheet to apply formatting
+                    worksheet = writer.sheets['Calendar']
+                    
+                    # Format date column (column A) as UK date
+                    if 'Date' in excel_df.columns:
+                        date_col_letter = 'A'
+                        for row in range(2, len(excel_df) + 2):  # Start from row 2 (after header)
+                            cell = worksheet[f'{date_col_letter}{row}']
+                            cell.number_format = 'DD/MM/YYYY'
+                    
+                    # Format currency columns
+                    from openpyxl.utils import get_column_letter
+                    for col_idx, col_name in enumerate(excel_df.columns, 1):
+                        if 'Income' in col_name or 'Total' in col_name:
+                            col_letter = get_column_letter(col_idx)
+                            for row in range(2, len(excel_df) + 2):
+                                cell = worksheet[f'{col_letter}{row}']
+                                # UK accounting format: £1,234.56 or (£1,234.56) for negative
+                                cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                
+                buf.seek(0)
                 st.download_button(
                     "💾 Download Basic Excel", 
                     data=buf.getvalue(), 
@@ -875,7 +995,8 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                 )
             except Exception as excel_error:
                 st.error(f"Excel export failed: {excel_error}")
-                # Fallback to CSV with xlsx extension
+                log_activity(f"Excel error details: {str(excel_error)}", level='error')
+                # Fallback to CSV
                 csv_fallback = excel_df.to_csv(index=False)
                 st.download_button(
                     "💾 Download as CSV (Excel failed)", 

@@ -32,27 +32,39 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             
         cleaned_df = df.copy()
         
-        # Handle pandas <NA> values by converting to None/NaN
+        # Step 1: Handle Period objects FIRST (most important)
+        for col in cleaned_df.columns:
+            if hasattr(cleaned_df[col].dtype, 'name'):
+                dtype_str = str(cleaned_df[col].dtype).lower()
+                if 'period' in dtype_str:
+                    # Convert Period to string representation
+                    cleaned_df[col] = cleaned_df[col].astype(str)
+                    continue
+            
+            # Check for Period objects in object dtype columns
+            if cleaned_df[col].dtype == 'object' and not cleaned_df[col].empty:
+                first_valid = cleaned_df[col].dropna().head(1)
+                if len(first_valid) > 0:
+                    if 'Period' in str(type(first_valid.iloc[0])):
+                        cleaned_df[col] = cleaned_df[col].astype(str)
+        
+        # Step 2: Handle pandas NA values
         for col in cleaned_df.columns:
             if cleaned_df[col].dtype == 'object':
-                # Replace pandas <NA> with None
                 cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), None)
             elif str(cleaned_df[col].dtype).startswith('Int') or str(cleaned_df[col].dtype).startswith('Float'):
-                # Handle nullable integer/float types
-                cleaned_df[col] = cleaned_df[col].astype('object').where(pd.notna(cleaned_df[col]), None)
+                # Convert nullable integer/float to regular float
+                cleaned_df[col] = cleaned_df[col].astype('float64', errors='ignore')
+                cleaned_df[col] = cleaned_df[col].where(pd.notna(cleaned_df[col]), 0)
         
-        # Convert Period objects to strings
+        # Step 3: Handle datetime columns
         for col in cleaned_df.columns:
-            if hasattr(cleaned_df[col].dtype, 'name') and 'period' in str(cleaned_df[col].dtype).lower():
-                cleaned_df[col] = cleaned_df[col].astype(str)
-            elif cleaned_df[col].dtype == 'object':
-                # Check for Period objects in object columns
-                sample_vals = cleaned_df[col].dropna().head(3) if not cleaned_df[col].empty else []
-                if len(sample_vals) > 0:
-                    for val in sample_vals:
-                        if val is not None and 'Period' in str(type(val)):
-                            cleaned_df[col] = cleaned_df[col].astype(str)
-                            break
+            if pd.api.types.is_datetime64_any_dtype(cleaned_df[col]):
+                # Don't convert to string here - let Excel handle it with formatting
+                pass
+        
+        # Step 4: Final NA cleanup - replace any remaining NaN with empty string
+        cleaned_df = cleaned_df.fillna('')
         
         return cleaned_df
     
@@ -170,8 +182,8 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
                     try:
                         numeric_value = float(excel_value.replace('£', '').replace(',', ''))
                         cell.value = numeric_value
-                        # UK Accounting format: positive numbers normal, negative in brackets, zero shows dash
-                        cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                        # Simplified UK currency format
+                        cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
                     except (ValueError, AttributeError):
                         # Fallback to standard currency if conversion fails
                         cell.number_format = '"£"#,##0.00'
