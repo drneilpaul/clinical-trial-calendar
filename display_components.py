@@ -958,52 +958,51 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             )
 
         with col2:
-            # Basic Excel download - ensure clean numeric and date data
-            buf = io.BytesIO()
+            # Basic Excel - same structure as Enhanced but WITHOUT financial columns
             try:
-                # Create Excel writer with xlsxwriter for better formatting support
-                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                    # Write the dataframe
-                    excel_df.to_excel(writer, index=False, sheet_name='Calendar')
-                    
-                    # Get the worksheet to apply formatting
-                    worksheet = writer.sheets['Calendar']
-                    
-                    # Format date column (column A) as UK date
-                    if 'Date' in excel_df.columns:
-                        date_col_letter = 'A'
-                        for row in range(2, len(excel_df) + 2):  # Start from row 2 (after header)
-                            cell = worksheet[f'{date_col_letter}{row}']
-                            cell.number_format = 'DD/MM/YYYY'
-                    
-                    # Format currency columns
-                    from openpyxl.utils import get_column_letter
-                    for col_idx, col_name in enumerate(excel_df.columns, 1):
-                        if 'Income' in col_name or 'Total' in col_name:
-                            col_letter = get_column_letter(col_idx)
-                            for row in range(2, len(excel_df) + 2):
-                                cell = worksheet[f'{col_letter}{row}']
-                                # UK accounting format: £1,234.56 or (£1,234.56) for negative
-                                cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                from table_builders import create_enhanced_excel_export
+                # Use actual data instead of empty DataFrames
+                patients_data = patients_df if patients_df is not None else pd.DataFrame()
+                visits_data = visits_df if visits_df is not None else pd.DataFrame()
                 
-                buf.seek(0)
-                st.download_button(
-                    "💾 Download Basic Excel", 
-                    data=buf.getvalue(), 
-                    file_name="VisitCalendar.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                # Call with include_financial=False to exclude financial columns
+                basic_excel = create_enhanced_excel_export(
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites, 
+                    include_financial=False  # KEY PARAMETER: No financial data
                 )
-            except Exception as excel_error:
-                st.error(f"Excel export failed: {excel_error}")
-                log_activity(f"Excel error details: {str(excel_error)}", level='error')
+                
+                if basic_excel:
+                    st.download_button(
+                        "📅 Download Calendar (No Financials)",
+                        data=basic_excel.getvalue(),
+                        file_name="VisitCalendar_Basic.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="Calendar with explanatory headers, no financial data"
+                    )
+                else:
+                    st.error("Basic Excel generation failed")
+                    # Fallback to CSV
+                    csv_fallback = excel_df.to_csv(index=False)
+                    st.download_button(
+                        "💾 Download as CSV (Excel failed)", 
+                        data=csv_fallback, 
+                        file_name="VisitCalendar.csv",
+                        mime="text/csv"
+                    )
+            except Exception as e:
+                st.error(f"Basic Excel error: {e}")
+                log_activity(f"Basic Excel error: {str(e)}", level='error')
                 # Fallback to CSV
-                csv_fallback = excel_df.to_csv(index=False)
-                st.download_button(
-                    "💾 Download as CSV (Excel failed)", 
-                    data=csv_fallback, 
-                    file_name="VisitCalendar.csv",
-                    mime="text/csv"
-                )
+                try:
+                    csv_fallback = excel_df.to_csv(index=False)
+                    st.download_button(
+                        "💾 Download as CSV (Excel failed)", 
+                        data=csv_fallback, 
+                        file_name="VisitCalendar.csv",
+                        mime="text/csv"
+                    )
+                except Exception as csv_error:
+                    st.error(f"Even CSV fallback failed: {csv_error}")
             
         with col3:
             # Enhanced Excel from table_builders
@@ -1013,13 +1012,15 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                 patients_data = patients_df if patients_df is not None else pd.DataFrame()
                 visits_data = visits_df if visits_df is not None else pd.DataFrame()
                 
+                # Call with include_financial=True to include all financial columns
                 enhanced_excel = create_enhanced_excel_export(
-                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
+                    include_financial=True  # KEY PARAMETER: Include financial data
                 )
                 
                 if enhanced_excel:
                     st.download_button(
-                        "✨ Enhanced Excel with Headers",
+                        "💰 Download Calendar (With Financials)",
                         data=enhanced_excel.getvalue(),
                         file_name="VisitCalendar_Enhanced.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

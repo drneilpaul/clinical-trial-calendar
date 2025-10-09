@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import datetime
+from datetime import datetime, date
 from formatters import (
     apply_currency_formatting, apply_currency_or_empty_formatting,
     create_fy_highlighting_function, format_dataframe_index_as_string,
@@ -12,8 +12,21 @@ from calculations import (
     calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
 )
 
-def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_column_mapping, unique_sites):
-    """Create Excel export with enhanced explanatory headers and documentation"""
+def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_column_mapping, unique_sites, include_financial=True):
+    """
+    Create Excel export with enhanced explanatory headers and documentation
+    
+    Args:
+        calendar_df: Main calendar DataFrame
+        patients_df: Patients DataFrame
+        visits_df: Visits DataFrame
+        site_column_mapping: Site column mapping dictionary
+        unique_sites: List of unique site names
+        include_financial: If True, include financial columns (Income, Totals). If False, exclude them.
+    
+    Returns:
+        BytesIO: Excel file buffer, or None if error
+    """
     
     try:
         from openpyxl import Workbook
@@ -76,6 +89,25 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     except Exception as clean_error:
         st.error(f"Error cleaning data for Excel: {clean_error}")
         return None
+
+    # Filter out financial columns if requested
+    if not include_financial:
+        # Identify financial columns to exclude
+        financial_keywords = ['Income', 'Total', 'Payment', 'Revenue', 'Cost']
+        columns_to_keep = []
+        
+        for col in enhanced_df.columns:
+            # Keep non-financial columns
+            is_financial = any(keyword in col for keyword in financial_keywords)
+            if not is_financial:
+                columns_to_keep.append(col)
+            else:
+                # Log which columns are being excluded
+                from helpers import log_activity
+                log_activity(f"Excluding financial column from Basic Excel: {col}", level='info')
+        
+        # Filter the dataframe
+        enhanced_df = enhanced_df[columns_to_keep]
     
     # Create workbook with multiple sheets
     wb = Workbook()
@@ -159,8 +191,37 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
     
-    # Data rows - handle values carefully with UK accounting format
+    # Data rows - handle values carefully with UK accounting format + date-based styling
     for row_idx, (_, row) in enumerate(enhanced_df.iterrows()):
+        # Get the date for this row (for styling)
+        row_date = None
+        if 'Date' in enhanced_df.columns:
+            try:
+                date_val = enhanced_df.iloc[row_idx]['Date']
+                if pd.notna(date_val):
+                    if isinstance(date_val, str):
+                        row_date = pd.to_datetime(date_val, format='%d/%m/%Y', errors='coerce')
+                    else:
+                        row_date = pd.to_datetime(date_val)
+            except:
+                row_date = None
+        
+        # Determine row styling based on date
+        # NOTE: We do NOT highlight today's date in Excel (only on screen)
+        row_fill = None
+        if row_date is not None and pd.notna(row_date):
+            # Check for special dates (in priority order)
+            if row_date.month == 3 and row_date.day == 31:
+                # Financial year end - dark blue background
+                row_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+            elif row_date == row_date + pd.offsets.MonthEnd(0):
+                # Month end - light blue background
+                row_fill = PatternFill(start_color="60A5FA", end_color="60A5FA", fill_type="solid")
+            elif row_date.weekday() in (5, 6):
+                # Weekend - gray background
+                row_fill = PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid")
+        
+        # Process each cell in the row
         for col_idx, value in enumerate(row, 1):
             # Safely convert value for Excel
             excel_value = value
@@ -172,11 +233,18 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             
             cell = ws_calendar.cell(row=start_row + 3 + row_idx, column=col_idx, value=excel_value)
             
+            # Apply row-based styling (date highlighting)
+            if row_fill is not None:
+                cell.fill = row_fill
+                # Adjust font color for dark backgrounds (only Financial Year End is dark blue)
+                if row_fill.start_color == "1E40AF":
+                    cell.font = Font(color="FFFFFF")
+            
             # Format dates
             if col_idx == 1 and isinstance(excel_value, str) and len(str(excel_value)) > 0:  # Date column
                 cell.number_format = 'DD/MM/YYYY'
-            # Format currency columns with UK accounting format
-            elif col_idx > 2 and any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
+            # Format currency columns with UK accounting format (only if financial columns included)
+            elif include_financial and col_idx > 2 and any(x in enhanced_df.columns[col_idx-1] for x in ['Total', 'Income']):
                 if isinstance(excel_value, str) and '£' in excel_value:
                     # Remove £ symbol and convert to number for proper accounting format
                     try:
@@ -189,11 +257,11 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
                         cell.number_format = '"£"#,##0.00'
                 elif isinstance(excel_value, (int, float)) and excel_value != 0:
                     # Direct numeric values
-                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                    cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
                 elif excel_value == 0 or excel_value == "":
                     # Zero values - set to 0 and apply accounting format
                     cell.value = 0
-                    cell.number_format = '_-£* #,##0.00_-;_-£* (#,##0.00);_-£* "-"_-;_-@_-'
+                    cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
     
     # Auto-adjust column widths
     for col_idx, col in enumerate(enhanced_df.columns, 1):
@@ -217,16 +285,37 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     # === Data Dictionary Sheet ===
     ws_dict = wb.create_sheet("Data Dictionary")
     
-    dictionary_data = [
-        ["Column Name", "Description", "Data Type", "Example"],
-        ["Date", "Calendar date for the visit schedule", "Date", "15/09/2025"],
-        ["Day", "Day of the week", "Text", "Monday"],
-        ["Daily Total", "Total revenue for all visits on this date", "Currency", "£1,250.00"],
-        ["Monthly Total", "Cumulative revenue for the month up to this date", "Currency", "£15,750.00"],
-        ["FY Total", "Cumulative revenue for financial year up to this date", "Currency", "£125,500.00"],
-        ["Study_PatientID", "Visit information for specific patient", "Text", "V1, V2"],
-        ["Site Income", "Revenue generated by visits at specific site", "Currency", "£500.00"]
-    ]
+    # Create dictionary data based on whether financial columns are included
+    if include_financial:
+        dictionary_data = [
+            ["Column Name", "Description", "Data Type", "Example"],
+            ["Date", "Calendar date for the visit schedule", "Date", "15/09/2025"],
+            ["Day", "Day of the week", "Text", "Monday"],
+            ["Daily Total", "Total revenue for all visits on this date", "Currency", "£1,250.00"],
+            ["Monthly Total", "Cumulative revenue for the month up to this date", "Currency", "£15,750.00"],
+            ["FY Total", "Cumulative revenue for financial year up to this date", "Currency", "£125,500.00"],
+            ["Study_PatientID", "Visit information for specific patient", "Text", "V1, V2"],
+            ["Site Income", "Revenue generated by visits at specific site", "Currency", "£500.00"],
+            ["", "", "", ""],
+            ["Special Date Highlighting", "", "", ""],
+            ["Financial Year End", "Highlighted in dark blue (31 March)", "Formatting", "31/03/2025"],
+            ["Month End", "Highlighted in light blue", "Formatting", "Last day of month"],
+            ["Weekends", "Highlighted in gray (Saturday & Sunday)", "Formatting", "Sat/Sun"]
+        ]
+    else:
+        dictionary_data = [
+            ["Column Name", "Description", "Data Type", "Example"],
+            ["Date", "Calendar date for the visit schedule", "Date", "15/09/2025"],
+            ["Day", "Day of the week", "Text", "Monday"],
+            ["Study_PatientID", "Visit information for specific patient", "Text", "V1, V2"],
+            ["", "", "", ""],
+            ["Note", "Financial columns excluded from this export", "", ""],
+            ["", "", "", ""],
+            ["Special Date Highlighting", "", "", ""],
+            ["Financial Year End", "Highlighted in dark blue (31 March)", "Formatting", "31/03/2025"],
+            ["Month End", "Highlighted in light blue", "Formatting", "Last day of month"],
+            ["Weekends", "Highlighted in gray (Saturday & Sunday)", "Formatting", "Sat/Sun"]
+        ]
     
     for row_idx, row_data in enumerate(dictionary_data, 1):
         for col_idx, value in enumerate(row_data, 1):
