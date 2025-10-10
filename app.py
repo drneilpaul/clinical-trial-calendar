@@ -603,6 +603,119 @@ def main():
                 st.exception(e)
     # === END DIAGNOSTIC ===
     
+    # === DIAGNOSTIC PART 2: Trace Processing Pipeline ===
+    if st.session_state.get('use_database', False):
+        with st.expander("🔍 Part 2: Trace Visit Processing", expanded=True):
+            try:
+                from processing_calendar import build_calendar
+                
+                st.subheader("Processing Data to Find Unknown Site Creation Point")
+                
+                # Load data
+                patients_df = db.fetch_all_patients()
+                trials_df = db.fetch_all_trial_schedules()
+                actual_visits_df = db.fetch_all_actual_visits()
+                
+                # Run the actual processing
+                st.write("**Running build_calendar to generate visits_df...**")
+                visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
+                    patients_df, trials_df, actual_visits_df
+                )
+                
+                st.success(f"✅ Generated {len(visits_df)} visit records")
+                
+                # Check 1: Look for Unknown Site in visits_df
+                st.subheader("Check 1: Inspect Generated visits_df")
+                
+                if 'SiteofVisit' in visits_df.columns:
+                    unknown_visits = visits_df[visits_df['SiteofVisit'] == 'Unknown Site']
+                    
+                    if not unknown_visits.empty:
+                        st.error(f"❌ Found {len(unknown_visits)} visits with 'Unknown Site' in visits_df")
+                        st.write("**These are the problematic visits:**")
+                        st.dataframe(unknown_visits[['Date', 'PatientID', 'Study', 'Visit', 'VisitName', 'SiteofVisit', 'Payment', 'IsActual', 'VisitDay']])
+                        
+                        # Analyze patterns
+                        st.write("**Pattern Analysis:**")
+                        st.write(f"- IsActual distribution: {unknown_visits['IsActual'].value_counts().to_dict()}")
+                        st.write(f"- Payment distribution: {unknown_visits['Payment'].value_counts().to_dict()}")
+                        st.write(f"- VisitDay distribution: {unknown_visits['VisitDay'].value_counts().to_dict()}")
+                        st.write(f"- Visit types: {unknown_visits['Visit'].unique()}")
+                        
+                        # Check if these are tolerance markers
+                        tolerance_markers = unknown_visits[unknown_visits['Visit'].isin(['-', '+'])]
+                        if not tolerance_markers.empty:
+                            st.warning(f"⚠️ {len(tolerance_markers)} are tolerance window markers (-, +)")
+                        
+                        # Check for predicted visits
+                        predicted = unknown_visits[unknown_visits['IsActual'] == False]
+                        if not predicted.empty:
+                            st.warning(f"⚠️ {len(predicted)} are predicted/scheduled visits")
+                        
+                        # Check for actual visits
+                        actual = unknown_visits[unknown_visits['IsActual'] == True]
+                        if not actual.empty:
+                            st.error(f"❌ {len(actual)} are ACTUAL visits with Unknown Site - THIS IS THE PROBLEM")
+                            
+                            # For each actual visit with Unknown Site, trace back to source
+                            st.write("**Tracing back to source data:**")
+                            for idx, visit in actual.head(5).iterrows():  # Show first 5
+                                st.write(f"\n**Visit:** {visit['PatientID']} - {visit['VisitName']} on {visit['Date']}")
+                                
+                                # Find in actual_visits_df
+                                source_visit = actual_visits_df[
+                                    (actual_visits_df['PatientID'] == visit['PatientID']) &
+                                    (actual_visits_df['Study'] == visit['Study']) &
+                                    (actual_visits_df['VisitName'] == visit['VisitName'])
+                                ]
+                                
+                                if not source_visit.empty:
+                                    st.write("Found in actual_visits table:")
+                                    st.write(source_visit[['PatientID', 'Study', 'VisitName', 'ActualDate']].to_dict('records'))
+                                    
+                                    # Check trial schedule match
+                                    trial_match = trials_df[
+                                        (trials_df['Study'] == visit['Study']) &
+                                        (trials_df['VisitName'] == visit['VisitName'])
+                                    ]
+                                    
+                                    if not trial_match.empty:
+                                        st.write(f"Trial schedule shows SiteforVisit: '{trial_match.iloc[0]['SiteforVisit']}'")
+                                        st.write(f"But visits_df has: '{visit['SiteofVisit']}'")
+                                        st.error("❌ MISMATCH: Site was lost during processing!")
+                                    else:
+                                        st.warning("⚠️ No matching trial schedule entry")
+                                else:
+                                    st.warning("⚠️ Not found in actual_visits - this is a generated visit")
+                    else:
+                        st.success("✅ No 'Unknown Site' entries in visits_df")
+                    
+                    # Show site distribution
+                    st.write("**Site distribution in visits_df:**")
+                    site_dist = visits_df['SiteofVisit'].value_counts()
+                    st.write(site_dist)
+                else:
+                    st.error("❌ SiteofVisit column missing from visits_df!")
+                
+                # Check 2: Inspect PatientOrigin
+                st.subheader("Check 2: Inspect PatientOrigin")
+                if 'PatientOrigin' in visits_df.columns:
+                    unknown_origin = visits_df[visits_df['PatientOrigin'] == 'Unknown Site']
+                    if not unknown_origin.empty:
+                        st.warning(f"⚠️ Found {len(unknown_origin)} visits with 'Unknown Site' in PatientOrigin")
+                        st.write("(This is different from SiteofVisit - this is 3rd level header)")
+                    else:
+                        st.success("✅ No 'Unknown Site' in PatientOrigin")
+                        
+                    origin_dist = visits_df['PatientOrigin'].value_counts()
+                    st.write("**Origin distribution:**")
+                    st.write(origin_dist)
+                
+            except Exception as e:
+                st.error(f"Diagnostic Part 2 error: {e}")
+                st.exception(e)
+    # === END DIAGNOSTIC PART 2 ===
+    
     # Database Contents Display
     if st.session_state.get('show_database_contents', False):
         st.markdown("---")

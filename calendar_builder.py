@@ -117,9 +117,14 @@ def build_calendar_dataframe(visits_df, patients_df):
                             if origin_site and origin_site != 'nan':
                                 break
                     
-                    # If still empty, use a default
+                    # If still empty, this is a data error - skip this patient column
                     if not origin_site:
-                        origin_site = "Unknown Origin"
+                        from helpers import log_activity
+                        log_activity(
+                            f"⚠️ Patient {patient_id} has no valid origin site - skipping from calendar display", 
+                            level='warning'
+                        )
+                        continue  # Skip this patient - don't add their column
                     
                     col_id = f"{study}_{patient_id}"
                     
