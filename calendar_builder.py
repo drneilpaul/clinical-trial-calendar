@@ -119,7 +119,6 @@ def build_calendar_dataframe(visits_df, patients_df):
                     
                     # If still empty, this is a data error - skip this patient column
                     if not origin_site:
-                        from helpers import log_activity
                         log_activity(
                             f"⚠️ Patient {patient_id} has no valid origin site - skipping from calendar display", 
                             level='warning'
