@@ -132,6 +132,25 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
         if client is None:
             return False
         
+        # NEW: Validate all patients have valid PatientPractice BEFORE attempting to save
+        if 'PatientPractice' not in patients_df.columns:
+            log_activity("ERROR: PatientPractice column missing from patients data", level='error')
+            return False
+        
+        # Check for invalid site values
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+        patients_df['PatientPractice'] = patients_df['PatientPractice'].fillna('').astype(str).str.strip()
+        invalid_mask = patients_df['PatientPractice'].isin(invalid_sites)
+        
+        if invalid_mask.any():
+            invalid_patients = patients_df[invalid_mask]['PatientID'].tolist()
+            error_msg = f"Cannot save patients with missing PatientPractice: {invalid_patients}"
+            log_activity(error_msg, level='error')
+            st.error(f"❌ Data validation failed: {len(invalid_patients)} patient(s) missing recruitment site: {', '.join(map(str, invalid_patients[:5]))}")
+            return False
+        
+        # END NEW VALIDATION
+        
         records = []
         for _, row in patients_df.iterrows():
             start_date = None
@@ -176,6 +195,25 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         if not payment_validation['valid']:
             for issue in payment_validation['issues']:
                 log_activity(f"Payment data issue: {issue}", level='warning')
+        
+        # NEW: Validate all trials have valid SiteforVisit BEFORE attempting to save
+        if 'SiteforVisit' not in trials_df_clean.columns:
+            log_activity("ERROR: SiteforVisit column missing from trials data", level='error')
+            return False
+        
+        # Check for invalid site values
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+        trials_df_clean['SiteforVisit'] = trials_df_clean['SiteforVisit'].fillna('').astype(str).str.strip()
+        invalid_mask = trials_df_clean['SiteforVisit'].isin(invalid_sites)
+        
+        if invalid_mask.any():
+            invalid_trials = trials_df_clean[invalid_mask][['Study', 'VisitName']].values.tolist()
+            error_msg = f"Cannot save trials with missing SiteforVisit: {invalid_trials}"
+            log_activity(error_msg, level='error')
+            st.error(f"❌ Data validation failed: {len(invalid_trials)} trial(s) missing visit site")
+            return False
+        
+        # END NEW VALIDATION
         
         if 'ToleranceBefore' in trials_df_clean.columns:
             trials_df_clean['ToleranceBefore'] = trials_df_clean['ToleranceBefore'].replace('', 0)
@@ -255,6 +293,21 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
         if patient_df is None or patient_df.empty:
             log_activity("Cannot append patient: Empty DataFrame", level='error')
             return False
+        
+        # NEW: Validate patient has valid PatientPractice
+        if 'PatientPractice' not in patient_df.columns:
+            log_activity("ERROR: PatientPractice column missing", level='error')
+            st.error("❌ Cannot add patient: Missing recruitment site information")
+            return False
+        
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+        patient_df['PatientPractice'] = patient_df['PatientPractice'].fillna('').astype(str).str.strip()
+        
+        if patient_df['PatientPractice'].iloc[0] in invalid_sites:
+            log_activity("ERROR: Patient has invalid PatientPractice", level='error')
+            st.error("❌ Cannot add patient: Recruitment site must be specified (Ashfields or Kiltearn)")
+            return False
+        # END NEW VALIDATION
         
         records = []
         for _, row in patient_df.iterrows():

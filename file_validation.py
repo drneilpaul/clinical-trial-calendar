@@ -103,8 +103,8 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     errors = []
     warnings = []
     
-    # Required columns
-    required_columns = ['PatientID', 'Study', 'StartDate']
+    # Required columns - ADD PatientPractice to this list
+    required_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
@@ -130,11 +130,33 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         if invalid_dates > 0:
             warnings.append(f"{invalid_dates} patients have invalid start dates")
     
-    # Clean optional columns
+    # NEW SECTION: Validate PatientPractice is present and valid
+    if 'PatientPractice' in df_clean.columns:
+        df_clean['PatientPractice'] = df_clean['PatientPractice'].fillna('').astype(str).str.strip()
+        
+        # Check for invalid values
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+        invalid_mask = df_clean['PatientPractice'].isin(invalid_sites)
+        invalid_count = invalid_mask.sum()
+        
+        if invalid_count > 0:
+            # Get row numbers and patient IDs of invalid rows
+            invalid_rows = df_clean[invalid_mask]
+            row_details = []
+            for idx, row in invalid_rows.iterrows():
+                row_num = idx + 2  # +2 because Excel is 1-indexed and has header row
+                patient_id = row.get('PatientID', 'Unknown')
+                row_details.append(f"Row {row_num} (Patient {patient_id})")
+            
+            error_msg = f"❌ {invalid_count} patient(s) missing required PatientPractice (recruitment site). "
+            error_msg += f"Invalid rows: {', '.join(row_details[:5])}"  # Show first 5
+            if len(row_details) > 5:
+                error_msg += f" and {len(row_details) - 5} more"
+            errors.append(error_msg)
+    
+    # Optional columns that can still be empty
     optional_columns = {
-        'Site': str,
-        'PatientPractice': str,
-        # OriginSite column removed - using PatientPractice only
+        'Site': str,  # Keep Site as optional for backward compatibility
     }
     
     for col, dtype in optional_columns.items():
@@ -162,8 +184,8 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     errors = []
     warnings = []
     
-    # Required columns
-    required_columns = ['Study', 'Day', 'VisitName']
+    # Required columns - ADD SiteforVisit to this list
+    required_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
@@ -195,9 +217,33 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     if 'VisitName' in df_clean.columns:
         df_clean['VisitName'] = df_clean['VisitName'].astype(str)
     
-    # Clean optional columns
+    # NEW SECTION: Validate SiteforVisit is present and valid
+    if 'SiteforVisit' in df_clean.columns:
+        df_clean['SiteforVisit'] = df_clean['SiteforVisit'].fillna('').astype(str).str.strip()
+        
+        # Check for invalid values
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+        invalid_mask = df_clean['SiteforVisit'].isin(invalid_sites)
+        invalid_count = invalid_mask.sum()
+        
+        if invalid_count > 0:
+            # Get details of invalid rows
+            invalid_rows = df_clean[invalid_mask]
+            row_details = []
+            for idx, row in invalid_rows.iterrows():
+                row_num = idx + 2  # +2 because Excel is 1-indexed and has header row
+                study = row.get('Study', 'Unknown')
+                visit = row.get('VisitName', 'Unknown')
+                row_details.append(f"Row {row_num} ({study}/{visit})")
+            
+            error_msg = f"❌ {invalid_count} trial visit(s) missing required SiteforVisit (where visit is performed). "
+            error_msg += f"Invalid rows: {', '.join(row_details[:5])}"  # Show first 5
+            if len(row_details) > 5:
+                error_msg += f" and {len(row_details) - 5} more"
+            errors.append(error_msg)
+    
+    # Optional columns
     optional_columns = {
-        'SiteforVisit': str,
         'ToleranceBefore': int,
         'ToleranceAfter': int
     }
