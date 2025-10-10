@@ -449,6 +449,152 @@ def main():
                 log_activity(f"Validation error: {e}", level='error')
     # === END ADDITION ===
     
+    # === DIAGNOSTIC: Unknown Site Investigation ===
+    if st.session_state.get('use_database', False) and st.session_state.get('database_available', False):
+        with st.expander("🔍 Unknown Site Diagnostic", expanded=False):
+            try:
+                import database as db
+                
+                # Load data
+                patients_df = db.fetch_all_patients()
+                trials_df = db.fetch_all_trial_schedules()
+                actual_visits_df = db.fetch_all_actual_visits()
+                
+                st.subheader("Data Loaded")
+                st.write(f"Patients: {len(patients_df)}")
+                st.write(f"Trials: {len(trials_df)}")
+                st.write(f"Actual Visits: {len(actual_visits_df)}")
+                
+                # Check 1: Study Events
+                st.subheader("Check 1: Study Events (SIV/Monitor)")
+                if 'VisitType' in actual_visits_df.columns:
+                    study_events = actual_visits_df[
+                        actual_visits_df['VisitType'].isin(['siv', 'monitor'])
+                    ]
+                    st.write(f"Found {len(study_events)} study events")
+                    if not study_events.empty:
+                        st.dataframe(study_events[['PatientID', 'Study', 'VisitName', 'VisitType', 'ActualDate']])
+                        
+                        # Check matching templates
+                        st.write("**Checking for matching trial schedule templates:**")
+                        for idx, event in study_events.iterrows():
+                            if 'VisitType' in trials_df.columns:
+                                matching_template = trials_df[
+                                    (trials_df['Study'] == event['Study']) & 
+                                    (trials_df['VisitName'] == event['VisitName']) &
+                                    (trials_df['VisitType'] == event['VisitType'])
+                                ]
+                            else:
+                                matching_template = trials_df[
+                                    (trials_df['Study'] == event['Study']) & 
+                                    (trials_df['VisitName'] == event['VisitName'])
+                                ]
+                            
+                            if matching_template.empty:
+                                st.error(f"❌ No template: {event['Study']} - {event['VisitName']} ({event['VisitType']})")
+                            else:
+                                site_value = matching_template.iloc[0].get('SiteforVisit', 'NOT FOUND')
+                                if site_value in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'NOT FOUND']:
+                                    st.error(f"❌ Invalid SiteforVisit: {event['Study']} - {event['VisitName']} → '{site_value}'")
+                                else:
+                                    st.success(f"✅ Valid template: {event['Study']} - {event['VisitName']} → Site: {site_value}")
+                else:
+                    st.info("No VisitType column in actual_visits")
+                
+                # Check 2: Regular patient visits without matching trial schedule
+                st.subheader("Check 2: Unmatched Patient Visits")
+                regular_visits = actual_visits_df[
+                    ~actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
+                ]
+                
+                unmatched_count = 0
+                for idx, visit in regular_visits.iterrows():
+                    matching_trial = trials_df[
+                        (trials_df['Study'] == visit['Study']) & 
+                        (trials_df['VisitName'] == visit['VisitName'])
+                    ]
+                    if matching_trial.empty:
+                        unmatched_count += 1
+                        st.warning(f"⚠️ Unmatched visit: {visit['PatientID']} - {visit['Study']} - {visit['VisitName']}")
+                
+                if unmatched_count == 0:
+                    st.success("✅ All regular patient visits match trial schedule")
+                
+                # Check 3: Trial schedule entries without valid SiteforVisit
+                st.subheader("Check 3: Trial Schedule Integrity")
+                invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+                
+                if 'SiteforVisit' not in trials_df.columns:
+                    st.error("❌ CRITICAL: SiteforVisit column missing from trials!")
+                else:
+                    trials_df['_TempSite'] = trials_df['SiteforVisit'].fillna('').astype(str).str.strip()
+                    invalid_mask = trials_df['_TempSite'].isin(invalid_sites)
+                    
+                    if invalid_mask.any():
+                        st.error(f"❌ Found {invalid_mask.sum()} trial visits with invalid SiteforVisit:")
+                        st.dataframe(trials_df[invalid_mask][['Study', 'VisitName', 'SiteforVisit', 'VisitType']])
+                    else:
+                        st.success("✅ All trial schedule entries have valid SiteforVisit")
+                        
+                        # Show distribution
+                        site_dist = trials_df['SiteforVisit'].value_counts()
+                        st.write("**Site distribution in trial schedule:**")
+                        st.write(site_dist)
+                
+                # Check 4: Show actual visits that would create Unknown Site entries
+                st.subheader("Check 4: Trace Unknown Site Origin")
+                st.write("**Simulating visit processing to identify Unknown Site source...**")
+                
+                # This mimics what process_study_events does
+                study_events_for_processing = actual_visits_df[
+                    actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
+                ]
+                
+                unknown_site_sources = []
+                for idx, event in study_events_for_processing.iterrows():
+                    # Try to find template
+                    if 'VisitType' in trials_df.columns:
+                        template = trials_df[
+                            (trials_df['Study'] == event['Study']) & 
+                            (trials_df['VisitName'] == event['VisitName']) &
+                            (trials_df['VisitType'] == event['VisitType'])
+                        ]
+                    else:
+                        template = pd.DataFrame()  # Empty if no VisitType column
+                    
+                    if template.empty:
+                        unknown_site_sources.append({
+                            'Reason': 'No matching template',
+                            'PatientID': event['PatientID'],
+                            'Study': event['Study'],
+                            'VisitName': event['VisitName'],
+                            'VisitType': event.get('VisitType', 'N/A'),
+                            'ActualDate': event['ActualDate']
+                        })
+                    else:
+                        site = template.iloc[0].get('SiteforVisit')
+                        if pd.isna(site) or str(site).strip() in invalid_sites:
+                            unknown_site_sources.append({
+                                'Reason': 'Invalid SiteforVisit in template',
+                                'PatientID': event['PatientID'],
+                                'Study': event['Study'],
+                                'VisitName': event['VisitName'],
+                                'VisitType': event.get('VisitType', 'N/A'),
+                                'ActualDate': event['ActualDate'],
+                                'Template_Site': site
+                            })
+                
+                if unknown_site_sources:
+                    st.error(f"❌ Found {len(unknown_site_sources)} visits that would create Unknown Site entries:")
+                    st.dataframe(pd.DataFrame(unknown_site_sources))
+                else:
+                    st.success("✅ No obvious sources of Unknown Site found in study events")
+                    
+            except Exception as e:
+                st.error(f"Diagnostic error: {e}")
+                st.exception(e)
+    # === END DIAGNOSTIC ===
+    
     # Database Contents Display
     if st.session_state.get('show_database_contents', False):
         st.markdown("---")
