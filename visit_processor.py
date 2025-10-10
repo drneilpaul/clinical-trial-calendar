@@ -32,9 +32,9 @@ def process_study_events(event_templates, actual_visits_df):
         if pd.isna(event_visit.get('ActualDate')):
             continue
         
-        # Try to find template for payment information, but don't require it
+        # Study events MUST have a valid template with site information
         payment = 0
-        site = "Unknown Site"
+        site = None
         
         if not event_templates.empty:
             template = event_templates[
@@ -46,7 +46,17 @@ def process_study_events(event_templates, actual_visits_df):
             if not template.empty:
                 template_row = template.iloc[0]
                 payment = float(template_row.get('Payment', 0))
-                site = safe_string_conversion(template_row.get('SiteforVisit', 'Unknown Site'))
+                site_value = template_row.get('SiteforVisit')
+                
+                # Validate site is not empty/invalid
+                if pd.notna(site_value) and str(site_value).strip() not in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']:
+                    site = str(site_value).strip()
+
+        # Skip this event if no valid site found
+        if site is None:
+            from helpers import log_activity
+            log_activity(f"⚠️ Skipping study event {visit_name} for {study} - no valid SiteforVisit found in trial schedule", level='warning')
+            continue
         
         # Determine status and payment
         if status == 'completed':
@@ -80,6 +90,11 @@ def process_study_events(event_templates, actual_visits_df):
             "EventType": visit_type,
             "EventStatus": status
         })
+    
+    # After the main loop, add summary logging
+    if event_records:
+        from helpers import log_activity
+        log_activity(f"✅ Processed {len(event_records)} study events with valid sites", level='info')
     
     return event_records
 

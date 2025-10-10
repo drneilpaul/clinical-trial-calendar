@@ -128,6 +128,18 @@ def setup_file_uploaders():
                                     
                                     if db.safe_overwrite_table('patients', patients_df, db.save_patients_to_database):
                                         st.success("✅ Patients table overwritten successfully!")
+                                        
+                                        # === ADD THIS ===
+                                        # Run validation after overwrite
+                                        from database_validator import run_startup_validation
+                                        validation_results = run_startup_validation(
+                                            patients_df, 
+                                            db.fetch_all_trial_schedules(), 
+                                            db.fetch_all_actual_visits()
+                                        )
+                                        st.session_state.validation_results = validation_results
+                                        # === END ADDITION ===
+                                        
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_patients_confirmed = False
                                         st.session_state.data_refresh_needed = True
@@ -180,6 +192,18 @@ def setup_file_uploaders():
                                     
                                     if db.safe_overwrite_table('trial_schedules', trials_df, db.save_trial_schedules_to_database):
                                         st.success("✅ Trials table overwritten successfully!")
+                                        
+                                        # === ADD THIS ===
+                                        # Run validation after overwrite
+                                        from database_validator import run_startup_validation
+                                        validation_results = run_startup_validation(
+                                            db.fetch_all_patients(), 
+                                            trials_df, 
+                                            db.fetch_all_actual_visits()
+                                        )
+                                        st.session_state.validation_results = validation_results
+                                        # === END ADDITION ===
+                                        
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_trials_confirmed = False
                                         st.session_state.data_refresh_needed = True
@@ -232,6 +256,18 @@ def setup_file_uploaders():
                                     
                                     if db.safe_overwrite_table('actual_visits', actual_visits_df, db.save_actual_visits_to_database):
                                         st.success("✅ Visits table overwritten successfully!")
+                                        
+                                        # === ADD THIS ===
+                                        # Run validation after overwrite
+                                        from database_validator import run_startup_validation
+                                        validation_results = run_startup_validation(
+                                            db.fetch_all_patients(), 
+                                            db.fetch_all_trial_schedules(), 
+                                            actual_visits_df
+                                        )
+                                        st.session_state.validation_results = validation_results
+                                        # === END ADDITION ===
+                                        
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_visits_confirmed = False
                                         st.session_state.data_refresh_needed = True
@@ -333,6 +369,13 @@ def setup_file_uploaders():
                     log_activity("Failed to create database backup", level='error')
     
     st.sidebar.divider()
+    
+    # Add button to show validation details in sidebar
+    if st.session_state.get('validation_results') and not st.session_state.get('show_validation_details', False):
+        if st.sidebar.button("🔍 Show Validation Details"):
+            st.session_state.show_validation_details = True
+            st.rerun()
+    
     display_activity_log_sidebar()
     
     return patients_file, trials_file, actual_visits_file
@@ -366,6 +409,45 @@ def main():
     
     # Check and refresh data if needed
     check_and_refresh_data()
+    
+    # === ADD THIS SECTION ===
+    # Run startup validation if using database
+    if st.session_state.get('use_database', False) and st.session_state.get('database_available', False):
+        # Only run validation once per session or after data refresh
+        if st.session_state.get('data_refresh_needed', False) or 'validation_run' not in st.session_state:
+            try:
+                from database_validator import run_startup_validation
+                
+                # Load data for validation
+                patients_df = db.fetch_all_patients()
+                trials_df = db.fetch_all_trial_schedules()
+                actual_visits_df = db.fetch_all_actual_visits()
+                
+                # Run validation
+                validation_results = run_startup_validation(patients_df, trials_df, actual_visits_df)
+                
+                # Store results in session state
+                st.session_state.validation_results = validation_results
+                st.session_state.validation_run = True
+                
+                # Display validation summary in UI
+                if validation_results['error_count'] > 0:
+                    st.error(
+                        f"⚠️ **Database Validation Found {validation_results['error_count']} Error(s)**\n\n"
+                        f"Check the Activity Log in the sidebar for details."
+                    )
+                elif validation_results['warning_count'] > 0:
+                    st.warning(
+                        f"⚠️ **Database Validation Found {validation_results['warning_count']} Warning(s)**\n\n"
+                        f"Check the Activity Log in the sidebar for details."
+                    )
+                else:
+                    st.success("✅ Database validation passed - all data looks good!")
+                    
+            except Exception as e:
+                st.error(f"Error during database validation: {e}")
+                log_activity(f"Validation error: {e}", level='error')
+    # === END ADDITION ===
     
     # Database Contents Display
     if st.session_state.get('show_database_contents', False):
@@ -412,6 +494,46 @@ def main():
                 
         except Exception as e:
             st.error(f"Error fetching database contents: {e}")
+        
+        st.markdown("---")
+    
+    # Validation Results Display (optional - shows detailed results in UI)
+    if st.session_state.get('validation_results') and st.session_state.get('show_validation_details', False):
+        st.markdown("---")
+        st.subheader("🔍 Database Validation Results")
+        
+        results = st.session_state.validation_results
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Errors", results['error_count'], 
+                     delta="Critical" if results['error_count'] > 0 else None,
+                     delta_color="inverse")
+        with col2:
+            st.metric("Warnings", results['warning_count'],
+                     delta="Review" if results['warning_count'] > 0 else None,
+                     delta_color="off")
+        with col3:
+            st.metric("Info Checks", len(results['info']))
+        
+        if results['errors']:
+            with st.expander("❌ Errors (Must Fix)", expanded=True):
+                for error in results['errors']:
+                    st.error(error)
+        
+        if results['warnings']:
+            with st.expander("⚠️ Warnings (Should Review)", expanded=False):
+                for warning in results['warnings']:
+                    st.warning(warning)
+        
+        if results['info']:
+            with st.expander("✅ Info & Success Messages", expanded=False):
+                for info in results['info']:
+                    st.info(info)
+        
+        if st.button("❌ Close Validation Details"):
+            st.session_state.show_validation_details = False
+            st.rerun()
         
         st.markdown("---")
     
