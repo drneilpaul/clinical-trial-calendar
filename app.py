@@ -533,7 +533,7 @@ def main():
         show_download_sections()
 
         try:
-            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
+            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
