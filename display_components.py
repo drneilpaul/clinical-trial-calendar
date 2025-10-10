@@ -786,7 +786,7 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
             
             # Create a standardized origin site column and filter
             patients_df['_OriginSite'] = patients_df.apply(
-                lambda row: get_patient_origin_site(row), axis=1
+                lambda row: get_patient_origin_site(row, default="Unknown Site"), axis=1
             )
             site_related_patients = patients_df[patients_df['_OriginSite'] == site]
             
@@ -833,7 +833,7 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Create a standardized origin site column
         site_related_patients['_OriginSite'] = site_related_patients.apply(
-            lambda row: get_patient_origin_site(row), axis=1
+            lambda row: get_patient_origin_site(row, default="Unknown Site"), axis=1
         )
         
         origin_breakdown = site_related_patients.groupby('_OriginSite')['PatientID'].count().reset_index()

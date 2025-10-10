@@ -179,7 +179,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
         
         # Create a temporary column with standardized origin site
         period_patients['_OriginSite'] = period_patients.apply(
-            lambda row: get_patient_origin_site(row), axis=1
+            lambda row: get_patient_origin_site(row, default="Unknown Site"), axis=1
         )
         site_column = '_OriginSite'
 

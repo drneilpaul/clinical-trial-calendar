@@ -19,27 +19,12 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     if actual_visits_df is not None:
         actual_visits_df.columns = [str(col).strip() for col in actual_visits_df.columns]
 
-    # Add missing columns with defaults before validation
-    # Patients: Add optional columns if missing
-    if 'Site' not in patients_df.columns:
-        patients_df['Site'] = ''
-    if 'PatientPractice' not in patients_df.columns:
-        patients_df['PatientPractice'] = ''
-    # OriginSite column is no longer used - removed for simplicity
+    # CHANGED: Remove the section that adds default columns silently
+    # The validation layer now ensures these columns exist with valid data
     
-    # Trials: Add optional columns if missing
-    if 'SiteforVisit' not in trials_df.columns:
-        trials_df['SiteforVisit'] = 'Default Site'
-    if 'Payment' not in trials_df.columns:
-        trials_df['Payment'] = 0
-    if 'ToleranceBefore' not in trials_df.columns:
-        trials_df['ToleranceBefore'] = 0
-    if 'ToleranceAfter' not in trials_df.columns:
-        trials_df['ToleranceAfter'] = 0
-    
-    # Validate required columns
-    validate_required_columns(patients_df, {"PatientID", "Study", "StartDate"}, "Patients file")
-    validate_required_columns(trials_df, {"Study", "Day", "VisitName"}, "Trials file")
+    # Validate required columns - this will now fail fast if missing
+    validate_required_columns(patients_df, {"PatientID", "Study", "StartDate", "PatientPractice"}, "Patients file")
+    validate_required_columns(trials_df, {"Study", "Day", "VisitName", "SiteforVisit"}, "Trials file")
 
     # Standardize visit columns
     trials_df = standardize_visit_columns(trials_df)
@@ -69,22 +54,7 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         
         actual_visits_df = standardize_visit_columns(actual_visits_df)
 
-    # Check for SiteforVisit column and clean up values
-    if "SiteforVisit" not in trials_df.columns:
-        trials_df["SiteforVisit"] = "Default Site"
-    else:
-        # Clean up SiteforVisit values - replace empty/invalid with proper site names
-        trials_df["SiteforVisit"] = trials_df["SiteforVisit"].fillna("")
-        trials_df["SiteforVisit"] = trials_df["SiteforVisit"].astype(str).str.strip()
-        
-        # Replace invalid values with proper site names based on study
-        invalid_mask = trials_df["SiteforVisit"].isin(['', 'nan', 'None', 'null', 'NULL', 'Unknown Site'])
-        if invalid_mask.any():
-            log_activity(f"Found {invalid_mask.sum()} invalid SiteforVisit values, replacing with proper site names", level='info')
-            # Use the study name to determine the site
-            trials_df.loc[invalid_mask, "SiteforVisit"] = trials_df.loc[invalid_mask, "Study"].apply(
-                lambda study: "Ashfields" if "BaxDuo" in str(study) else "Ashfields" if "Maritime" in str(study) else "Ashfields"
-            )
+    # REMOVED: SiteforVisit default handling - validation layer now ensures valid data
 
     # Prepare actual visits data
     unmatched_visits = []
@@ -226,7 +196,33 @@ def prepare_trials_data(trials_df):
     # Process data types
     trials_df["Study"] = safe_string_conversion(trials_df["Study"])
     trials_df["VisitName"] = safe_string_conversion(trials_df["VisitName"])
-    trials_df["SiteforVisit"] = safe_string_conversion(trials_df["SiteforVisit"])
+    
+    # NEW: Validate SiteforVisit before processing
+    if 'SiteforVisit' not in trials_df.columns:
+        error_msg = "❌ DATA INTEGRITY ERROR: SiteforVisit column is missing from trials data. "
+        error_msg += "All trial visits must specify where they are performed. "
+        error_msg += "This should have been caught by validation - please check your data files."
+        log_activity(error_msg, level='error')
+        raise ValueError(error_msg)
+    
+    trials_df["SiteforVisit"] = safe_string_conversion(trials_df["SiteforVisit"], "")
+    
+    # Check for invalid values
+    invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+    invalid_mask = trials_df['SiteforVisit'].isin(invalid_sites)
+    
+    if invalid_mask.any():
+        # Create error message without assuming Day column exists yet
+        invalid_count = invalid_mask.sum()
+        invalid_studies = trials_df[invalid_mask]['Study'].unique()[:5]
+        error_msg = f"❌ DATA INTEGRITY ERROR: {invalid_count} trial visit(s) have invalid SiteforVisit. "
+        error_msg += f"Affected studies: {', '.join(map(str, invalid_studies))}"
+        if len(trials_df[invalid_mask]['Study'].unique()) > 5:
+            error_msg += f" and {len(trials_df[invalid_mask]['Study'].unique()) - 5} more"
+        error_msg += ". All visits must specify where they are performed (Ashfields, Kiltearn, etc)."
+        log_activity(error_msg, level='error')
+        raise ValueError(error_msg)
+    # END NEW VALIDATION
     
     try:
         trials_df["Day"] = pd.to_numeric(trials_df["Day"], errors='coerce').fillna(1).astype(int)
@@ -263,14 +259,32 @@ def prepare_patients_data(patients_df, trials_df):
         log_activity("Removing redundant 'OriginSite' column", level='info')
         patients_df = patients_df.drop('OriginSite', axis=1)
     
-    # Ensure PatientPractice is the primary site column
+    # CHANGED: Raise error instead of silently defaulting to 'Unknown Site'
     if 'PatientPractice' not in patients_df.columns:
-        log_activity("No PatientPractice column found - this is required for site information", level='warning')
-        patients_df['PatientPractice'] = 'Unknown Site'
-    else:
-        # Clean up PatientPractice values
-        patients_df['PatientPractice'] = safe_string_conversion(patients_df['PatientPractice'], "Unknown Site")
-        log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
+        error_msg = "❌ DATA INTEGRITY ERROR: PatientPractice column is missing from patients data. "
+        error_msg += "All patients must have a recruitment site (Ashfields or Kiltearn). "
+        error_msg += "This should have been caught by validation - please check your data files."
+        log_activity(error_msg, level='error')
+        raise ValueError(error_msg)
+    
+    # Validate that all patients have valid PatientPractice values
+    patients_df['PatientPractice'] = safe_string_conversion(patients_df['PatientPractice'], "")
+    
+    # Check for invalid values
+    invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+    invalid_mask = patients_df['PatientPractice'].isin(invalid_sites)
+    
+    if invalid_mask.any():
+        invalid_patients = patients_df[invalid_mask]['PatientID'].tolist()
+        error_msg = f"❌ DATA INTEGRITY ERROR: {len(invalid_patients)} patient(s) have invalid PatientPractice. "
+        error_msg += f"Invalid patients: {', '.join(map(str, invalid_patients[:10]))}"
+        if len(invalid_patients) > 10:
+            error_msg += f" and {len(invalid_patients) - 10} more"
+        error_msg += ". All patients must have recruitment site (Ashfields or Kiltearn)."
+        log_activity(error_msg, level='error')
+        raise ValueError(error_msg)
+    
+    log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
     
     return patients_df
 

@@ -468,11 +468,21 @@ def main():
                         st.error(f"  • {msg}")
                     st.stop()
                 
+                # Block processing if validation found errors
+                if any(msg.startswith('❌') for msg in patients_validation):
+                    st.error("❌ Patients file has validation errors - processing stopped")
+                    st.stop()
+                
                 trials_df, trials_validation = validate_file_upload(trials_file, 'trials')
                 if trials_df is None:
                     st.error("❌ Trials file validation failed!")
                     for msg in trials_validation:
                         st.error(f"  • {msg}")
+                    st.stop()
+                
+                # Block processing if validation found errors
+                if any(msg.startswith('❌') for msg in trials_validation):
+                    st.error("❌ Trials file has validation errors - processing stopped")
                     st.stop()
                 
                 actual_visits_df = None
@@ -482,6 +492,11 @@ def main():
                         st.error("❌ Visits file validation failed!")
                         for msg in visits_validation:
                             st.error(f"  • {msg}")
+                        st.stop()
+                    
+                    # Block processing if validation found errors
+                    if any(msg.startswith('❌') for msg in visits_validation):
+                        st.error("❌ Visits file has validation errors - processing stopped")
                         st.stop()
                 
                 st.markdown("**📋 File Validation Results:**")

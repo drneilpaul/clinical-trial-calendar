@@ -85,7 +85,18 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         else:
             visit_status = f"✅ {visit_name}"
     
-    site = str(visit.get("SiteforVisit", "Unknown Site"))
+    # CHANGED: Validate site exists and is valid, don't default
+    site = visit.get("SiteforVisit")
+    
+    if pd.isna(site) or site in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'Default Site']:
+        error_msg = f"❌ DATA ERROR: Visit '{visit_name}' for patient {patient_id} has invalid SiteforVisit: '{site}'"
+        from helpers import log_activity
+        log_activity(error_msg, level='error')
+        # Return None to skip this visit rather than using a default
+        return None, []
+    
+    site = str(site)
+    # END CHANGED
     
     # Create main visit record
     visit_record = {
@@ -131,7 +142,18 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     except:
         payment = 0.0
     
-    site = str(visit.get("SiteforVisit", "Unknown Site"))
+    # CHANGED: Validate site exists and is valid, don't default
+    site = visit.get("SiteforVisit")
+    
+    if pd.isna(site) or site in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'Default Site']:
+        error_msg = f"❌ DATA ERROR: Scheduled visit '{visit_name}' for patient {patient_id} has invalid SiteforVisit: '{site}'"
+        from helpers import log_activity
+        log_activity(error_msg, level='error')
+        # Return empty list to skip this visit rather than using a default
+        return [], 0
+    
+    site = str(site)
+    # END CHANGED
     
     # Style the visit name as predicted (no actual visit yet)
     visit_display = f"📋 {visit_name} (Predicted)"
