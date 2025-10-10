@@ -470,6 +470,55 @@ def visit_entry_modal():
             height=100
         )
     
+    # Duplicate checking logic
+    def check_for_duplicates(patient_id, study, visit_name, actual_date, visits_df):
+        """
+        Check for duplicate visits based on PatientID + Study + VisitName + ActualDate
+        
+        Returns:
+            tuple: (is_exact_duplicate, is_same_visit_different_date, existing_visit_info)
+        """
+        if visits_df is None or visits_df.empty:
+            return False, False, None
+        
+        # Normalize date for comparison
+        try:
+            if isinstance(actual_date, str):
+                normalized_date = pd.to_datetime(actual_date, dayfirst=True).date()
+            else:
+                normalized_date = actual_date.date() if hasattr(actual_date, 'date') else actual_date
+        except:
+            normalized_date = actual_date
+        
+        # Normalize existing dates in visits_df for comparison
+        visits_df_copy = visits_df.copy()
+        if 'ActualDate' in visits_df_copy.columns:
+            visits_df_copy['ActualDate_normalized'] = pd.to_datetime(visits_df_copy['ActualDate'], dayfirst=True, errors='coerce').dt.date
+        
+        # Check for exact duplicate (same PatientID + Study + VisitName + ActualDate)
+        exact_match = visits_df_copy[
+            (visits_df_copy['PatientID'].astype(str) == str(patient_id)) &
+            (visits_df_copy['Study'].astype(str) == str(study)) &
+            (visits_df_copy['VisitName'].astype(str).str.strip().str.lower() == str(visit_name).strip().lower()) &
+            (visits_df_copy['ActualDate_normalized'] == normalized_date)
+        ]
+        
+        if not exact_match.empty:
+            return True, False, exact_match.iloc[0]
+        
+        # Check for same visit on different date (same PatientID + Study + VisitName, different ActualDate)
+        same_visit_different_date = visits_df_copy[
+            (visits_df_copy['PatientID'].astype(str) == str(patient_id)) &
+            (visits_df_copy['Study'].astype(str) == str(study)) &
+            (visits_df_copy['VisitName'].astype(str).str.strip().str.lower() == str(visit_name).strip().lower()) &
+            (visits_df_copy['ActualDate_normalized'] != normalized_date)
+        ]
+        
+        if not same_visit_different_date.empty:
+            return False, True, same_visit_different_date.iloc[0]
+        
+        return False, False, None
+
     # Validation and submission
     col_submit, col_cancel = st.columns([1, 1])
     
@@ -477,6 +526,43 @@ def visit_entry_modal():
         if st.button("📝 Record Visit", type="primary", width='stretch'):
             # Format the visit date
             formatted_date = visit_date.strftime('%d/%m/%Y')
+            
+            # Check for duplicates before proceeding
+            is_exact_duplicate, is_same_visit_different_date, existing_visit = check_for_duplicates(
+                selected_patient_id, patient_study, selected_visit_name, formatted_date, visits_df
+            )
+            
+            if is_exact_duplicate:
+                st.error(f"❌ **Duplicate Visit Detected!**\n\n"
+                        f"This exact visit already exists:\n"
+                        f"- **Patient:** {existing_visit['PatientID']}\n"
+                        f"- **Study:** {existing_visit['Study']}\n"
+                        f"- **Visit:** {existing_visit['VisitName']}\n"
+                        f"- **Date:** {existing_visit['ActualDate']}\n\n"
+                        f"Please check your data and try again with a different date or visit.")
+                return
+            
+            if is_same_visit_different_date:
+                st.warning(f"⚠️ **Same Visit on Different Date Detected**\n\n"
+                          f"This visit already exists on a different date:\n"
+                          f"- **Patient:** {existing_visit['PatientID']}\n"
+                          f"- **Study:** {existing_visit['Study']}\n"
+                          f"- **Visit:** {existing_visit['VisitName']}\n"
+                          f"- **Existing Date:** {existing_visit['ActualDate']}\n"
+                          f"- **New Date:** {formatted_date}\n\n"
+                          f"This might be legitimate (e.g., rescheduled visit).")
+                
+                # Add Force Add option
+                col_force, col_cancel_force = st.columns([1, 1])
+                with col_force:
+                    force_add = st.button("✅ Force Add Visit", type="secondary", help="Add this visit even though a similar one exists")
+                with col_cancel_force:
+                    cancel_add = st.button("❌ Cancel", type="secondary")
+                
+                if cancel_add:
+                    return
+                elif not force_add:
+                    return
             
             # Get visit details from trial schedule
             visit_details = study_visits[study_visits['VisitName'] == selected_visit_name].iloc[0]
@@ -497,7 +583,7 @@ def visit_entry_modal():
                     import database as db
                     # Convert dict to DataFrame
                     visit_df = pd.DataFrame([new_visit])
-                    success = db.append_visit_to_database(visit_df)
+                    success, message, code = db.append_visit_to_database(visit_df)
                     
                     if success:
                         st.success(f"Visit recorded successfully for patient {selected_patient_id}!")
@@ -508,8 +594,16 @@ def visit_entry_modal():
                         st.session_state.show_visit_form = False
                         st.rerun()
                     else:
-                        st.error(f"Failed to record visit to database")
-                        log_activity(f"Failed to record visit", level='error')
+                        # Handle different error types
+                        if code == 'DUPLICATE_FOUND':
+                            st.error(f"❌ **Duplicate Visit Detected!**\n\n{message}\n\nPlease check your data and try again with a different date or visit.")
+                        elif code == 'EMPTY_DATA':
+                            st.error(f"❌ **No Data Provided**\n\n{message}")
+                        elif code == 'NO_CLIENT':
+                            st.error(f"❌ **Database Connection Error**\n\n{message}")
+                        else:
+                            st.error(f"❌ **Database Error**\n\n{message}")
+                        log_activity(f"Failed to record visit: {message}", level='error')
                         
                 except Exception as e:
                     st.error(f"Database error: {str(e)}")
@@ -526,21 +620,23 @@ def visit_entry_modal():
             st.session_state.show_visit_form = False
             st.rerun()
 
-@st.dialog("📅 Add Study Event", width="large")
+@st.dialog("📅 Record Study Event", width="large")
 def study_event_entry_modal():
-    """Modal dialog for adding new study events to trial schedule"""
+    """Modal dialog for recording actual SIV/Monitor events"""
     
     # Check if we're using database
     load_from_database = st.session_state.get('use_database', False)
     
-    st.markdown("### Add New Study Event to Trial Schedule")
+    st.markdown("### Record Study Event (SIV/Monitor)")
     
     # Load required data based on mode
     if load_from_database:
         import database as db
         trial_schedule_df = db.fetch_all_trial_schedules()
+        visits_df = db.fetch_all_actual_visits()
     else:
         trials_file = st.session_state.get('trials_file')
+        actual_visits_file = st.session_state.get('actual_visits_file')
         
         if not trials_file:
             st.error("Trials file not available. Please upload files first.")
@@ -550,6 +646,7 @@ def study_event_entry_modal():
             return
         
         trial_schedule_df = load_file(trials_file)
+        visits_df = load_file(actual_visits_file) if actual_visits_file else pd.DataFrame()
     
     if trial_schedule_df is None or trial_schedule_df.empty:
         st.error("Unable to load Trial Schedule data.")
@@ -571,24 +668,35 @@ def study_event_entry_modal():
             help="Select the study for this event"
         )
         
-        visit_name = st.text_input(
-            "Visit Name*",
-            help="Enter the name of the visit/event (e.g., 'Follow-up 1')"
+        event_type = st.selectbox(
+            "Event Type*",
+            options=["SIV", "Monitor"],
+            help="Site Initiation Visit or Monitoring Visit"
+        )
+        
+        event_name = st.text_input(
+            "Event Name*",
+            help="Enter the name of the event (e.g., 'Site Initiation Visit', 'Monitoring Visit 1')"
         )
     
     with col2:
-        day = st.number_input(
-            "Day*",
-            min_value=-365,
-            max_value=365,
-            value=0,
-            help="Day relative to study start (negative for screening, positive for follow-up)"
+        event_date = st.date_input(
+            "Event Date*",
+            value=date.today(),
+            format="DD/MM/YYYY",
+            help="Actual date when the event occurred"
         )
         
-        event_type = st.selectbox(
-            "Event Type",
-            options=["Visit", "Assessment", "Follow-up", "Screening", "Other"],
-            help="Optional: Type of event"
+        status = st.selectbox(
+            "Status*",
+            options=["Completed", "Proposed", "Cancelled"],
+            help="Status of the event"
+        )
+        
+        site = st.selectbox(
+            "Site*",
+            options=["Ashfields", "Kiltearn"],
+            help="Which site hosted this event"
         )
     
     notes = st.text_area(
@@ -597,32 +705,87 @@ def study_event_entry_modal():
         height=80
     )
     
+    # Duplicate checking logic for study events
+    def check_study_event_duplicates(study, event_name, event_date, visits_df):
+        """
+        Check for duplicate study events based on Study + EventName + EventDate
+        
+        Returns:
+            tuple: (is_exact_duplicate, existing_event_info)
+        """
+        if visits_df is None or visits_df.empty:
+            return False, None
+        
+        # Normalize date for comparison
+        try:
+            if isinstance(event_date, str):
+                normalized_date = pd.to_datetime(event_date, dayfirst=True).date()
+            else:
+                normalized_date = event_date.date() if hasattr(event_date, 'date') else event_date
+        except:
+            normalized_date = event_date
+        
+        # Normalize existing dates in visits_df for comparison
+        visits_df_copy = visits_df.copy()
+        if 'ActualDate' in visits_df_copy.columns:
+            visits_df_copy['ActualDate_normalized'] = pd.to_datetime(visits_df_copy['ActualDate'], dayfirst=True, errors='coerce').dt.date
+        
+        # Check for exact duplicate (same Study + EventName + EventDate)
+        # Only check study events (VisitType in ['siv', 'monitor'])
+        study_events = visits_df_copy[
+            visits_df_copy.get('VisitType', 'patient').isin(['siv', 'monitor'])
+        ]
+        
+        exact_match = study_events[
+            (study_events['Study'].astype(str) == str(study)) &
+            (study_events['VisitName'].astype(str).str.strip().str.lower() == str(event_name).strip().lower()) &
+            (study_events['ActualDate_normalized'] == normalized_date)
+        ]
+        
+        if not exact_match.empty:
+            return True, exact_match.iloc[0]
+        
+        return False, None
+    
     # Validation and submission
     col_submit, col_cancel = st.columns([1, 1])
     
     with col_submit:
-        if st.button("📅 Add Event", type="primary", width='stretch'):
+        if st.button("📅 Record Event", type="primary", width='stretch'):
             # Validate required fields
-            if not visit_name or not selected_study:
-                st.error("Please fill in all required fields (Study and Visit Name)")
+            if not event_name or not selected_study:
+                st.error("Please fill in all required fields (Study and Event Name)")
                 return
             
-            # Check for duplicate event
-            existing_events = trial_schedule_df[
-                (trial_schedule_df['Study'] == selected_study) &
-                (trial_schedule_df['VisitName'] == visit_name)
-            ]
+            # Format the event date
+            formatted_date = event_date.strftime('%d/%m/%Y')
             
-            if not existing_events.empty:
-                st.error(f"Event '{visit_name}' already exists for study '{selected_study}'!")
+            # Check for duplicates before proceeding
+            is_exact_duplicate, existing_event = check_study_event_duplicates(
+                selected_study, event_name, formatted_date, visits_df
+            )
+            
+            if is_exact_duplicate:
+                st.error(f"❌ **Duplicate Event Detected!**\n\n"
+                        f"This exact event already exists:\n"
+                        f"- **Study:** {existing_event['Study']}\n"
+                        f"- **Event:** {existing_event['VisitName']}\n"
+                        f"- **Date:** {existing_event['ActualDate']}\n\n"
+                        f"Please check your data and try again with a different date or event name.")
                 return
+            
+            # Create pseudo-patient ID based on event type
+            visit_type = event_type.lower()
+            pseudo_patient_id = f"{event_type.upper()}_{selected_study}"
             
             # Create new study event data
             new_event = {
+                'PatientID': pseudo_patient_id,
                 'Study': selected_study,
-                'VisitName': visit_name,
-                'Day': int(day),
-                'EventType': event_type,
+                'VisitName': event_name,
+                'ActualDate': formatted_date,
+                'VisitType': visit_type,
+                'Status': status.lower(),
                 'Notes': notes if notes else ''
             }
             
@@ -632,27 +795,35 @@ def study_event_entry_modal():
                     import database as db
                     # Convert dict to DataFrame
                     event_df = pd.DataFrame([new_event])
-                    success = db.append_trial_schedule_to_database(event_df)
+                    success, message, code = db.append_visit_to_database(event_df)
                     
                     if success:
-                        st.success(f"Study event '{visit_name}' added successfully!")
-                        log_activity(f"Added study event {visit_name} to {selected_study}", level='success')
+                        st.success(f"Study event '{event_name}' recorded successfully!")
+                        log_activity(f"Recorded study event {event_name} for {selected_study}", level='success')
                         
                         # Trigger data refresh
                         st.session_state.data_refresh_needed = True
                         st.session_state.show_study_event_form = False
                         st.rerun()
                     else:
-                        st.error(f"Failed to add study event to database")
-                        log_activity(f"Failed to add study event", level='error')
+                        # Handle different error types
+                        if code == 'DUPLICATE_FOUND':
+                            st.error(f"❌ **Duplicate Event Detected!**\n\n{message}\n\nPlease check your data and try again.")
+                        elif code == 'EMPTY_DATA':
+                            st.error(f"❌ **No Data Provided**\n\n{message}")
+                        elif code == 'NO_CLIENT':
+                            st.error(f"❌ **Database Connection Error**\n\n{message}")
+                        else:
+                            st.error(f"❌ **Database Error**\n\n{message}")
+                        log_activity(f"Failed to record study event: {message}", level='error')
                         
                 except Exception as e:
                     st.error(f"Database error: {str(e)}")
-                    log_activity(f"Database error adding study event: {str(e)}", level='error')
+                    log_activity(f"Database error recording study event: {str(e)}", level='error')
             else:
                 # File mode - update session state and offer download
                 st.session_state.new_study_event_data = new_event
-                log_activity(f"Created new study event {visit_name} for {selected_study}", level='success')
+                log_activity(f"Created new study event {event_name} for {selected_study}", level='success')
                 st.session_state.show_study_event_form = False
                 st.rerun()
     

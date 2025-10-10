@@ -66,22 +66,14 @@ def build_calendar_dataframe(visits_df, patients_df):
     site_values = visits_df["SiteofVisit"].dropna().unique()
     
     # Also include sites that have recruited patients (even if they have no visits)
-    from helpers import get_patient_origin_site
     patient_sites = set()
-    for _, patient_row in patients_df.iterrows():
-        site = get_patient_origin_site(patient_row)
-        if site and site not in ['Unknown Site', 'Unknown Origin', 'Default Site']:
-            patient_sites.add(site)
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in patients_df.columns:
+            patient_sites.update(patients_df[candidate].dropna().unique())
     
     # Combine visit sites and patient recruitment sites
     all_sites = set(site_values) | patient_sites
-    
-    # Filter out invalid site names
-    invalid_sites = ['nan', 'None', '', 'null', 'NULL', 'Unknown Site', 'Unknown Origin', 'Default Site']
-    unique_visit_sites = sorted([
-        site for site in all_sites 
-        if site and str(site).strip() and str(site).strip() not in invalid_sites
-    ])
+    unique_visit_sites = sorted([site for site in all_sites if site and str(site) != 'nan'])
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
@@ -112,9 +104,17 @@ def build_calendar_dataframe(visits_df, patients_df):
                 ]
                 
                 if not patient_row.empty:
-                    # Use centralized helper function for consistent site detection
-                    from helpers import get_patient_origin_site
-                    origin_site = get_patient_origin_site(patient_row.iloc[0], default="Unknown Origin")
+                    # Try to get origin site from various possible columns
+                    origin_site = ""
+                    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                        if candidate in patient_row.columns and not pd.isna(patient_row.iloc[0][candidate]):
+                            origin_site = str(patient_row.iloc[0][candidate]).strip()
+                            if origin_site and origin_site != 'nan':
+                                break
+                    
+                    # If still empty, use a default
+                    if not origin_site:
+                        origin_site = "Unknown Origin"
                     
                     col_id = f"{study}_{patient_id}"
                     
@@ -257,28 +257,17 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
             else:
                 # Handle regular patient visits
                 base_col_id = f"{study}_{pid}"
-                visit_site = visit["SiteofVisit"]
                 
                 # Find the actual column ID (may have site suffix)
                 col_id = None
-                # First try exact match (patient only at one site)
                 if base_col_id in calendar_df.columns:
                     col_id = base_col_id
                 else:
-                    # Patient visits multiple sites - find the correct site column
-                    # Column format: Study_PatientID_SiteName
-                    expected_col_with_site = f"{base_col_id}_{visit_site}"
-                    if expected_col_with_site in calendar_df.columns:
-                        col_id = expected_col_with_site
-                        log_activity(f"✅ Correct site column found: {expected_col_with_site} for visit at {visit_site}", level='info')
-                    else:
-                        # Fallback: look for any column with this patient
-                        # (shouldn't happen if calendar built correctly)
-                        for col in calendar_df.columns:
-                            if col.startswith(base_col_id + "_"):
-                                col_id = col
-                                log_activity(f"⚠️ Warning: Using fallback column {col} for visit at {visit_site} (expected {expected_col_with_site})", level='warning')
-                                break
+                    # Look for suffixed version
+                    for col in calendar_df.columns:
+                        if col.startswith(base_col_id + "_"):
+                            col_id = col
+                            break
                 
                 if col_id and col_id in calendar_df.columns:
                     current_value = calendar_df.at[i, col_id]
@@ -286,25 +275,41 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     if current_value == "":
                         calendar_df.at[i, col_id] = visit_info
                     else:
-                        # Handle multiple visits on same day - SIMPLIFIED LOGIC (no tolerance markers)
+                        # Handle multiple visits on same day - IMPROVED LOGIC
                         
+                        # If this is a tolerance marker
+                        if visit_info in ["-", "+"]:
+                            # Only add if there's no actual visit already there
+                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "📋"]):
+                                if current_value in ["-", "+", ""]:
+                                    calendar_df.at[i, col_id] = visit_info
+                                else:
+                                    calendar_df.at[i, col_id] = f"{current_value}, {visit_info}"
+                        # If this is a planned visit (📅)
+                        elif "📅" in visit_info and "(Planned)" in visit_info:
+                            # Only add if there's no actual visit on this date
+                            if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                if current_value in ["-", "+", ""]:
+                                    calendar_df.at[i, col_id] = visit_info
+                                else:
+                                    calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                         # If this is a predicted visit (📋) 
-                        if "📋" in visit_info and "(Predicted)" in visit_info:
-                            # Only add if cell is empty
-                            if current_value == "":
+                        elif "📋" in visit_info and "(Predicted)" in visit_info:
+                            # Only add if cell is empty or has tolerance markers
+                            if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
-                            elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                            elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅"]):
                                 calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
-                        # If this is an actual visit (✅, ⚠️)
+                        # If this is an actual visit (✅, 🔴, ⚠️)
                         else:
                             # Actual visits take priority - always add them
-                            if current_value == "":
+                            if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                                 if is_actual:
-                                    log_activity(f"    -> Placed in empty cell", level='info')
+                                    log_activity(f"    -> Placed in cell with tolerance markers", level='info')
                             else:
                                 # Check if there's already an actual visit
-                                if any(symbol in str(current_value) for symbol in ["✅", "⚠️"]):
+                                if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                     # Multiple actual visits on same day
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                                     if is_actual:
@@ -321,17 +326,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                         log_activity(f"  ERROR: Could not find column for actual visit {base_col_id}. Available similar columns: {available_cols}", level='error')
 
                 # Count payments for actual visits and scheduled main visits
-                # Only count payment if:
-                # 1. It's an actual visit, OR
-                # 2. It's a scheduled visit (not actual) AND payment > 0 (not a planned marker)
-                should_count_payment = False
-                if is_actual:
-                    should_count_payment = True
-                elif not is_actual and payment > 0 and visit_info not in ("-", "+"):
-                    # This is a genuine scheduled visit, not a planned marker
-                    should_count_payment = True
-
-                if should_count_payment:
+                if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
                     income_col = f"{study} Income"
                     if income_col in calendar_df.columns:
                         calendar_df.at[i, income_col] += payment
@@ -377,25 +372,5 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                         actual_visits_in_calendar += 1
         
         log_activity(f"DEBUG: {actual_visits_in_calendar} actual visit markers placed in calendar", level='info')
-    
-    # Verification logging
-    log_activity("=" * 50, level='info')
-    log_activity("PAYMENT VERIFICATION CHECK", level='info')
-    log_activity("=" * 50, level='info')
-
-    # Count payments in visits_df
-    total_payment_in_visits = visits_df[visits_df['IsActual'] == True]['Payment'].sum()
-    predicted_payment_in_visits = visits_df[visits_df['IsActual'] == False]['Payment'].sum()
-    log_activity(f"Total payment in actual visits: £{total_payment_in_visits:,.2f}", level='info')
-    log_activity(f"Total payment in predicted visits: £{predicted_payment_in_visits:,.2f}", level='info')
-
-    # Count payments in calendar
-    income_columns = [col for col in calendar_df.columns if 'Income' in col and col != 'Daily Total']
-    total_in_calendar = sum(calendar_df[col].sum() for col in income_columns)
-    log_activity(f"Total payment counted in calendar: £{total_in_calendar:,.2f}", level='info')
-
-    # Planned markers removed - no verification needed
-
-    log_activity("=" * 50, level='info')
     
     return calendar_df

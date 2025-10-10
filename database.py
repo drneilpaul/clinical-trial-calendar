@@ -107,7 +107,9 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'study': 'Study',
                 'visit_name': 'VisitName',
                 'actual_date': 'ActualDate',
-                'notes': 'Notes'
+                'notes': 'Notes',
+                'visit_type': 'VisitType',
+                'status': 'Status'
             })
             
             if 'ActualDate' in df.columns:
@@ -118,7 +120,7 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                     log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
             return df
-        return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType', 'Status'])
     except Exception as e:
         st.error(f"Error fetching actual visits: {e}")
         return None
@@ -283,17 +285,38 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
         log_activity(f"Error appending patient: {e}", level='error')
         return False
 
-def append_visit_to_database(visit_df: pd.DataFrame) -> bool:
-    """Append new actual visit(s) to database without clearing existing data"""
+def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
+    """
+    Append new actual visit(s) to database with duplicate checking
+    
+    Returns:
+        tuple: (success: bool, message: str, code: str)
+        - success: Whether the operation succeeded
+        - message: Human-readable message for the user
+        - code: Status code ('SUCCESS', 'DUPLICATE_FOUND', 'ERROR', 'EMPTY_DATA', 'NO_CLIENT')
+    """
     try:
         client = get_supabase_client()
         if client is None:
             log_activity("Cannot append visit: Supabase client not available", level='error')
-            return False
+            return False, "Database connection unavailable", 'NO_CLIENT'
         
         if visit_df is None or visit_df.empty:
             log_activity("Cannot append visit: Empty DataFrame", level='error')
-            return False
+            return False, "No visit data provided", 'EMPTY_DATA'
+        
+        # Check for duplicates before inserting
+        duplicate_check_result = check_visit_duplicates(visit_df, client)
+        if duplicate_check_result['has_duplicates']:
+            duplicate_info = duplicate_check_result['duplicates']
+            if duplicate_check_result['is_exact_duplicate']:
+                message = f"Exact duplicate found: {duplicate_info['patient_id']} - {duplicate_info['visit_name']} on {duplicate_info['actual_date']}"
+                log_activity(f"Duplicate visit prevented: {message}", level='warning')
+                return False, message, 'DUPLICATE_FOUND'
+            else:
+                # Same visit on different date - allow but warn
+                message = f"Same visit exists on different date: {duplicate_info['patient_id']} - {duplicate_info['visit_name']} (existing: {duplicate_info['actual_date']})"
+                log_activity(f"Visit with different date detected: {message}", level='info')
         
         records = []
         for _, row in visit_df.iterrows():
@@ -310,17 +333,118 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> bool:
                 'study': str(row['Study']),
                 'visit_name': str(row['VisitName']),
                 'actual_date': actual_date_str,
-                'notes': str(row.get('Notes', ''))
+                'notes': str(row.get('Notes', '')),
+                'visit_type': str(row.get('VisitType', 'patient')),
+                'status': str(row.get('Status', 'completed'))
             }
             records.append(record)
         
         response = client.table('actual_visits').insert(records).execute()
         log_activity(f"Appended {len(records)} visit(s) to database", level='success')
-        return True
+        return True, f"Successfully added {len(records)} visit(s)", 'SUCCESS'
         
     except Exception as e:
         log_activity(f"Error appending visit: {e}", level='error')
-        return False
+        return False, f"Database error: {str(e)}", 'ERROR'
+
+def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
+    """
+    Check for duplicate visits in the database
+    
+    Args:
+        visit_df: DataFrame containing visit(s) to check
+        client: Supabase client instance
+    
+    Returns:
+        dict: {
+            'has_duplicates': bool,
+            'is_exact_duplicate': bool,
+            'duplicates': dict with duplicate info
+        }
+    """
+    try:
+        # Get all existing visits from database
+        response = client.table('actual_visits').select("*").execute()
+        existing_visits = pd.DataFrame(response.data) if response.data else pd.DataFrame()
+        
+        if existing_visits.empty:
+            return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
+        
+        # Normalize column names to match our format
+        existing_visits = existing_visits.rename(columns={
+            'patient_id': 'PatientID',
+            'study': 'Study', 
+            'visit_name': 'VisitName',
+            'actual_date': 'ActualDate'
+        })
+        
+        # Check each visit in the input DataFrame
+        for _, new_visit in visit_df.iterrows():
+            # Normalize date for comparison
+            new_date = new_visit.get('ActualDate')
+            if pd.notna(new_date):
+                if isinstance(new_date, str):
+                    new_date_normalized = pd.to_datetime(new_date, dayfirst=True).date()
+                else:
+                    new_date_normalized = new_date.date() if hasattr(new_date, 'date') else new_date
+            else:
+                new_date_normalized = None
+            
+            # Normalize existing dates
+            existing_visits_copy = existing_visits.copy()
+            if 'ActualDate' in existing_visits_copy.columns:
+                existing_visits_copy['ActualDate_normalized'] = pd.to_datetime(
+                    existing_visits_copy['ActualDate'], dayfirst=True, errors='coerce'
+                ).dt.date
+            
+            # Check for exact duplicate (same PatientID + Study + VisitName + ActualDate)
+            exact_match = existing_visits_copy[
+                (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
+                (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
+                (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
+                (existing_visits_copy['ActualDate_normalized'] == new_date_normalized)
+            ]
+            
+            if not exact_match.empty:
+                duplicate_info = exact_match.iloc[0]
+                return {
+                    'has_duplicates': True,
+                    'is_exact_duplicate': True,
+                    'duplicates': {
+                        'patient_id': duplicate_info['PatientID'],
+                        'study': duplicate_info['Study'],
+                        'visit_name': duplicate_info['VisitName'],
+                        'actual_date': duplicate_info['ActualDate']
+                    }
+                }
+            
+            # Check for same visit on different date
+            same_visit_different_date = existing_visits_copy[
+                (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
+                (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
+                (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
+                (existing_visits_copy['ActualDate_normalized'] != new_date_normalized)
+            ]
+            
+            if not same_visit_different_date.empty:
+                duplicate_info = same_visit_different_date.iloc[0]
+                return {
+                    'has_duplicates': True,
+                    'is_exact_duplicate': False,
+                    'duplicates': {
+                        'patient_id': duplicate_info['PatientID'],
+                        'study': duplicate_info['Study'],
+                        'visit_name': duplicate_info['VisitName'],
+                        'actual_date': duplicate_info['ActualDate']
+                    }
+                }
+        
+        return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
+        
+    except Exception as e:
+        log_activity(f"Error checking visit duplicates: {e}", level='error')
+        # If we can't check duplicates, allow the insert to proceed
+        return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
 
 def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
     """Append new trial schedule(s) to database without clearing existing data"""

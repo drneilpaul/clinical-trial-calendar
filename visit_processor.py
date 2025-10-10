@@ -6,7 +6,7 @@ def process_study_events(event_templates, actual_visits_df):
     """Process all study-level events (SIV, monitor, etc.)"""
     event_records = []
     
-    if actual_visits_df is None or event_templates.empty:
+    if actual_visits_df is None:
         return event_records
     
     study_events = actual_visits_df[
@@ -32,33 +32,36 @@ def process_study_events(event_templates, actual_visits_df):
         if pd.isna(event_visit.get('ActualDate')):
             continue
         
-        template = event_templates[
-            (event_templates['Study'] == study) & 
-            (event_templates['VisitName'] == visit_name) &
-            (event_templates['VisitType'] == visit_type)
-        ]
+        # Try to find template for payment information, but don't require it
+        payment = 0
+        site = "Unknown Site"
         
-        if template.empty:
-            continue
+        if not event_templates.empty:
+            template = event_templates[
+                (event_templates['Study'] == study) & 
+                (event_templates['VisitName'] == visit_name) &
+                (event_templates['VisitType'] == visit_type)
+            ]
+            
+            if not template.empty:
+                template_row = template.iloc[0]
+                payment = float(template_row.get('Payment', 0))
+                site = safe_string_conversion(template_row.get('SiteforVisit', 'Unknown Site'))
         
-        template_row = template.iloc[0]
-        
+        # Determine status and payment
         if status == 'completed':
-            payment = float(template_row.get('Payment', 0))
             visit_status = f"✅ {visit_type.upper()}_{study}"
             is_actual = True
         elif status == 'proposed':
-            payment = 0
+            payment = 0  # Proposed events don't get payment
             visit_status = f"{visit_type.upper()}_{study} (PROPOSED)"
             is_actual = False
         elif status == 'cancelled':
-            payment = 0
+            payment = 0  # Cancelled events don't get payment
             visit_status = f"{visit_type.upper()}_{study} (CANCELLED)"
             is_actual = False
         else:
             continue
-        
-        site = safe_string_conversion(template_row.get('SiteforVisit', 'Unknown Site'))
         
         event_records.append({
             "Date": event_visit['ActualDate'],

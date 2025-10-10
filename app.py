@@ -13,14 +13,13 @@ from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
-    display_actual_and_predicted_income_by_site
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
-from calculations import prepare_financial_data, calculate_actual_and_predicted_income_by_site
+from calculations import prepare_financial_data
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
 
 def extract_site_summary(patients_df, screen_failures=None):
@@ -29,47 +28,16 @@ def extract_site_summary(patients_df, screen_failures=None):
         return pd.DataFrame()
 
     df = patients_df.copy()
-    
-    # Debug: Log available columns
-    from helpers import log_activity
-    log_activity(f"Available columns in patients_df: {list(df.columns)}", level='info')
-    
-    # Use centralized helper function for consistent site detection
-    from helpers import get_patient_origin_site
-    
-    # Create a standardized site column
-    df['__Site'] = df.apply(lambda row: get_patient_origin_site(row), axis=1)
-    site_col = '__Site'
-    log_activity(f"Using standardized site detection via helper function", level='info')
+    site_col = None
+    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+        if candidate in df.columns:
+            site_col = candidate
+            break
+    if site_col is None:
+        df['__Site'] = 'Unknown Site'
+        site_col = '__Site'
 
-    # Debug: Log site column values before cleaning
-    log_activity(f"Site column '{site_col}' values before cleaning: {df[site_col].unique()[:10]}", level='info')
-
-    # Clean up site values more thoroughly
-    df[site_col] = df[site_col].astype(str).str.strip()
-    # Replace various null-like values with 'Unknown Site'
-    df[site_col] = df[site_col].replace({
-        'nan': 'Unknown Site',
-        'None': 'Unknown Site', 
-        '': 'Unknown Site',
-        'null': 'Unknown Site',
-        'NULL': 'Unknown Site'
-    })
-    
-    # Debug: Log site column values after cleaning
-    log_activity(f"Site column '{site_col}' values after cleaning: {df[site_col].unique()[:10]}", level='info')
-    
-    # If all values are "Unknown Site", try to get better site information
-    if all(site == 'Unknown Site' for site in df[site_col].unique()):
-        log_activity("All sites are 'Unknown Site', attempting to get better site information", level='warning')
-        # OriginSite column has been removed - using PatientPractice as primary source
-    
-    # Filter out any remaining empty or invalid values
-    df = df[df[site_col].notna() & (df[site_col] != '') & (df[site_col] != 'nan')]
-
-    if df.empty:
-        log_activity("No valid site data found after filtering", level='warning')
-        return pd.DataFrame(columns=['Site', 'Patient_Count', 'Studies'])
+    df[site_col] = df[site_col].astype(str).str.strip().replace({'nan': 'Unknown Site'})
 
     site_summary = df.groupby(site_col).agg({
         'PatientID': 'count',
@@ -78,102 +46,7 @@ def extract_site_summary(patients_df, screen_failures=None):
 
     site_summary = site_summary.reset_index()
     site_summary = site_summary.rename(columns={site_col: 'Site'})
-    
-    # Debug: Log final result
-    log_activity(f"Final site summary: {site_summary.to_dict('records')}", level='info')
-    
     return site_summary
-
-def extract_site_summary_from_visits(visits_df, patients_df, screen_failures=None):
-    """Extract site summary statistics from visits data (same source as calendar)"""
-    if visits_df.empty:
-        return pd.DataFrame()
-
-    from helpers import log_activity
-    
-    # Debug: Log visits data
-    log_activity(f"Visits columns: {list(visits_df.columns)}", level='info')
-    if 'SiteofVisit' in visits_df.columns:
-        log_activity(f"SiteofVisit values in visits: {visits_df['SiteofVisit'].unique()}", level='info')
-    
-    # Get unique sites from visits data (same logic as calendar)
-    site_values = visits_df["SiteofVisit"].dropna().unique()
-    log_activity(f"Unique visit sites: {site_values}", level='info')
-    
-    # Also include sites that have recruited patients (even if they have no visits)
-    # Use centralized helper function for consistent site detection
-    from helpers import get_patient_origin_site
-    patient_sites = set()
-    for _, patient_row in patients_df.iterrows():
-        site = get_patient_origin_site(patient_row)
-        if site and site not in ['Unknown Site', 'Unknown Origin', 'Default Site']:
-            patient_sites.add(site)
-    log_activity(f"Patient sites from standardized detection: {sorted(patient_sites)}", level='info')
-    
-    # Add site detection summary logging
-    from helpers import log_site_detection_summary
-    log_site_detection_summary(patients_df, "extract_site_summary_from_visits")
-    
-    # Combine visit sites and patient recruitment sites
-    all_sites = set(site_values) | patient_sites
-    log_activity(f"All sites before filtering: {all_sites}", level='info')
-    
-    # Filter out invalid site names
-    invalid_sites = ['nan', 'None', '', 'null', 'NULL', 'Unknown Site', 'Unknown Origin']
-    all_sites = [site for site in all_sites if site and str(site).strip() and str(site).strip() not in invalid_sites]
-    
-    log_activity(f"All sites after filtering: {all_sites}", level='info')
-    log_activity(f"Filtered out sites: {[site for site in set(site_values) | patient_sites if site not in all_sites]}", level='info')
-    
-    if not all_sites:
-        log_activity("No valid sites found", level='warning')
-        return pd.DataFrame(columns=['Site', 'Patient_Count', 'Studies'])
-    
-    # Create site summary
-    site_summary_data = []
-    
-    for site in all_sites:
-        # Count patients by site
-        if site in site_values:
-            # This site has visits - count patients from visits
-            site_visits = visits_df[visits_df['SiteofVisit'] == site]
-            unique_patients = site_visits['PatientID'].nunique()
-            studies = site_visits['Study'].unique()
-        else:
-            # This site only has recruitment - count from patients data
-            # Use PatientPractice as the primary source
-            if 'PatientPractice' in patients_df.columns:
-                site_patients = patients_df[patients_df['PatientPractice'] == site]
-            else:
-                # Fallback to other columns if PatientPractice doesn't exist
-                conditions = []
-                for candidate in ['PatientSite', 'Practice', 'HomeSite']:
-                    if candidate in patients_df.columns:
-                        conditions.append(patients_df[candidate] == site)
-                
-                if conditions:
-                    # Combine all conditions with OR
-                    combined_condition = conditions[0]
-                    for condition in conditions[1:]:
-                        combined_condition = combined_condition | condition
-                    site_patients = patients_df[combined_condition]
-                else:
-                    # No matching columns found
-                    site_patients = pd.DataFrame()
-            
-            unique_patients = len(site_patients)
-            studies = site_patients['Study'].unique() if not site_patients.empty else []
-        
-        site_summary_data.append({
-            'Site': site,
-            'Patient_Count': unique_patients,
-            'Studies': ', '.join(sorted(map(str, studies)))
-        })
-    
-    site_summary_df = pd.DataFrame(site_summary_data)
-    log_activity(f"Final site summary from visits: {site_summary_df.to_dict('records')}", level='info')
-    
-    return site_summary_df
 
 def check_and_refresh_data():
     """Check if data refresh is needed and reload from database"""
@@ -410,7 +283,7 @@ def setup_file_uploaders():
         with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
             st.caption("Database management and debugging tools")
             
-            if st.button("🧪 Test DB Connection", width='stretch'):
+            if st.button("🧪 Test DB Connection", use_container_width=True):
                 try:
                     if db.test_database_connection():
                         st.success("✅ Database connected and tables found")
@@ -421,13 +294,13 @@ def setup_file_uploaders():
             
             st.divider()
             
-            if st.button("🔍 Check All Database Tables", width='stretch'):
+            if st.button("🔍 Check All Database Tables", use_container_width=True):
                 st.session_state.show_database_contents = True
                 st.rerun()
             
             st.divider()
             
-            if st.button("🔄 Refresh App Data", width='stretch'):
+            if st.button("🔄 Refresh App Data", use_container_width=True):
                 if 'patients_df' in st.session_state:
                     del st.session_state['patients_df']
                 if 'trials_df' in st.session_state:
@@ -445,7 +318,7 @@ def setup_file_uploaders():
             
             st.divider()
             
-            if st.button("📦 Download DB Backup", width='stretch'):
+            if st.button("📦 Download DB Backup", use_container_width=True):
                 backup_zip = db.create_backup_zip()
                 if backup_zip:
                     st.download_button(
@@ -453,7 +326,7 @@ def setup_file_uploaders():
                         data=backup_zip.getvalue(),
                         file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                         mime="application/zip",
-                        width='stretch'
+                        use_container_width=True
                     )
                     log_activity("Database backup created successfully", level='success')
                 else:
@@ -469,15 +342,15 @@ def display_action_buttons():
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
-        if st.button("Add New Patient", width='stretch'):
+        if st.button("Add New Patient", use_container_width=True):
             st.session_state.show_patient_form = True
     
     with col2:
-        if st.button("Record Patient Visit", width='stretch'):
+        if st.button("Record Patient Visit", use_container_width=True):
             st.session_state.show_visit_form = True
     
     with col3:
-        if st.button("Manage Study Events", width='stretch'):
+        if st.button("Manage Study Events", use_container_width=True):
             st.session_state.show_study_event_form = True
 
 def main():
@@ -517,23 +390,23 @@ def main():
             
             if patients_db is not None and not patients_db.empty:
                 st.subheader("👥 Patients Table")
-                st.dataframe(patients_db, width='stretch', height=300)
+                st.dataframe(patients_db, use_container_width=True, height=300)
             else:
                 st.info("No patients found")
             
             if trials_db is not None and not trials_db.empty:
                 st.subheader("🧪 Trials Table")
-                st.dataframe(trials_db, width='stretch', height=300)
+                st.dataframe(trials_db, use_container_width=True, height=300)
             else:
                 st.info("No trials found")
             
             if visits_db is not None and not visits_db.empty:
                 st.subheader("📅 Actual Visits Table")
-                st.dataframe(visits_db, width='stretch', height=300)
+                st.dataframe(visits_db, use_container_width=True, height=300)
             else:
                 st.info("No actual visits found")
             
-            if st.button("❌ Close Database View", width='stretch'):
+            if st.button("❌ Close Database View", use_container_width=True):
                 st.session_state.show_database_contents = False
                 st.rerun()
                 
@@ -660,7 +533,7 @@ def main():
         show_download_sections()
 
         try:
-            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, processed_patients_df = build_calendar(
+            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites = build_calendar(
                 patients_df, trials_df, actual_visits_df
             )
             
@@ -672,33 +545,19 @@ def main():
             
             show_legend(actual_visits_df)
             
-            # Use the visits data to get site information (same source as calendar)
-            site_summary_df = extract_site_summary_from_visits(visits_df, processed_patients_df, screen_failures)
+            site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
-            
-            # Debug: Log visits data before monthly income analysis
-            log_activity(f"About to call display_monthly_income_tables with visits_df shape: {visits_df.shape}", level='info')
-            log_activity(f"visits_df columns: {list(visits_df.columns)}", level='info')
-            if 'Date' in visits_df.columns:
-                log_activity(f"Date column type: {visits_df['Date'].dtype}", level='info')
-                log_activity(f"Sample dates: {visits_df['Date'].head().tolist()}", level='info')
-            if 'Payment' in visits_df.columns:
-                log_activity(f"Payment column sample: {visits_df['Payment'].head().tolist()}", level='info')
             
             display_monthly_income_tables(visits_df)
             
             financial_df = prepare_financial_data(visits_df)
             if not financial_df.empty:
-                display_quarterly_profit_sharing_tables(financial_df, processed_patients_df)
+                display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
-            display_income_realization_analysis(visits_df, trials_df, processed_patients_df)
+            display_income_realization_analysis(visits_df, trials_df, patients_df)
 
-            display_site_wise_statistics(visits_df, processed_patients_df, unique_visit_sites, screen_failures)
-
-            # Display actual and predicted income by site
-            site_income_df = calculate_actual_and_predicted_income_by_site(visits_df, trials_df)
-            display_actual_and_predicted_income_by_site(site_income_df)
+            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, actual_visits_df)
 
