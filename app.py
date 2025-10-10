@@ -453,12 +453,20 @@ def main():
     if st.session_state.get('use_database', False) and st.session_state.get('database_available', False):
         with st.expander("🔍 Unknown Site Diagnostic", expanded=False):
             try:
-                import database as db
+                # Test database connection first
+                if not db.test_database_connection():
+                    st.error("❌ Database connection failed - cannot run diagnostic")
+                    return
                 
                 # Load data
                 patients_df = db.fetch_all_patients()
                 trials_df = db.fetch_all_trial_schedules()
                 actual_visits_df = db.fetch_all_actual_visits()
+                
+                # Check if data loading succeeded
+                if patients_df is None or trials_df is None or actual_visits_df is None:
+                    st.error("❌ Failed to load data from database - some tables may be empty or inaccessible")
+                    return
                 
                 st.subheader("Data Loaded")
                 st.write(f"Patients: {len(patients_df)}")
