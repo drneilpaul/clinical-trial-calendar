@@ -607,8 +607,6 @@ def main():
     if st.session_state.get('use_database', False):
         with st.expander("🔍 Part 2: Trace Visit Processing", expanded=True):
             try:
-                from processing_calendar import build_calendar
-                
                 st.subheader("Processing Data to Find Unknown Site Creation Point")
                 
                 # Load data
