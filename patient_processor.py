@@ -22,7 +22,15 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     for _, actual_visit in patient_actuals.iterrows():
         visit_name = str(actual_visit["VisitName"]).strip()
         
+        # Try exact match first
         matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
+        
+        # If no exact match, try case-insensitive match
+        if len(matching_trial) == 0:
+            matching_trial = study_visits[
+                study_visits["VisitName"].str.strip().str.lower() == visit_name.lower()
+            ]
+        
         if len(matching_trial) == 0:
             # Check if this might be a Day 0 visit (optional visit not in scheduled trials)
             # For now, we'll still add it but mark it as unmatched for reporting
@@ -291,22 +299,57 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             from helpers import log_activity
             log_activity(f"🎯 Processing unmatched actual visit (Day 0?): {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
             
-            # Create a minimal visit record for Day 0 visits
+            # For unmatched visits, try to find site from trial schedule first
+            visit_site = None
+            
+            # Look for this visit in the trial schedule (case-insensitive, partial match)
+            trial_matches = study_visits[
+                study_visits["VisitName"].str.strip().str.lower() == visit_name.lower()
+            ]
+            
+            if not trial_matches.empty:
+                # Found in trial schedule - use its SiteforVisit
+                trial_visit = trial_matches.iloc[0]
+                visit_site = trial_visit["SiteforVisit"]
+                payment = trial_visit.get("Payment", 0.0)
+                visit_day = trial_visit["Day"]
+                
+                log_activity(f"  → Found in trial schedule: Day {visit_day}, Site: {visit_site}", level='info')
+            else:
+                # Truly unmatched - use patient's recruitment site
+                visit_site = patient_origin
+                payment = 0.0
+                visit_day = 0
+                
+                log_activity(f"  → Not in trial schedule, using patient recruitment site: {visit_site}", level='info')
+            
+            # Validate the site
+            invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+            if pd.isna(visit_site) or str(visit_site).strip() in invalid_sites:
+                log_activity(
+                    f"❌ Skipping unmatched visit '{visit_name}' for patient {patient_id} - invalid site: '{visit_site}'",
+                    level='error'
+                )
+                continue  # Skip this visit entirely
+            
+            # Create visit record
             visit_record = {
                 "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
                 "PatientID": patient_id,
                 "Visit": f"✅ {visit_name}",
                 "Study": study,
-                "Payment": 0.0,  # Day 0 visits typically don't have payment
-                "SiteofVisit": str(actual_visit_data.get("SiteofVisit", "Unknown Site")),
+                "Payment": payment,
+                "SiteofVisit": str(visit_site).strip(),
                 "PatientOrigin": patient_origin,
                 "IsActual": True,
                 "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),
                 "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
-                "VisitDay": 0,  # Mark as Day 0
+                "VisitDay": visit_day,
                 "VisitName": visit_name
             }
             visit_records.append(visit_record)
+            
+            log_activity(f"  → Created visit record with site: {visit_site}", level='info')
     
     if skipped_invalid_dates[0] > 0:
         log_activity(f"⚠️ Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
