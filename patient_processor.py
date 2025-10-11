@@ -313,14 +313,16 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 visit_day = trial_visit["Day"]
                 
             else:
-                # Truly unmatched - use patient's recruitment site
-                visit_site = patient_origin
-                payment = 0.0
-                visit_day = 0
+                # Truly unmatched - cannot determine visit site
+                # DO NOT use patient_origin as it's where they were recruited, not where visit happened
                 
-                # DEBUG: Log unmatched visits that might cause site issues
                 from helpers import log_activity
-                log_activity(f"🔍 DEBUG: Unmatched visit - PatientID: {patient_id}, Study: {study}, VisitName: {visit_name}, Using site: {visit_site} (patient_origin)", level='warning')
+                log_activity(
+                    f"⚠️ Skipping unmatched visit '{visit_name}' for patient {patient_id} - "
+                    f"not in trial schedule and cannot safely determine SiteofVisit",
+                    level='error'
+                )
+                continue  # Skip this visit entirely rather than misassigning the site
                 
             
             # Validate the site
