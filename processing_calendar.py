@@ -131,6 +131,22 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         "out_of_window_visits": processing_stats['out_of_window_visits']
     }
 
+    # DEBUG: Log visits_df SiteofVisit values to trace Kiltearn issue
+    if not visits_df.empty and 'SiteofVisit' in visits_df.columns:
+        site_values = visits_df['SiteofVisit'].dropna().unique()
+        log_activity(f"🔍 DEBUG: visits_df SiteofVisit values: {list(site_values)}", level='info')
+        
+        # Count visits by site
+        site_counts = visits_df['SiteofVisit'].value_counts()
+        log_activity(f"🔍 DEBUG: visits by site: {dict(site_counts)}", level='info')
+        
+        # If Kiltearn is present, find the specific visits
+        if 'Kiltearn' in site_values:
+            kiltearn_visits = visits_df[visits_df['SiteofVisit'] == 'Kiltearn']
+            log_activity(f"🔍 DEBUG: Found {len(kiltearn_visits)} visits with SiteofVisit=Kiltearn", level='warning')
+            for idx, visit in kiltearn_visits.iterrows():
+                log_activity(f"🔍 DEBUG: Kiltearn visit - PatientID: {visit.get('PatientID')}, Visit: {visit.get('Visit')}, Date: {visit.get('Date')}", level='warning')
+
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites, patients_df
 
 def prepare_actual_visits_data(actual_visits_df):

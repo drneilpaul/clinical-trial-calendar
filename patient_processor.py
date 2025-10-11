@@ -318,6 +318,10 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 payment = 0.0
                 visit_day = 0
                 
+                # DEBUG: Log unmatched visits that might cause site issues
+                from helpers import log_activity
+                log_activity(f"🔍 DEBUG: Unmatched visit - PatientID: {patient_id}, Study: {study}, VisitName: {visit_name}, Using site: {visit_site} (patient_origin)", level='warning')
+                
             
             # Validate the site
             invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
