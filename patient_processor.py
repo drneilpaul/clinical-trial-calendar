@@ -332,7 +332,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             visit_record = {
                 "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
                 "PatientID": patient_id,
-                "Visit": f"✅ {visit_name}",
+                "Visit": f"⚠️ Screen Fail {visit_name}" if "ScreenFail" in str(actual_visit_data.get("Notes", "")) else f"✅ {visit_name}",
                 "Study": study,
                 "Payment": payment,
                 "SiteofVisit": str(visit_site).strip(),

@@ -62,21 +62,10 @@ def build_calendar_dataframe(visits_df, patients_df):
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
     
-    # Get unique visit sites (filter out None values)
-    site_values = visits_df["SiteofVisit"].dropna().unique()
-    
-    # Also include sites that have recruited patients (even if they have no visits)
-    patient_sites = set()
-    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-        if candidate in patients_df.columns:
-            patient_sites.update(patients_df[candidate].dropna().unique())
-    
-    # Combine visit sites and patient recruitment sites
-    all_sites = set(site_values) | patient_sites
-    
-    # CHANGED: Add 'Unknown Site' and variants to exclusion list
+    # Get unique visit sites from actual visit data only
+    # This ensures only sites that perform work get calendar sections
     unique_visit_sites = sorted([
-        site for site in all_sites 
+        site for site in visits_df["SiteofVisit"].dropna().unique()
         if site and str(site) not in ['nan', 'Unknown Site', 'None', '', 'null', 'unknown site', 'UNKNOWN SITE', 'Default Site']
     ])
     
