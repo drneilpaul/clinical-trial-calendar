@@ -176,6 +176,53 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     except Exception as e:
         st.error(f"Error in realization analysis: {e}")
 
+def display_site_income_by_fy(visits_df, trials_df):
+    """Display site income breakdown by financial year (actual vs predicted)"""
+    try:
+        from calculations import calculate_actual_and_predicted_income_by_site
+        from formatters import format_currency
+        
+        st.subheader("💰 Site Income by Financial Year")
+        st.caption("Income earned by site performing the work (where visits happen)")
+        
+        # Get the site income data
+        site_income_df = calculate_actual_and_predicted_income_by_site(visits_df, trials_df)
+        
+        if site_income_df.empty:
+            st.info("No visit data available for current financial year")
+            return
+        
+        # Format the display
+        display_df = site_income_df.copy()
+        
+        # Format currency columns
+        display_df['Actual Income'] = display_df['Actual Income'].apply(format_currency)
+        display_df['Predicted Income'] = display_df['Predicted Income'].apply(format_currency)
+        display_df['Total Income'] = display_df['Total Income'].apply(format_currency)
+        
+        # Rename columns for better display
+        display_df = display_df.rename(columns={
+            'SiteofVisit': 'Site',
+            'Actual Visits': 'Completed Visits',
+            'Predicted Visits': 'Scheduled Visits',
+            'Total Visits': 'Total Visits'
+        })
+        
+        # Reorder columns for better display
+        column_order = ['Site', 'Actual Income', 'Completed Visits', 'Predicted Income', 'Scheduled Visits', 'Total Income', 'Total Visits']
+        display_df = display_df[column_order]
+        
+        # Display the table
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Show financial year info
+        if 'Financial Year' in site_income_df.columns:
+            fy_info = site_income_df['Financial Year'].iloc[0]
+            st.caption(f"Financial Year: {fy_info}")
+        
+    except Exception as e:
+        st.error(f"Error displaying site income by financial year: {e}")
+
 def show_legend(actual_visits_df):
     """Display legend for calendar interpretation"""
     legend_text = """

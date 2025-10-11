@@ -13,7 +13,8 @@ from processing_calendar import build_calendar
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
-    display_quarterly_profit_sharing_tables, display_income_realization_analysis
+    display_quarterly_profit_sharing_tables, display_income_realization_analysis,
+    display_site_income_by_fy
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 from data_analysis import (
@@ -693,6 +694,8 @@ def main():
                 display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
             display_income_realization_analysis(visits_df, trials_df, patients_df)
+
+            display_site_income_by_fy(visits_df, trials_df)
 
             display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
