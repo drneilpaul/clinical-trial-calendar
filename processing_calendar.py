@@ -36,8 +36,6 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
             actual_visits_df['VisitType'] = 'patient'
-        if 'Status' not in actual_visits_df.columns:
-            actual_visits_df['Status'] = 'completed'
         if 'Notes' not in actual_visits_df.columns:
             actual_visits_df['Notes'] = ''
         
@@ -164,8 +162,6 @@ def prepare_actual_visits_data(actual_visits_df):
     if "VisitType" not in actual_visits_df.columns:
         actual_visits_df["VisitType"] = "patient"
     
-    if "Status" not in actual_visits_df.columns:
-        actual_visits_df["Status"] = "completed"
 
     actual_visits_df["VisitKey"] = (
         safe_string_conversion(actual_visits_df["PatientID"]) + "_" +

@@ -108,8 +108,7 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 'visit_name': 'VisitName',
                 'actual_date': 'ActualDate',
                 'notes': 'Notes',
-                'visit_type': 'VisitType',
-                'status': 'Status'
+                'visit_type': 'VisitType'
             })
             
             if 'ActualDate' in df.columns:
@@ -120,7 +119,7 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                     log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
             return df
-        return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType', 'Status'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
     except Exception as e:
         st.error(f"Error fetching actual visits: {e}")
         return None
@@ -271,7 +270,8 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
                 'study': str(row['Study']),
                 'visit_name': str(row['VisitName']),
                 'actual_date': actual_date_str,
-                'notes': str(row.get('Notes', ''))
+                'notes': str(row.get('Notes', '')),
+                'visit_type': str(row.get('VisitType', 'patient'))
             }
             records.append(record)
         
@@ -387,8 +387,7 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
                 'visit_name': str(row['VisitName']),
                 'actual_date': actual_date_str,
                 'notes': str(row.get('Notes', '')),
-                'visit_type': str(row.get('VisitType', 'patient')),
-                'status': str(row.get('Status', 'completed'))
+                'visit_type': str(row.get('VisitType', 'patient'))
             }
             records.append(record)
         

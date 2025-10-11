@@ -393,7 +393,7 @@ def display_action_buttons():
             st.session_state.show_visit_form = True
     
     with col3:
-        if st.button("Manage Study Events", use_container_width=True):
+        if st.button("Record Study Event", use_container_width=True):
             st.session_state.show_study_event_form = True
 
 def main():
@@ -755,7 +755,8 @@ def main():
             Optional columns:
             - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
             - **VisitType** - patient/siv/monitor (defaults to patient)
-            - **Status** - completed/proposed/cancelled (defaults to completed)
+            
+            Note: If a study event (siv/monitor) is in Actual Visits, it happened (completed).
             """)
         
         st.markdown("---")

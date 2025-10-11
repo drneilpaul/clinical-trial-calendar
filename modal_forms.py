@@ -687,11 +687,6 @@ def study_event_entry_modal():
             help="Actual date when the event occurred"
         )
         
-        status = st.selectbox(
-            "Status*",
-            options=["Completed", "Proposed", "Cancelled"],
-            help="Status of the event"
-        )
         
         site = st.selectbox(
             "Site*",
@@ -785,7 +780,6 @@ def study_event_entry_modal():
                 'VisitName': event_name,
                 'ActualDate': formatted_date,
                 'VisitType': visit_type,
-                'Status': status.lower(),
                 'Notes': notes if notes else ''
             }
             

@@ -18,7 +18,6 @@ def process_study_events(event_templates, actual_visits_df):
         study = safe_string_conversion(event_visit.get('Study', ''))
         visit_name = safe_string_conversion(event_visit.get('VisitName', ''))
         visit_type = safe_string_conversion(event_visit.get('VisitType', 'siv')).lower()
-        status = safe_string_conversion(event_visit.get('Status', 'completed')).lower()
         
         # Skip if essential fields are missing or invalid
         if not study or study.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('Study')):
@@ -58,20 +57,10 @@ def process_study_events(event_templates, actual_visits_df):
             log_activity(f"⚠️ Skipping study event {visit_name} for {study} - no valid SiteforVisit found in trial schedule", level='warning')
             continue
         
-        # Determine status and payment
-        if status == 'completed':
-            visit_status = f"✅ {visit_type.upper()}_{study}"
-            is_actual = True
-        elif status == 'proposed':
-            payment = 0  # Proposed events don't get payment
-            visit_status = f"{visit_type.upper()}_{study} (PROPOSED)"
-            is_actual = False
-        elif status == 'cancelled':
-            payment = 0  # Cancelled events don't get payment
-            visit_status = f"{visit_type.upper()}_{study} (CANCELLED)"
-            is_actual = False
-        else:
-            continue
+        # All study events in actual_visits are completed
+        visit_status = f"✅ {visit_type.upper()}_{study}"
+        is_actual = True
+        # payment already set from template (line 48)
         
         event_records.append({
             "Date": event_visit['ActualDate'],
@@ -88,7 +77,6 @@ def process_study_events(event_templates, actual_visits_df):
             "VisitName": visit_name,
             "IsStudyEvent": True,
             "EventType": visit_type,
-            "EventStatus": status
         })
     
     # After the main loop, add summary logging

@@ -247,13 +247,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                     continue
                 
                 # Format event for display
-                event_display = f"{event_type}_{study_name}"
-                if "PROPOSED" in visit_info:
-                    event_display += " (PROPOSED)"
-                elif "CANCELLED" in visit_info:
-                    event_display += " (CANCELLED)"
-                else:
-                    event_display = f"✅ {event_display}"
+                event_display = f"✅ {event_type}_{study_name}"
                 
                 site_events[visit_site].append(event_display)
                 
