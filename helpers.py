@@ -2,19 +2,16 @@ import pandas as pd
 from dateutil.parser import parse
 from datetime import datetime
 
-def get_patient_origin_site(patient_row, default=None):
+def get_patient_origin_site(patient_row, default="Unknown Site"):
     """
     Get patient origin site with consistent column priority.
     
     Args:
         patient_row: DataFrame row or dict with patient data
-        default: Default value if no valid site found (None = raise error if missing)
+        default: Default value if no valid site found
     
     Returns:
-        str: Patient origin site name, or default if specified
-        
-    Raises:
-        ValueError: If no valid site found and default is None
+        str: Patient origin site name
     """
     # Standard priority order for site columns
     site_columns = ['PatientPractice', 'PatientSite', 'Site', 'Practice', 'HomeSite']
@@ -26,17 +23,7 @@ def get_patient_origin_site(patient_row, default=None):
             if site_value and site_value not in ['nan', 'None', '', 'null', 'NULL', 'Unknown Site']:
                 return site_value
     
-    # CHANGED: Handle missing site based on default parameter
-    if default is None:
-        # No default provided - this is a data integrity error
-        patient_id = patient_row.get('PatientID', 'Unknown')
-        error_msg = f"❌ DATA ERROR: Patient {patient_id} has no valid origin site. "
-        error_msg += "All patients must have PatientPractice (Ashfields or Kiltearn)."
-        log_activity(error_msg, level='error')
-        raise ValueError(error_msg)
-    else:
-        # Default was explicitly provided - use it
-        return default
+    return default
 
 def log_site_detection_summary(patients_df, function_name="Unknown"):
     """
@@ -54,7 +41,7 @@ def log_site_detection_summary(patients_df, function_name="Unknown"):
     # Get all detected sites using the helper function
     detected_sites = set()
     for _, patient_row in patients_df.iterrows():
-        site = get_patient_origin_site(patient_row, default="Unknown Site")
+        site = get_patient_origin_site(patient_row)
         detected_sites.add(site)
     
     log_activity(f"Total patients processed: {len(patients_df)}", level='info')
@@ -63,7 +50,7 @@ def log_site_detection_summary(patients_df, function_name="Unknown"):
     # Count sites
     site_counts = {}
     for _, patient_row in patients_df.iterrows():
-        site = get_patient_origin_site(patient_row, default="Unknown Site")
+        site = get_patient_origin_site(patient_row)
         site_counts[site] = site_counts.get(site, 0) + 1
     
     for site, count in sorted(site_counts.items()):

@@ -19,130 +19,20 @@ from formatters import (
     create_fy_highlighting_function
 )
 
-def verify_export_consistency(calendar_df, excel_df):
-    """
-    Verify that exports match the display data.
-    Call this before any download buttons.
-    """
-    issues = []
-    
-    # Check 1: Date format
-    if 'Date' in calendar_df.columns and 'Date' in excel_df.columns:
-        cal_dates = calendar_df['Date'].head(5)
-        exp_dates = excel_df['Date'].head(5)
-        print(f"Display dates: {cal_dates.tolist()}")
-        print(f"Export dates: {exp_dates.tolist()}")
-    
-    # Check 2: Currency columns - totals should match
-    currency_cols = [col for col in calendar_df.columns if 'Income' in col or 'Total' in col]
-    for col in currency_cols:
-        if col in calendar_df.columns and col in excel_df.columns:
-            cal_sum = calendar_df[col].sum()
-            exp_sum = pd.to_numeric(excel_df[col], errors='coerce').sum()
-            
-            if abs(cal_sum - exp_sum) > 0.01:  # Allow 1p rounding difference
-                issues.append(f"{col}: Display sum £{cal_sum:.2f} != Export sum £{exp_sum:.2f}")
-    
-    # Check 3: Row count
-    if len(calendar_df) != len(excel_df):
-        issues.append(f"Row count mismatch: Display {len(calendar_df)} != Export {len(excel_df)}")
-    
-    if issues:
-        st.warning("⚠️ Export consistency issues detected:")
-        for issue in issues:
-            st.text(f"  • {issue}")
-    else:
-        st.success("✅ Export data matches display data")
-    
-    return len(issues) == 0
-
 # Move table builder functions directly into this file to avoid circular imports
 def display_income_table_pair(financial_df):
     """Display monthly income analysis tables"""
     try:
-        if financial_df.empty:
-            st.info("No financial data available")
-            return
-        
-        # Debug: Log the data we're working with
-        log_activity(f"Financial data shape: {financial_df.shape}", level='info')
-        log_activity(f"Date column type: {financial_df['Date'].dtype}", level='info')
-        log_activity(f"Sample dates: {financial_df['Date'].head().tolist()}", level='info')
-        log_activity(f"MonthYear column type: {financial_df['MonthYear'].dtype}", level='info')
-        log_activity(f"Unique MonthYear values: {financial_df['MonthYear'].unique()}", level='info')
-        log_activity(f"Payment column sample: {financial_df['Payment'].head().tolist()}", level='info')
-            
-        # Group by MonthYear directly (Period objects work fine with groupby)
-        # No need to convert to string - Period objects group correctly
-        log_activity(f"Grouping by MonthYear directly", level='info')
-        
-        # Debug: Check data before grouping
-        log_activity(f"Data before grouping - shape: {financial_df.shape}", level='info')
-        log_activity(f"MonthYear column: {financial_df['MonthYear'].dtype}", level='info')
-        log_activity(f"Payment column: {financial_df['Payment'].dtype}", level='info')
-        log_activity(f"Sample MonthYear values: {financial_df['MonthYear'].head().tolist()}", level='info')
-        log_activity(f"Sample Payment values: {financial_df['Payment'].head().tolist()}", level='info')
-        
-        # Group by month and sum payments
-        # Ensure we have valid data before grouping
-        if financial_df.empty:
-            log_activity("Financial data is empty, cannot group", level='warning')
-            st.info("No financial data available")
-            return
-            
-        # Check if MonthYear column exists and has data
-        if 'MonthYear' not in financial_df.columns:
-            log_activity("MonthYear column not found", level='error')
-            st.error("MonthYear column not found in financial data")
-            return
-            
-        # Remove any rows with NaN MonthYear values
-        valid_data = financial_df.dropna(subset=['MonthYear'])
-        if valid_data.empty:
-            log_activity("No valid MonthYear data after removing NaN values", level='warning')
-            st.info("No valid monthly data available")
-            return
-            
-        log_activity(f"Valid data for grouping - shape: {valid_data.shape}", level='info')
-        log_activity(f"Unique months in data: {valid_data['MonthYear'].nunique()}", level='info')
-        
-        # Fix: Move fillna operation BEFORE groupby
-        valid_data['Payment'] = valid_data['Payment'].fillna(0)
-        monthly_totals = valid_data.groupby('MonthYear')['Payment'].sum()
-        
-        # Debug: Log grouping result
-        log_activity(f"Monthly totals type: {type(monthly_totals)}", level='info')
-        log_activity(f"Monthly totals: {monthly_totals}", level='info')
-        log_activity(f"Monthly totals length: {len(monthly_totals) if hasattr(monthly_totals, '__len__') else 'No length'}", level='info')
-        
-        # Simplify: Handle only Series case since groupby should always return a Series
-        if not isinstance(monthly_totals, pd.Series):
-            log_activity(f"ERROR: Expected Series but got {type(monthly_totals)}", level='error')
-            st.error("Unexpected data format in monthly analysis")
-            return
-        
-        if monthly_totals.empty:
+        monthly_totals = financial_df.groupby('MonthYear')['Payment'].sum()
+        if not monthly_totals.empty:
+            monthly_df = monthly_totals.reset_index()
+            monthly_df.columns = ['Month', 'Total Income']
+            monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
+            st.dataframe(monthly_df, use_container_width=True)
+        else:
             st.info("No monthly data available")
-            return
-        
-        # Convert to DataFrame for display
-        monthly_df = monthly_totals.reset_index()
-        monthly_df.columns = ['Month', 'Total Income']
-        
-        # Convert Period objects to strings for display
-        monthly_df['Month'] = monthly_df['Month'].astype(str)
-        monthly_df['Total Income'] = monthly_df['Total Income'].apply(format_currency)
-        
-        # Sort by month (convert to datetime for proper sorting)
-        monthly_df['SortDate'] = pd.to_datetime(monthly_df['Month'])
-        monthly_df = monthly_df.sort_values('SortDate')
-        monthly_df = monthly_df.drop('SortDate', axis=1)
-        
-        log_activity(f"Final monthly breakdown: {monthly_df.to_dict('records')}", level='info')
-        st.dataframe(monthly_df, width='stretch')
     except Exception as e:
         st.error(f"Error displaying monthly income: {e}")
-        log_activity(f"Error details: {str(e)}", level='error')
 
 def display_profit_sharing_table(quarterly_ratios):
     """Display profit sharing analysis table"""
@@ -154,7 +44,7 @@ def display_profit_sharing_table(quarterly_ratios):
                 lambda x: ['background-color: #e6f3ff; font-weight: bold;' if x['Type'] == 'Financial Year' else '' for _ in x], 
                 axis=1
             )
-            st.dataframe(styled_df, width='stretch', hide_index=True)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
             st.info("No quarterly data available for profit sharing analysis")
     except Exception as e:
@@ -166,7 +56,7 @@ def display_ratio_breakdown_table(ratio_data, title):
         if ratio_data:
             st.write(f"**{title}**")
             df = pd.DataFrame(ratio_data)
-            st.dataframe(df, width='stretch', hide_index=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
         else:
             st.info(f"No data available for {title}")
     except Exception as e:
@@ -203,7 +93,7 @@ def display_breakdown_by_study(site_visits, site_patients, site_name):
             combined_breakdown['Visit Count'] = 0
             combined_breakdown['Total Income'] = "£0.00"
         
-        st.dataframe(combined_breakdown, width='stretch')
+        st.dataframe(combined_breakdown, use_container_width=True)
     except Exception as e:
         st.error(f"Error displaying study breakdown: {e}")
 
@@ -231,80 +121,9 @@ def display_site_time_analysis(site_visits, site_patients, site_name, enhanced_v
                 quarterly_display = quarterly_stats.copy()
                 quarterly_display['Income'] = quarterly_display['Income'].apply(format_currency)
                 st.write("*Quarterly Summary*")
-                st.dataframe(quarterly_display, width='stretch')
+                st.dataframe(quarterly_display, use_container_width=True)
     except Exception as e:
         st.error(f"Error displaying time analysis: {e}")
-
-def display_actual_and_predicted_income_by_site(site_income_df):
-    """Display actual and predicted income by site for current financial year"""
-    if site_income_df.empty:
-        st.info("No visits found for the current financial year.")
-        return
-    
-    st.markdown("---")
-    st.subheader("💰 Income by Site - Current Financial Year")
-    st.caption("Actual income earned and predicted income for the current financial year")
-    
-    try:
-        # Format the data for display
-        display_df = site_income_df.copy()
-        
-        # Format currency columns
-        currency_columns = ['Actual Income', 'Predicted Income', 'Total Income']
-        for col in currency_columns:
-            if col in display_df.columns:
-                display_df[col] = display_df[col].apply(lambda x: f"£{x:,.2f}")
-        
-        # Rename columns for display
-        display_df = display_df.rename(columns={
-            'SiteofVisit': 'Site',
-            'Actual Income': 'Actual Income',
-            'Actual Visits': 'Actual Visits',
-            'Predicted Income': 'Predicted Income',
-            'Predicted Visits': 'Predicted Visits',
-            'Total Income': 'Total Income',
-            'Total Visits': 'Total Visits',
-            'Financial Year': 'Financial Year'
-        })
-        
-        # Display the table
-        st.dataframe(
-            display_df[['Site', 'Actual Income', 'Actual Visits', 'Predicted Income', 'Predicted Visits', 'Total Income', 'Total Visits']], 
-            width='stretch', 
-            hide_index=True,
-            column_config={
-                "Site": st.column_config.TextColumn("Site", width="medium"),
-                "Actual Income": st.column_config.TextColumn("Actual Income", width="medium"),
-                "Actual Visits": st.column_config.NumberColumn("Actual Visits", width="small"),
-                "Predicted Income": st.column_config.TextColumn("Predicted Income", width="medium"),
-                "Predicted Visits": st.column_config.NumberColumn("Predicted Visits", width="small"),
-                "Total Income": st.column_config.TextColumn("Total Income", width="medium"),
-                "Total Visits": st.column_config.NumberColumn("Total Visits", width="small")
-            }
-        )
-        
-        # Show summary metrics
-        total_actual_income = site_income_df['Actual Income'].sum()
-        total_predicted_income = site_income_df['Predicted Income'].sum()
-        total_income = site_income_df['Total Income'].sum()
-        
-        total_actual_visits = site_income_df['Actual Visits'].sum()
-        total_predicted_visits = site_income_df['Predicted Visits'].sum()
-        total_visits = site_income_df['Total Visits'].sum()
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Actual Income Earned", f"£{total_actual_income:,.2f}")
-        with col2:
-            st.metric("Predicted Income", f"£{total_predicted_income:,.2f}")
-        with col3:
-            st.metric("Total Income", f"£{total_income:,.2f}")
-        with col4:
-            actual_percentage = (total_actual_income / total_income * 100) if total_income > 0 else 0
-            st.metric("Actual %", f"{actual_percentage:.1f}%")
-            
-    except Exception as e:
-        st.error(f"Error displaying income by site: {e}")
 
 def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     """Display complete income realization analysis"""
@@ -333,7 +152,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             monthly_df['Completed_Income'] = monthly_df['Completed_Income'].apply(format_currency)
             monthly_df['Scheduled_Income'] = monthly_df['Scheduled_Income'].apply(format_currency)
             monthly_df['Realization_Rate'] = monthly_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(monthly_df, width='stretch', hide_index=True)
+            st.dataframe(monthly_df, use_container_width=True, hide_index=True)
         
         # Study pipeline breakdown
         study_pipeline = calculate_study_pipeline_breakdown(visits_df, trials_df)
@@ -341,7 +160,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             st.write("**Pipeline by Study**")
             study_display = study_pipeline.copy()
             study_display['Pipeline_Value'] = study_display['Pipeline_Value'].apply(format_currency)
-            st.dataframe(study_display, width='stretch', hide_index=True)
+            st.dataframe(study_display, use_container_width=True, hide_index=True)
         
         # Site realization breakdown
         site_data = calculate_site_realization_breakdown(visits_df, trials_df)
@@ -352,7 +171,7 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             site_df['Total_Scheduled_Income'] = site_df['Total_Scheduled_Income'].apply(format_currency)
             site_df['Pipeline_Income'] = site_df['Pipeline_Income'].apply(format_currency)
             site_df['Realization_Rate'] = site_df['Realization_Rate'].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(site_df, width='stretch', hide_index=True)
+            st.dataframe(site_df, use_container_width=True, hide_index=True)
             
     except Exception as e:
         st.error(f"Error in realization analysis: {e}")
@@ -363,11 +182,15 @@ def show_legend(actual_visits_df):
     **Legend with Color Coding:**
 
     **Actual Visits:**
-    - ✅ VisitName (Green background) = Completed Visit (shows when visit actually happened)
+    - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
+    - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
 
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
+    - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
+    - \\- (Light blue-gray, italic) = Before tolerance period
+    - \\+ (Light blue-gray, italic) = After tolerance period
 
     **Date Formatting:**
     - Red background = Today's date
@@ -381,10 +204,12 @@ def show_legend(actual_visits_df):
     - Medium blue header = Study_PatientID
     - Light blue header = Patient origin site (who recruited patient)
     
-    **Note:** All actual visits are shown on the calendar on the date they actually occurred, regardless of the original schedule. No tolerance window checking is performed.
+    **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
     """ if actual_visits_df is not None else """
     **Legend:** 
     - VisitName (Gray) = Scheduled Visit
+    - - (Light blue-gray) = Before tolerance period
+    - + (Light blue-gray) = After tolerance period
     - Light blue background = Month end (softer highlighting)
     - Dark blue background = Financial year end (31 March)
     - Gray background = Weekend
@@ -504,7 +329,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
             log_activity(f"Styling error details: {str(e)}", level='error')
-            st.dataframe(display_with_headers, width='stretch')
+            st.dataframe(display_with_headers, use_container_width=True)
 
         if excluded_visits and len(excluded_visits) > 0:
             st.warning("Some visits were excluded due to screen failure:")
@@ -517,7 +342,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         # Try to show basic calendar without headers
         try:
             st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, width='stretch')
+            st.dataframe(calendar_df, use_container_width=True)
         except Exception as fallback_error:
             st.error(f"Even basic display failed: {fallback_error}")
             log_activity(f"Basic display also failed: {str(fallback_error)}", level='error')
@@ -527,7 +352,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             st.write(f"Shape: {calendar_df.shape}")
             st.write(f"Columns: {list(calendar_df.columns)}")
             st.write(f"First few rows:")
-            st.dataframe(calendar_df.head(), width='stretch')
+            st.dataframe(calendar_df.head(), use_container_width=True)
 
 def _generate_calendar_html_with_separators(styled_df):
     """Generate HTML calendar with month separators"""
@@ -578,31 +403,20 @@ def _generate_calendar_html_with_separators(styled_df):
 def display_site_statistics(site_summary_df):
     """Display basic site summary statistics"""
     st.subheader("Site Summary")
-    st.dataframe(site_summary_df, width='stretch')
+    st.dataframe(site_summary_df, use_container_width=True)
 
 def display_monthly_income_tables(visits_df):
     """Display monthly income analysis with tables only"""
     st.subheader("📊 Monthly Income Analysis")
     
     try:
-        # Debug: Log input data
-        log_activity(f"display_monthly_income_tables called with visits_df shape: {visits_df.shape}", level='info')
-        log_activity(f"visits_df columns: {list(visits_df.columns)}", level='info')
-        if 'Date' in visits_df.columns:
-            log_activity(f"Date column type: {visits_df['Date'].dtype}", level='info')
-            log_activity(f"Sample dates: {visits_df['Date'].head().tolist()}", level='info')
-        
         financial_df = prepare_financial_data(visits_df)
-        log_activity(f"prepare_financial_data returned shape: {financial_df.shape}", level='info')
-        
         if not financial_df.empty:
             display_income_table_pair(financial_df)
         else:
             st.warning("No financial data available for monthly analysis")
-            log_activity("No financial data available for monthly analysis", level='warning')
     except Exception as e:
         st.error(f"Error displaying monthly income tables: {e}")
-        log_activity(f"Error in display_monthly_income_tables: {str(e)}", level='error')
 
 def display_quarterly_profit_sharing_tables(financial_df, patients_df):
     """Display quarterly profit sharing analysis with tables and calculations"""
@@ -654,7 +468,7 @@ def display_quarterly_profit_sharing_tables(financial_df, patients_df):
 
 def _display_weight_adjustment_interface():
     """Display the weight adjustment interface"""
-    if st.button("⚙️ Adjust Profit Sharing Weights", width='content'):
+    if st.button("⚙️ Adjust Profit Sharing Weights", use_container_width=False):
         st.session_state.show_weights_form = True
 
     # Initialize default weights
@@ -777,18 +591,19 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Find patients who have visits at this site (may be from different origin sites)
         patients_with_visits_here = visits_df[visits_df['SiteofVisit'] == site]['PatientID'].unique()
-        site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)].copy()
+        site_related_patients = patients_df[patients_df['PatientID'].isin(patients_with_visits_here)]
         
         # If no patients with visits at this site, check if there are patients recruited by this site
         if site_related_patients.empty:
-            # Use centralized helper function for consistent site detection
-            from helpers import get_patient_origin_site
+            # Look for patients recruited by this site (based on patient origin)
+            site_col = None
+            for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+                if candidate in patients_df.columns:
+                    site_col = candidate
+                    break
             
-            # Create a standardized origin site column and filter
-            patients_df['_OriginSite'] = patients_df.apply(
-                lambda row: get_patient_origin_site(row, default="Unknown Site"), axis=1
-            )
-            site_related_patients = patients_df[patients_df['_OriginSite'] == site]
+            if site_col:
+                site_related_patients = patients_df[patients_df[site_col] == site]
             
             if site_related_patients.empty:
                 st.warning(f"No patients found for site: {site}")
@@ -828,17 +643,19 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         
         # Patient origin analysis
         st.write("**Patient Origins (Who Recruited):**")
-        # Use centralized helper function for consistent site detection
-        from helpers import get_patient_origin_site
+        # Find the appropriate site column for patient origins
+        site_col = None
+        for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
+            if candidate in site_related_patients.columns:
+                site_col = candidate
+                break
         
-        # Create a standardized origin site column
-        site_related_patients['_OriginSite'] = site_related_patients.apply(
-            lambda row: get_patient_origin_site(row, default="Unknown Site"), axis=1
-        )
-        
-        origin_breakdown = site_related_patients.groupby('_OriginSite')['PatientID'].count().reset_index()
-        origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
-        st.dataframe(origin_breakdown, width='stretch')
+        if site_col:
+            origin_breakdown = site_related_patients.groupby(site_col)['PatientID'].count().reset_index()
+            origin_breakdown.columns = ['Origin Site', 'Patients Recruited']
+            st.dataframe(origin_breakdown, use_container_width=True)
+        else:
+            st.info("No patient origin site information available")
         
         # Screen failures for patients with visits at this site
         _display_site_screen_failures(site_related_patients, screen_failures)
@@ -860,7 +677,7 @@ def _display_site_screen_failures(site_patients, screen_failures):
         
         if site_screen_failures:
             st.write("**Screen Failures**")
-            st.dataframe(pd.DataFrame(site_screen_failures), width='stretch', hide_index=True)
+            st.dataframe(pd.DataFrame(site_screen_failures), use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Error displaying screen failures: {e}")
 
@@ -868,82 +685,24 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
-    # DEBUG LOGGING - Remove after issues are fixed
-    from helpers import log_activity
-    log_activity("=== EXPORT DEBUG START ===", level='info')
-    log_activity(f"Input calendar_df shape: {calendar_df.shape}", level='info')
-    log_activity(f"Input calendar_df columns: {calendar_df.columns.tolist()}", level='info')
-    log_activity(f"Input calendar_df dtypes: {calendar_df.dtypes.to_dict()}", level='info')
-    
-    # Check for Period columns
-    period_cols = [col for col in calendar_df.columns 
-                   if hasattr(calendar_df[col].dtype, 'name') and 'period' in str(calendar_df[col].dtype).lower()]
-    if period_cols:
-        log_activity(f"Found Period columns: {period_cols}", level='warning')
-    
-    # Check for datetime columns
-    datetime_cols = [col for col in calendar_df.columns 
-                     if pd.api.types.is_datetime64_any_dtype(calendar_df[col])]
-    log_activity(f"Found datetime columns: {datetime_cols}", level='info')
-    
-    # Check currency columns
-    currency_cols = [col for col in calendar_df.columns if 'Income' in col or 'Total' in col]
-    log_activity(f"Found currency columns: {currency_cols}", level='info')
-    for col in currency_cols[:3]:  # Sample first 3
-        if col in calendar_df.columns:
-            log_activity(f"{col} sample values: {calendar_df[col].head(3).tolist()}", level='info')
-            log_activity(f"{col} dtype: {calendar_df[col].dtype}", level='info')
-    
-    log_activity("=== EXPORT DEBUG END ===", level='info')
-
     try:
-        # Prepare export-safe dataframe - handles Period objects, dates, and currency
+        # Prepare Excel-safe dataframe by converting Period objects to strings
         excel_df = calendar_df.copy()
-
-        # 1. Convert ALL Period-type columns to strings FIRST (before any other operations)
+        
+        # Convert any Period columns to strings for Excel compatibility
         for col in excel_df.columns:
             if hasattr(excel_df[col].dtype, 'name') and 'period' in str(excel_df[col].dtype).lower():
                 excel_df[col] = excel_df[col].astype(str)
             elif excel_df[col].dtype == 'object':
-                # Check if column contains Period objects
-                sample_vals = excel_df[col].dropna().head(1)
-                if len(sample_vals) > 0:
-                    first_val = sample_vals.iloc[0]
-                    if 'Period' in str(type(first_val)):
-                        excel_df[col] = excel_df[col].astype(str)
-
-        # 2. Format Date column specifically as DD/MM/YYYY
+                # Check if any values are Period objects
+                sample_vals = excel_df[col].dropna().head(5)
+                if len(sample_vals) > 0 and any(str(type(val)).find('Period') != -1 for val in sample_vals):
+                    excel_df[col] = excel_df[col].astype(str)
+        
+        # Format dates properly for Excel
         if 'Date' in excel_df.columns:
             if excel_df['Date'].dtype == 'datetime64[ns]':
                 excel_df['Date'] = excel_df['Date'].dt.strftime('%d/%m/%Y')
-            elif excel_df['Date'].dtype == 'object':
-                # Handle mixed types
-                excel_df['Date'] = pd.to_datetime(excel_df['Date'], errors='coerce').dt.strftime('%d/%m/%Y')
-
-        # 3. Format currency columns - remove £ symbol for Excel compatibility
-        currency_columns = [col for col in excel_df.columns if 'Income' in col or 'Total' in col]
-        for col in currency_columns:
-            if col in excel_df.columns:
-                # Convert to numeric if it's a string with £ symbols
-                if excel_df[col].dtype == 'object':
-                    excel_df[col] = excel_df[col].astype(str).str.replace('£', '').str.replace(',', '')
-                    excel_df[col] = pd.to_numeric(excel_df[col], errors='coerce').fillna(0)
-                # Ensure it's float type
-                excel_df[col] = excel_df[col].astype(float)
-
-        # 4. Replace any remaining NA values
-        excel_df = excel_df.fillna('')
-
-        # Add this temporarily after the excel_df preparation to log what's being exported
-        print("CSV Export Debug Info:")
-        print(f"Columns: {excel_df.columns.tolist()}")
-        print(f"Date sample: {excel_df['Date'].head(3).tolist()}")
-        print(f"Data types: {excel_df.dtypes.to_dict()}")
-        if 'Daily Total' in excel_df.columns:
-            print(f"Daily Total sample: {excel_df['Daily Total'].head(3).tolist()}")
-
-        # VERIFICATION STEP - Add this:
-        verify_export_consistency(calendar_df, excel_df)
 
         col1, col2, col3 = st.columns(3)
         
@@ -958,51 +717,26 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             )
 
         with col2:
-            # Basic Excel - same structure as Enhanced but WITHOUT financial columns
+            # Basic Excel download with Period handling
+            buf = io.BytesIO()
             try:
-                from table_builders import create_enhanced_excel_export
-                # Use actual data instead of empty DataFrames
-                patients_data = patients_df if patients_df is not None else pd.DataFrame()
-                visits_data = visits_df if visits_df is not None else pd.DataFrame()
-                
-                # Call with include_financial=False to exclude financial columns
-                basic_excel = create_enhanced_excel_export(
-                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites, 
-                    include_financial=False  # KEY PARAMETER: No financial data
+                excel_df.to_excel(buf, index=False, engine='openpyxl')
+                st.download_button(
+                    "💾 Download Basic Excel", 
+                    data=buf.getvalue(), 
+                    file_name="VisitCalendar.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                
-                if basic_excel:
-                    st.download_button(
-                        "📅 Download Calendar (No Financials)",
-                        data=basic_excel.getvalue(),
-                        file_name="VisitCalendar_Basic.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help="Calendar with explanatory headers, no financial data"
-                    )
-                else:
-                    st.error("Basic Excel generation failed")
-                    # Fallback to CSV
-                    csv_fallback = excel_df.to_csv(index=False)
-                    st.download_button(
-                        "💾 Download as CSV (Excel failed)", 
-                        data=csv_fallback, 
-                        file_name="VisitCalendar.csv",
-                        mime="text/csv"
-                    )
-            except Exception as e:
-                st.error(f"Basic Excel error: {e}")
-                log_activity(f"Basic Excel error: {str(e)}", level='error')
-                # Fallback to CSV
-                try:
-                    csv_fallback = excel_df.to_csv(index=False)
-                    st.download_button(
-                        "💾 Download as CSV (Excel failed)", 
-                        data=csv_fallback, 
-                        file_name="VisitCalendar.csv",
-                        mime="text/csv"
-                    )
-                except Exception as csv_error:
-                    st.error(f"Even CSV fallback failed: {csv_error}")
+            except Exception as excel_error:
+                st.error(f"Excel export failed: {excel_error}")
+                # Fallback to CSV with xlsx extension
+                csv_fallback = excel_df.to_csv(index=False)
+                st.download_button(
+                    "💾 Download as CSV (Excel failed)", 
+                    data=csv_fallback, 
+                    file_name="VisitCalendar.csv",
+                    mime="text/csv"
+                )
             
         with col3:
             # Enhanced Excel from table_builders
@@ -1012,15 +746,13 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                 patients_data = patients_df if patients_df is not None else pd.DataFrame()
                 visits_data = visits_df if visits_df is not None else pd.DataFrame()
                 
-                # Call with include_financial=True to include all financial columns
                 enhanced_excel = create_enhanced_excel_export(
-                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
-                    include_financial=True  # KEY PARAMETER: Include financial data
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites
                 )
                 
                 if enhanced_excel:
                     st.download_button(
-                        "💰 Download Calendar (With Financials)",
+                        "✨ Enhanced Excel with Headers",
                         data=enhanced_excel.getvalue(),
                         file_name="VisitCalendar_Enhanced.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

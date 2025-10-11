@@ -350,3 +350,4 @@ def run_startup_validation(patients_df, trials_df, actual_visits_df=None) -> Dic
     log_activity("=" * 60, level='info')
     
     return results
+

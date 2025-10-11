@@ -261,9 +261,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         actual_visit_data = patient_actual_visits.get(visit_name)
         
         if actual_visit_data is not None:
-            # Debug: Log when we find a matching actual visit
-            from helpers import log_activity
-            log_activity(f"🎯 Found matching actual visit: {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
+            # Actual visit found - process it
             
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
@@ -297,7 +295,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         if visit_name not in [str(v["VisitName"]) for _, v in study_visits.iterrows()]:
             # This is an unmatched actual visit (likely Day 0 optional visit)
             from helpers import log_activity
-            log_activity(f"🎯 Processing unmatched actual visit (Day 0?): {patient_id} | {visit_name} | {actual_visit_data['ActualDate']}", level='info')
+            # Unmatched visit - may be Day 0 or unscheduled
             
             # For unmatched visits, try to find site from trial schedule first
             visit_site = None
@@ -314,14 +312,12 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 payment = trial_visit.get("Payment", 0.0)
                 visit_day = trial_visit["Day"]
                 
-                log_activity(f"  → Found in trial schedule: Day {visit_day}, Site: {visit_site}", level='info')
             else:
                 # Truly unmatched - use patient's recruitment site
                 visit_site = patient_origin
                 payment = 0.0
                 visit_day = 0
                 
-                log_activity(f"  → Not in trial schedule, using patient recruitment site: {visit_site}", level='info')
             
             # Validate the site
             invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
@@ -348,8 +344,6 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 "VisitName": visit_name
             }
             visit_records.append(visit_record)
-            
-            log_activity(f"  → Created visit record with site: {visit_site}", level='info')
     
     if skipped_invalid_dates[0] > 0:
         log_activity(f"⚠️ Patient {patient_id} had {skipped_invalid_dates[0]} actual visits skipped due to invalid dates", level='warning')
