@@ -295,16 +295,17 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             # No planned marker needed - actual visit is sufficient
         else:
             # No actual visit found
-            # FIXED: Only schedule predicted visits for Day >= 1
-            # Day 0 and negative days (screening, optional visits) should ONLY appear if actually happened
-            if visit_day >= 1:
+            # FIXED: Only schedule predicted visits for Day != 0
+            # Day 0 visits (SIV, Monitor, V1.1, Unscheduled) are optional and only appear when actual
+            # Day < 0 (Screening) and Day >= 1 should be predicted normally
+            if visit_day != 0:
                 # Process scheduled visit with full tolerance windows
                 scheduled_records, exclusions = process_scheduled_visit(
                     patient_id, study, patient_origin, visit, baseline_date, screen_fail_date
                 )
                 visit_records.extend(scheduled_records)
                 screen_fail_exclusions += exclusions
-            # else: Skip Day 0 and negative day visits - they're optional and only appear when actual
+            # else: Skip Day 0 visits only - they're optional and only appear when actual
     
     # Handle unmatched actual visits (including Day 0 optional visits)
     for visit_name, actual_visit_data in patient_actual_visits.items():
