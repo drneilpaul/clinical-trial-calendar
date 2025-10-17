@@ -118,6 +118,25 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 if nat_count > 0:
                     log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
+            # FIXED: Auto-detect study events IMMEDIATELY after loading from database
+            # This fixes SIV/Monitor visits that were saved with wrong VisitType
+            if 'VisitType' in df.columns:
+                siv_mask = (
+                    (df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') &
+                    (df['VisitType'].astype(str).str.lower() != 'siv')
+                )
+                if siv_mask.any():
+                    df.loc[siv_mask, 'VisitType'] = 'siv'
+                    log_activity(f"🔧 CORRECTED {siv_mask.sum()} SIV event(s) in database (were marked as patient visits)", level='warning')
+                
+                monitor_mask = (
+                    df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False) &
+                    (df['VisitType'].astype(str).str.lower() != 'monitor')
+                )
+                if monitor_mask.any():
+                    df.loc[monitor_mask, 'VisitType'] = 'monitor'
+                    log_activity(f"🔧 CORRECTED {monitor_mask.sum()} Monitor event(s) in database (were marked as patient visits)", level='warning')
+            
             # Log what was loaded
             log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
             if not df.empty:
@@ -127,7 +146,7 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                     log_activity(f"   Visit types: {visit_types}", level='info')
                 # Show some sample visits for debugging
                 for idx, row in df.head(3).iterrows():
-                    log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
+                    log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} (Type: {row.get('VisitType', 'unknown')}) ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
             
             return df
         log_activity("📥 No actual visits found in database", level='info')
