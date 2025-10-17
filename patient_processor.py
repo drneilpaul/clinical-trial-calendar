@@ -6,6 +6,8 @@ from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protoc
 
 def process_patient_actual_visits(patient_id, study, actual_visits_df, study_visits):
     """Process actual visits for a specific patient"""
+    from helpers import log_activity
+    
     patient_actual_visits = {}
     actual_visits_used = 0
     unmatched_visits = []
@@ -19,8 +21,12 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
         (actual_visits_df.get("VisitType", "patient") == "patient")
     ]
     
+    if len(patient_actuals) > 0:
+        log_activity(f"  Found {len(patient_actuals)} actual patient visits for {patient_id}", level='info')
+    
     for _, actual_visit in patient_actuals.iterrows():
         visit_name = str(actual_visit["VisitName"]).strip()
+        log_activity(f"    Matching actual visit '{visit_name}' for patient {patient_id}", level='info')
         
         # Try exact match first
         matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
@@ -35,12 +41,16 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
             # Check if this might be a Day 0 visit (optional visit not in scheduled trials)
             # For now, we'll still add it but mark it as unmatched for reporting
             # In the future, we could add special handling for Day 0 visits
+            log_activity(f"      ⚠️ Visit '{visit_name}' not found in trial schedule (may be Day 0 or unscheduled)", level='warning')
             unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials (may be optional Day 0 visit)")
             # Still add it to actual visits so it shows up on calendar
             patient_actual_visits[visit_name] = actual_visit
             actual_visits_used += 1
             continue
         
+        # Found a match!
+        matched_day = matching_trial.iloc[0]["Day"]
+        log_activity(f"      ✅ Matched to trial visit (Day {matched_day})", level='info')
         patient_actual_visits[visit_name] = actual_visit
         actual_visits_used += 1
     

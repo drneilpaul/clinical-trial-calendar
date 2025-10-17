@@ -118,7 +118,19 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 if nat_count > 0:
                     log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
+            # Log what was loaded
+            log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
+            if not df.empty:
+                # Show breakdown by visit type
+                if 'VisitType' in df.columns:
+                    visit_types = df['VisitType'].value_counts().to_dict()
+                    log_activity(f"   Visit types: {visit_types}", level='info')
+                # Show some sample visits for debugging
+                for idx, row in df.head(3).iterrows():
+                    log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
+            
             return df
+        log_activity("📥 No actual visits found in database", level='info')
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
     except Exception as e:
         st.error(f"Error fetching actual visits: {e}")

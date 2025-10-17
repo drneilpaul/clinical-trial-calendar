@@ -36,6 +36,24 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
             actual_visits_df['VisitType'] = 'patient'
+            
+            # FIXED: Auto-detect study events from VisitName
+            # If VisitName is 'SIV' or contains 'SIV', it's a site initiation visit
+            siv_mask = actual_visits_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
+            actual_visits_df.loc[siv_mask, 'VisitType'] = 'siv'
+            
+            # If VisitName contains 'Monitor' or 'Monitoring', it's a monitoring visit
+            monitor_mask = actual_visits_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
+            actual_visits_df.loc[monitor_mask, 'VisitType'] = 'monitor'
+            
+            # Log detected study events
+            siv_count = siv_mask.sum()
+            monitor_count = monitor_mask.sum()
+            if siv_count > 0:
+                log_activity(f"Auto-detected {siv_count} SIV event(s) from VisitName", level='info')
+            if monitor_count > 0:
+                log_activity(f"Auto-detected {monitor_count} Monitor event(s) from VisitName", level='info')
+        
         if 'Notes' not in actual_visits_df.columns:
             actual_visits_df['Notes'] = ''
         
@@ -169,6 +187,11 @@ def prepare_actual_visits_data(actual_visits_df):
             failed_dates = actual_visits_df[actual_visits_df["ActualDate"].isna()]["ActualDate"].head(5).tolist()
             if failed_dates:
                 log_activity(f"Examples of failed dates: {failed_dates}", level='warning')
+    
+    # FIXED: Normalize all dates to consistent format for calendar matching
+    # Convert to date-only timestamps to avoid timezone/time comparison issues
+    actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"]).dt.normalize()
+    log_activity(f"Normalized {len(actual_visits_df)} actual visit dates to date-only timestamps", level='info')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""
@@ -315,17 +338,20 @@ def validate_study_structure(patients_df, trials_df):
 def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
     if 'VisitType' in trials_df.columns:
+        # FIXED: Include all patient visits including screening (negative days) and Day 0
+        # Only exclude study event templates (siv/monitor)
         patient_visits = trials_df[
             ((trials_df['VisitType'] == 'patient') |
-            (pd.isna(trials_df['VisitType']))) &
-            (trials_df['Day'] > 0)  # Exclude Day 0 visits from scheduling
+            (pd.isna(trials_df['VisitType'])))
         ]
         
         study_event_templates = trials_df[
             trials_df['VisitType'].isin(['siv', 'monitor'])
         ]
     else:
-        patient_visits = trials_df[trials_df['Day'] > 0].copy()  # Exclude Day 0 visits from scheduling
+        # FIXED: Include all patient visits including screening (negative days) and Day 0
+        # No filtering by Day - let patient processor handle all visits
+        patient_visits = trials_df.copy()
         study_event_templates = pd.DataFrame()
     
     return patient_visits, study_event_templates

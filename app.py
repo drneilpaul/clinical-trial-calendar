@@ -338,6 +338,7 @@ def setup_file_uploaders():
             st.divider()
             
             if st.button("🔄 Refresh App Data", use_container_width=True):
+                # Clear all cached data
                 if 'patients_df' in st.session_state:
                     del st.session_state['patients_df']
                 if 'trials_df' in st.session_state:
@@ -345,8 +346,15 @@ def setup_file_uploaders():
                 if 'actual_visits_df' in st.session_state:
                     del st.session_state['actual_visits_df']
                 
+                # Clear validation results to force re-run
+                if 'validation_results' in st.session_state:
+                    del st.session_state['validation_results']
+                if 'validation_run' in st.session_state:
+                    del st.session_state['validation_run']
+                
                 st.session_state.data_refresh_needed = True
-                st.success("Data refresh triggered!")
+                log_activity("🔄 Manual data refresh triggered - clearing all caches", level='info')
+                st.success("✅ Data refresh triggered! Reloading from database...")
                 st.rerun()
             
             st.divider()
