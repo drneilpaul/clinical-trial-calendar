@@ -85,10 +85,34 @@ def setup_file_uploaders():
     
     st.sidebar.divider()
     
-    # File uploaders
+    # Authentication - Login/Logout widget
+    if st.session_state.get('auth_level') != 'admin':
+        with st.sidebar.expander("🔐 Admin Login", expanded=False):
+            st.caption("Login to add/edit data and view financial reports")
+            password = st.text_input("Password", type="password", key="admin_password_input")
+            if st.button("Login", use_container_width=True):
+                if password == st.secrets.get("admin_password", ""):
+                    st.session_state.auth_level = 'admin'
+                    log_activity("Admin user logged in", level='success')
+                    st.success("✅ Logged in as admin")
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password")
+                    log_activity("Failed login attempt", level='warning')
+    else:
+        st.sidebar.success("✅ Admin Mode")
+        if st.sidebar.button("🚪 Logout", use_container_width=True):
+            st.session_state.auth_level = 'public'
+            log_activity("Admin user logged out", level='info')
+            st.rerun()
+    
+    st.sidebar.divider()
+    
+    # File uploaders - Admin only
     if st.session_state.get('database_available', False):
-        with st.sidebar.expander("📁 File Upload Options", expanded=True):
-            st.caption("Use these if you want to upload new files instead of using database")
+        if st.session_state.get('auth_level') == 'admin':
+            with st.sidebar.expander("📁 File Upload Options", expanded=True):
+                st.caption("Use these if you want to upload new files instead of using database")
             
             trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
             patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
@@ -290,12 +314,20 @@ def setup_file_uploaders():
                         if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
                             st.session_state.overwrite_visits_confirmed = False
                             st.rerun()
+        else:
+            st.sidebar.info("🔒 Admin login required to upload files")
     else:
-        st.sidebar.caption("Upload your data files to get started")
-        
-        trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-        patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-        actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+        if st.session_state.get('auth_level') == 'admin':
+            st.sidebar.caption("Upload your data files to get started")
+            
+            trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+            patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+            actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+        else:
+            trials_file = None
+            patients_file = None
+            actual_visits_file = None
+            st.sidebar.info("🔒 Admin login required to upload files")
     
     # Log file uploads
     if trials_file and 'last_trials_file' not in st.session_state:
@@ -314,11 +346,12 @@ def setup_file_uploaders():
     st.session_state.trials_file = trials_file
     st.session_state.actual_visits_file = actual_visits_file
     
-    # Database Operations
+    # Database Operations - Admin only
     if st.session_state.get('database_available', False):
         st.sidebar.divider()
-        with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
-            st.caption("Database management and debugging tools")
+        if st.session_state.get('auth_level') == 'admin':
+            with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
+                st.caption("Database management and debugging tools")
             
             if st.button("🧪 Test DB Connection", use_container_width=True):
                 try:
@@ -376,6 +409,8 @@ def setup_file_uploaders():
                     log_activity("Database backup created successfully", level='success')
                 else:
                     log_activity("Failed to create database backup", level='error')
+        else:
+            st.sidebar.info("🔒 Admin login required for database operations")
     
     st.sidebar.divider()
     
@@ -390,7 +425,11 @@ def setup_file_uploaders():
     return patients_file, trials_file, actual_visits_file
 
 def display_action_buttons():
-    """Enhanced action buttons with study events"""
+    """Enhanced action buttons with authentication check"""
+    if st.session_state.get('auth_level') != 'admin':
+        st.info("🔒 Login as admin to add/edit patients, visits, and study events")
+        return
+    
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
@@ -687,6 +726,7 @@ def main():
 
             display_processing_messages(messages)
             
+            # Public - Always show
             display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
             
             show_legend(actual_visits_df)
@@ -695,16 +735,21 @@ def main():
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
-            display_monthly_income_tables(visits_df)
+            # Admin only - Financial reports
+            if st.session_state.get('auth_level') == 'admin':
+                display_monthly_income_tables(visits_df)
+                
+                financial_df = prepare_financial_data(visits_df)
+                if not financial_df.empty:
+                    display_quarterly_profit_sharing_tables(financial_df, patients_df)
+
+                display_income_realization_analysis(visits_df, trials_df, patients_df)
+
+                display_site_income_by_fy(visits_df, trials_df)
+            else:
+                st.info("🔒 Login as admin to view financial reports and income analysis")
             
-            financial_df = prepare_financial_data(visits_df)
-            if not financial_df.empty:
-                display_quarterly_profit_sharing_tables(financial_df, patients_df)
-
-            display_income_realization_analysis(visits_df, trials_df, patients_df)
-
-            display_site_income_by_fy(visits_df, trials_df)
-
+            # Public - Always show (non-financial statistics)
             display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, actual_visits_df)

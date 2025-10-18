@@ -36,23 +36,30 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
             actual_visits_df['VisitType'] = 'patient'
-            
-            # FIXED: Auto-detect study events from VisitName
-            # If VisitName is 'SIV' or contains 'SIV', it's a site initiation visit
-            siv_mask = actual_visits_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
-            actual_visits_df.loc[siv_mask, 'VisitType'] = 'siv'
-            
-            # If VisitName contains 'Monitor' or 'Monitoring', it's a monitoring visit
-            monitor_mask = actual_visits_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
-            actual_visits_df.loc[monitor_mask, 'VisitType'] = 'monitor'
-            
-            # Log detected study events
-            siv_count = siv_mask.sum()
-            monitor_count = monitor_mask.sum()
-            if siv_count > 0:
-                log_activity(f"Auto-detected {siv_count} SIV event(s) from VisitName", level='info')
-            if monitor_count > 0:
-                log_activity(f"Auto-detected {monitor_count} Monitor event(s) from VisitName", level='info')
+        
+        # FIXED: Always run auto-detection, even if VisitType column exists
+        # This fixes study events that were incorrectly saved with VisitType='patient'
+        # If VisitName is 'SIV' or contains 'SIV', it's a site initiation visit
+        siv_mask = (
+            (actual_visits_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') &
+            (actual_visits_df['VisitType'].astype(str).str.lower() != 'siv')  # Only fix if not already 'siv'
+        )
+        actual_visits_df.loc[siv_mask, 'VisitType'] = 'siv'
+        
+        # If VisitName contains 'Monitor' or 'Monitoring', it's a monitoring visit
+        monitor_mask = (
+            actual_visits_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False) &
+            (actual_visits_df['VisitType'].astype(str).str.lower() != 'monitor')  # Only fix if not already 'monitor'
+        )
+        actual_visits_df.loc[monitor_mask, 'VisitType'] = 'monitor'
+        
+        # Log detected study events
+        siv_count = siv_mask.sum()
+        monitor_count = monitor_mask.sum()
+        if siv_count > 0:
+            log_activity(f"🔧 Corrected {siv_count} SIV event(s) from VisitName (were incorrectly marked as patient visits)", level='warning')
+        if monitor_count > 0:
+            log_activity(f"🔧 Corrected {monitor_count} Monitor event(s) from VisitName (were incorrectly marked as patient visits)", level='warning')
         
         if 'Notes' not in actual_visits_df.columns:
             actual_visits_df['Notes'] = ''

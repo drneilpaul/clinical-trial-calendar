@@ -5,6 +5,10 @@ def initialize_session_state():
     """Initialize all session state variables"""
     from helpers import init_activity_log, init_error_system
     
+    # Authentication state - public by default
+    if 'auth_level' not in st.session_state:
+        st.session_state.auth_level = 'public'
+    
     if 'show_patient_form' not in st.session_state:
         st.session_state.show_patient_form = False
     if 'show_visit_form' not in st.session_state:

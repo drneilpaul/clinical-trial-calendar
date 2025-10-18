@@ -354,3 +354,4 @@ def run_startup_validation(patients_df, trials_df, actual_visits_df=None) -> Dic
 
 
 
+
