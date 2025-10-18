@@ -354,63 +354,63 @@ def setup_file_uploaders():
         if st.session_state.get('auth_level') == 'admin':
             with st.sidebar.expander("🔧 Database Operations & Debug", expanded=False):
                 st.caption("Database management and debugging tools")
-            
-            if st.button("🧪 Test DB Connection", use_container_width=True):
-                try:
-                    if db.test_database_connection():
-                        st.success("✅ Database connected and tables found")
+                
+                if st.button("🧪 Test DB Connection", use_container_width=True):
+                    try:
+                        if db.test_database_connection():
+                            st.success("✅ Database connected and tables found")
+                        else:
+                            st.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
+                    except Exception as e:
+                        st.error(f"❌ Database test failed: {e}")
+                
+                st.divider()
+                
+                if st.button("🔍 Check All Database Tables", use_container_width=True):
+                    st.session_state.show_database_contents = True
+                    st.rerun()
+                
+                st.divider()
+                
+                if st.button("🔄 Refresh App Data", use_container_width=True):
+                    # Clear all cached data
+                    if 'patients_df' in st.session_state:
+                        del st.session_state['patients_df']
+                    if 'trials_df' in st.session_state:
+                        del st.session_state['trials_df']
+                    if 'actual_visits_df' in st.session_state:
+                        del st.session_state['actual_visits_df']
+                    
+                    # Clear validation results to force re-run
+                    if 'validation_results' in st.session_state:
+                        del st.session_state['validation_results']
+                    if 'validation_run' in st.session_state:
+                        del st.session_state['validation_run']
+                    
+                    st.session_state.data_refresh_needed = True
+                    log_activity("🔄 Manual data refresh triggered - clearing all caches", level='info')
+                    st.success("✅ Data refresh triggered! Reloading from database...")
+                    st.rerun()
+                
+                st.divider()
+                
+                st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
+                
+                st.divider()
+                
+                if st.button("📦 Download DB Backup", use_container_width=True):
+                    backup_zip = db.create_backup_zip()
+                    if backup_zip:
+                        st.download_button(
+                            "💾 Download Database Backup (ZIP)",
+                            data=backup_zip.getvalue(),
+                            file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+                        log_activity("Database backup created successfully", level='success')
                     else:
-                        st.error(f"❌ Database issue: {st.session_state.get('database_status', 'Unknown')}")
-                except Exception as e:
-                    st.error(f"❌ Database test failed: {e}")
-            
-            st.divider()
-            
-            if st.button("🔍 Check All Database Tables", use_container_width=True):
-                st.session_state.show_database_contents = True
-                st.rerun()
-            
-            st.divider()
-            
-            if st.button("🔄 Refresh App Data", use_container_width=True):
-                # Clear all cached data
-                if 'patients_df' in st.session_state:
-                    del st.session_state['patients_df']
-                if 'trials_df' in st.session_state:
-                    del st.session_state['trials_df']
-                if 'actual_visits_df' in st.session_state:
-                    del st.session_state['actual_visits_df']
-                
-                # Clear validation results to force re-run
-                if 'validation_results' in st.session_state:
-                    del st.session_state['validation_results']
-                if 'validation_run' in st.session_state:
-                    del st.session_state['validation_run']
-                
-                st.session_state.data_refresh_needed = True
-                log_activity("🔄 Manual data refresh triggered - clearing all caches", level='info')
-                st.success("✅ Data refresh triggered! Reloading from database...")
-                st.rerun()
-            
-            st.divider()
-            
-            st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
-            
-            st.divider()
-            
-            if st.button("📦 Download DB Backup", use_container_width=True):
-                backup_zip = db.create_backup_zip()
-                if backup_zip:
-                    st.download_button(
-                        "💾 Download Database Backup (ZIP)",
-                        data=backup_zip.getvalue(),
-                        file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                        mime="application/zip",
-                        use_container_width=True
-                    )
-                    log_activity("Database backup created successfully", level='success')
-                else:
-                    log_activity("Failed to create database backup", level='error')
+                        log_activity("Failed to create database backup", level='error')
         else:
             st.sidebar.info("🔒 Admin login required for database operations")
     
