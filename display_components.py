@@ -751,88 +751,78 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             if excel_df['Date'].dtype == 'datetime64[ns]':
                 excel_df['Date'] = excel_df['Date'].dt.strftime('%d/%m/%Y')
 
-        col1, col2, col3 = st.columns(3)
+        # CSV download - Commented out (may remove later)
+        # col_csv = st.columns(1)[0]
+        # with col_csv:
+        #     csv = excel_df.to_csv(index=False)
+        #     st.download_button(
+        #         "📄 Download as CSV",
+        #         data=csv,
+        #         file_name="VisitCalendar.csv",
+        #         mime="text/csv"
+        #     )
+        
+        col1, col2 = st.columns(2)
         
         with col1:
-            # CSV download
-            csv = excel_df.to_csv(index=False)
-            st.download_button(
-                "📄 Download as CSV",
-                data=csv,
-                file_name="VisitCalendar.csv",
-                mime="text/csv"
-            )
-
-        with col2:
-            # Basic Excel download with Period handling
-            buf = io.BytesIO()
-            try:
-                excel_df.to_excel(buf, index=False, engine='openpyxl')
-                st.download_button(
-                    "💾 Download Basic Excel", 
-                    data=buf.getvalue(), 
-                    file_name="VisitCalendar.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            except Exception as excel_error:
-                st.error(f"Excel export failed: {excel_error}")
-                # Fallback to CSV with xlsx extension
-                csv_fallback = excel_df.to_csv(index=False)
-                st.download_button(
-                    "💾 Download as CSV (Excel failed)", 
-                    data=csv_fallback, 
-                    file_name="VisitCalendar.csv",
-                    mime="text/csv"
-                )
-            
-        with col3:
-            # Enhanced Excel from table_builders
+            # Calendar Only - Formatted Excel WITHOUT financials (PUBLIC ACCESS)
             try:
                 from table_builders import create_enhanced_excel_export
                 # Use actual data instead of empty DataFrames
                 patients_data = patients_df if patients_df is not None else pd.DataFrame()
                 visits_data = visits_df if visits_df is not None else pd.DataFrame()
                 
-                enhanced_excel = create_enhanced_excel_export(
-                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites
+                calendar_only = create_enhanced_excel_export(
+                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
+                    include_financial=False
                 )
                 
-                if enhanced_excel:
+                if calendar_only:
                     st.download_button(
-                        "✨ Enhanced Excel with Headers",
-                        data=enhanced_excel.getvalue(),
-                        file_name="VisitCalendar_Enhanced.xlsx",
+                        "📅 Calendar Only",
+                        data=calendar_only.getvalue(),
+                        file_name="VisitCalendar_CalendarOnly.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help="Includes explanatory headers, data dictionary, and summary"
+                        help="Calendar with visit schedule - no financial data",
+                        use_container_width=True
                     )
                 else:
-                    st.info("Enhanced Excel generation failed")
+                    st.info("Calendar export generation failed")
             except Exception as e:
-                st.warning(f"Enhanced Excel unavailable: {e}")
-                # Provide basic Excel as fallback
+                st.warning(f"Calendar export unavailable: {e}")
+            
+        with col2:
+            # Calendar and Financials - Formatted Excel WITH financials (ADMIN ONLY)
+            if st.session_state.get('auth_level') == 'admin':
                 try:
-                    buf2 = io.BytesIO()
-                    excel_df.to_excel(buf2, index=False, engine='openpyxl')
-                    st.download_button(
-                        "📊 Download Excel (Basic)",
-                        data=buf2.getvalue(),
-                        file_name="VisitCalendar_Basic.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    from table_builders import create_enhanced_excel_export
+                    # Use actual data instead of empty DataFrames
+                    patients_data = patients_df if patients_df is not None else pd.DataFrame()
+                    visits_data = visits_df if visits_df is not None else pd.DataFrame()
+                    
+                    calendar_financials = create_enhanced_excel_export(
+                        excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
+                        include_financial=True
                     )
-                except:
-                    st.info("Excel export requires openpyxl library")
+                    
+                    if calendar_financials:
+                        st.download_button(
+                            "💰 Calendar and Financials",
+                            data=calendar_financials.getvalue(),
+                            file_name="VisitCalendar_WithFinancials.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Complete calendar with income tracking and financial analysis",
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("Enhanced Excel generation failed")
+                except Exception as e:
+                    st.warning(f"Financial export unavailable: {e}")
+            else:
+                st.info("🔒 Login as admin to download financial data")
 
     except Exception as e:
         st.error(f"Error creating download options: {e}")
-        # Ultimate fallback - CSV only
-        try:
-            csv_fallback = calendar_df.astype(str).to_csv(index=False)
-            st.download_button(
-                "📄 Download as CSV (Fallback)",
-                data=csv_fallback,
-                file_name="VisitCalendar_Fallback.csv",
-                mime="text/csv"
-            )
-        except Exception as fallback_error:
-            st.error(f"All download methods failed: {fallback_error}")
+        # Fallback removed - Excel export is primary method
+        st.info("Please report this error if Excel export fails")
 
