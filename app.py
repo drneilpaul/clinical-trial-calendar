@@ -737,6 +737,9 @@ def main():
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
+            # DEBUG: Show current auth level
+            st.write(f"**DEBUG: Current auth_level = '{st.session_state.get('auth_level', 'NOT SET')}'**")
+            
             # Admin only - Financial reports
             if st.session_state.get('auth_level') == 'admin':
                 display_monthly_income_tables(visits_df)
@@ -748,11 +751,11 @@ def main():
                 display_income_realization_analysis(visits_df, trials_df, patients_df)
 
                 display_site_income_by_fy(visits_df, trials_df)
+                
+                # Site-wise statistics (includes financial data)
+                display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
             else:
                 st.info("🔒 Login as admin to view financial reports and income analysis")
-            
-            # Public - Always show (non-financial statistics)
-            display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
 
             display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, actual_visits_df)
 
