@@ -109,14 +109,19 @@ def setup_file_uploaders():
     st.sidebar.divider()
     
     # File uploaders - Admin only
+    # Initialize to None first
+    trials_file = None
+    patients_file = None
+    actual_visits_file = None
+    
     if st.session_state.get('database_available', False):
         if st.session_state.get('auth_level') == 'admin':
             with st.sidebar.expander("📁 File Upload Options", expanded=True):
                 st.caption("Use these if you want to upload new files instead of using database")
-            
-            trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-            patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-            actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+                
+                trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+                patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+                actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
             
             # Selective overwrite buttons
             if patients_file or trials_file or actual_visits_file:
@@ -324,9 +329,6 @@ def setup_file_uploaders():
             patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
             actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
         else:
-            trials_file = None
-            patients_file = None
-            actual_visits_file = None
             st.sidebar.info("🔒 Admin login required to upload files")
     
     # Log file uploads
