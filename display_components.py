@@ -448,92 +448,22 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
 
         html_table_with_features = '\n'.join(modified_html_lines)
         
-        # Extract first 3 rows (headers) and remaining rows (data) for separate display
-        # Use a more robust approach - find all <tr> tags
-        import re as regex_module
-        
-        # Find all row elements
-        tr_pattern = regex_module.compile(r'<tr[^>]*>.*?</tr>', regex_module.DOTALL)
-        all_rows = tr_pattern.findall(html_table_with_features)
-        
-        # First 3 rows are headers, rest are data
-        header_rows = all_rows[:3] if len(all_rows) >= 3 else all_rows
-        data_rows = all_rows[3:] if len(all_rows) > 3 else []
-        
-        # Wrap in table tags
-        table_start = '<table border="1" class="dataframe">'
-        table_end = '</table>'
-        
-        headers_table = table_start + ''.join(header_rows) + table_end
-        data_table = table_start + ''.join(data_rows) + table_end
-        
-        # Log for debugging
-        from helpers import log_activity
-        log_activity(f"Extracted {len(header_rows)} header rows and {len(data_rows)} data rows for frozen display", level='info')
-        
-        # Wrap with enhanced styling for frozen headers and auto-scroll
+        # Simple wrapper with auto-scroll only
+        # Note: Frozen headers don't work reliably in Streamlit's iframe environment
+        # Keeping the single-table approach with just auto-scroll
         return f"""
         <style>
-            /* Fixed header section */
-            .header-fixed {{
-                position: relative;
-                overflow-x: auto;
-                background: white;
-                border: 1px solid #ddd;
-                border-bottom: 3px solid #3b82f6;
-                z-index: 100;
-            }}
-            
-            .header-fixed table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            
-            /* Scrollable data section */
-            .data-scrollable {{
-                max-height: 700px;
+            .calendar-container {{
+                max-height: 800px;
                 overflow-y: auto;
                 overflow-x: auto;
                 border: 1px solid #ddd;
-                border-top: none;
-            }}
-            
-            .data-scrollable table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            
-            /* Make both tables have same column widths */
-            .header-fixed table,
-            .data-scrollable table {{
-                table-layout: fixed;
             }}
         </style>
-        
-        <div class="header-fixed" id="header-section">
-            <table>{headers_table}</table>
-        </div>
-        
-        <div class='data-scrollable' id='calendar-scroll-container'>
-            <table>{data_table}</table>
+        <div class='calendar-container' id='calendar-scroll-container'>
+            {html_table_with_features}
         </div>
         <script>
-            // Synchronize horizontal scrolling between header and data sections
-            const headerSection = document.getElementById('header-section');
-            const dataSection = document.getElementById('calendar-scroll-container');
-            
-            if (headerSection && dataSection) {{
-                // When data section scrolls horizontally, sync header
-                dataSection.addEventListener('scroll', function() {{
-                    headerSection.scrollLeft = dataSection.scrollLeft;
-                }});
-                
-                // When header section scrolls horizontally, sync data
-                headerSection.addEventListener('scroll', function() {{
-                    dataSection.scrollLeft = headerSection.scrollLeft;
-                }});
-            }}
-            
             // Auto-scroll to position today's date approximately 1/3 down the visible area
             setTimeout(function() {{
                 const today = new Date().toISOString().split('T')[0];  // Format: YYYY-MM-DD
