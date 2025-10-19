@@ -371,7 +371,7 @@ def patient_entry_modal():
             st.session_state.show_patient_form = False
             st.rerun()
 
-@st.dialog("📝 Record Visit", width="large")
+@st.dialog("📝 Record Patient Visit", width="large")
 def visit_entry_modal():
     """Modal dialog for recording patient visits"""
     
@@ -524,6 +524,13 @@ def visit_entry_modal():
     
     with col_submit:
         if st.button("📝 Record Visit", type="primary", width='stretch'):
+            # Validate that SIV/Monitor aren't being recorded as patient visits
+            if selected_visit_name.upper() in ['SIV'] or 'MONITOR' in selected_visit_name.upper():
+                st.error("⚠️ **SIV and Monitor are site-wide events, not patient visits.**\n\n"
+                         "Please use the **'Record Site Event'** button instead.\n\n"
+                         "This button is for patient-specific visits only.")
+                return
+            
             # Format the visit date
             formatted_date = visit_date.strftime('%d/%m/%Y')
             
@@ -620,14 +627,15 @@ def visit_entry_modal():
             st.session_state.show_visit_form = False
             st.rerun()
 
-@st.dialog("📅 Record Study Event", width="large")
+@st.dialog("📅 Record Site Event (SIV/Monitor)", width="large")
 def study_event_entry_modal():
     """Modal dialog for recording actual SIV/Monitor events"""
     
     # Check if we're using database
     load_from_database = st.session_state.get('use_database', False)
     
-    st.markdown("### Record Study Event (SIV/Monitor)")
+    st.markdown("### Record Site Event (SIV/Monitor)")
+    st.caption("ℹ️ For patient-specific visits (V1.1, Unscheduled, Extra Visit), use 'Record Patient Visit' button")
     
     # Load required data based on mode
     if load_from_database:
@@ -676,7 +684,7 @@ def study_event_entry_modal():
         
         event_name = st.text_input(
             "Event Name*",
-            help="Enter the name of the event (e.g., 'Site Initiation Visit', 'Monitoring Visit 1')"
+            help="Site-wide events only (SIV, Monitor, Closeout). For patient visits like V1.1 or Unscheduled, use 'Record Patient Visit' button."
         )
     
     with col2:

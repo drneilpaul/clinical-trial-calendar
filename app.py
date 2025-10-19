@@ -435,15 +435,18 @@ def display_action_buttons():
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
-        if st.button("Add New Patient", use_container_width=True):
+        if st.button("➕ Add New Patient", use_container_width=True,
+                     help="Add a new patient to the calendar"):
             st.session_state.show_patient_form = True
     
     with col2:
-        if st.button("Record Patient Visit", use_container_width=True):
+        if st.button("📝 Record Patient Visit", use_container_width=True,
+                     help="Record visits for specific patients (Screening, Randomisation, V1-V21, V1.1, Unscheduled)"):
             st.session_state.show_visit_form = True
     
     with col3:
-        if st.button("Record Study Event", use_container_width=True):
+        if st.button("📅 Record Site Event", use_container_width=True,
+                     help="Record site-wide events (SIV, Monitor, Closeout) - not patient-specific"):
             st.session_state.show_study_event_form = True
 
 def main():
@@ -736,9 +739,6 @@ def main():
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
-            
-            # DEBUG: Show current auth level
-            st.write(f"**DEBUG: Current auth_level = '{st.session_state.get('auth_level', 'NOT SET')}'**")
             
             # Admin only - Financial reports
             if st.session_state.get('auth_level') == 'admin':
