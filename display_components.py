@@ -446,6 +446,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
 
             modified_html_lines.append(line)
 
+        html_table_with_features = '\n'.join(modified_html_lines)
+        
         # Extract first 3 rows (headers) and remaining rows (data) for separate display
         html_parts = html_table_with_features.split('</tr>')
         header_rows_html = []
