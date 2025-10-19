@@ -446,62 +446,70 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
 
             modified_html_lines.append(line)
 
-        html_table_with_features = '\n'.join(modified_html_lines)
+        # Extract first 3 rows (headers) and remaining rows (data) for separate display
+        html_parts = html_table_with_features.split('</tr>')
+        header_rows_html = []
+        data_rows_html = []
+        row_count = 0
+        
+        for part in html_parts:
+            if '<tr' in part:
+                row_count += 1
+                if row_count <= 3:
+                    header_rows_html.append(part + '</tr>')
+                else:
+                    data_rows_html.append(part + '</tr>')
+            elif part.strip():  # Keep table tags, etc
+                data_rows_html.append(part)
+        
+        headers_table = ''.join(header_rows_html)
+        data_table = ''.join(data_rows_html)
         
         # Wrap with enhanced styling for frozen headers and auto-scroll
         return f"""
         <style>
-            /* Calendar container with scrolling */
-            .calendar-container {{
-                max-height: 800px;
+            /* Fixed header section */
+            .header-fixed {{
+                position: relative;
+                overflow-x: auto;
+                background: white;
+                border: 1px solid #ddd;
+                border-bottom: 3px solid #3b82f6;
+                z-index: 100;
+            }}
+            
+            .header-fixed table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            
+            /* Scrollable data section */
+            .data-scrollable {{
+                max-height: 700px;
                 overflow-y: auto;
                 overflow-x: auto;
                 border: 1px solid #ddd;
-                position: relative;
+                border-top: none;
             }}
             
-            /* Make first 3 data rows (header rows) sticky - multiple selectors for robustness */
-            .calendar-container table tbody tr.header-row-1,
-            .calendar-container table tbody tr.header-row-2,
-            .calendar-container table tbody tr.header-row-3,
-            .calendar-container table tr.header-row-1,
-            .calendar-container table tr.header-row-2,
-            .calendar-container table tr.header-row-3 {{
-                position: sticky !important;
-                z-index: 1000 !important;
-                background-color: white !important;
+            .data-scrollable table {{
+                width: 100%;
+                border-collapse: collapse;
             }}
             
-            /* Stack the header rows at different vertical positions */
-            .calendar-container table tr.header-row-1 {{
-                top: 0px !important;
-            }}
-            .calendar-container table tr.header-row-2 {{
-                top: 40px !important;  /* Increased from 35px */
-            }}
-            .calendar-container table tr.header-row-3 {{
-                top: 80px !important;  /* Increased from 70px */
-            }}
-            
-            /* Ensure table cells in sticky rows have background and proper display */
-            .calendar-container table tr.header-row-1 td,
-            .calendar-container table tr.header-row-2 td,
-            .calendar-container table tr.header-row-3 td {{
-                background-color: white !important;
-                border-bottom: 2px solid #666 !important;
-                font-weight: bold;
-                position: relative;
-                z-index: 1001;
-            }}
-            
-            /* Ensure table itself allows sticky */
-            .calendar-container table {{
-                border-collapse: separate;
-                border-spacing: 0;
+            /* Make both tables have same column widths */
+            .header-fixed table,
+            .data-scrollable table {{
+                table-layout: fixed;
             }}
         </style>
-        <div class='calendar-container' id='calendar-scroll-container'>
-            {html_table_with_features}
+        
+        <div class="header-fixed">
+            <table>{headers_table}</table>
+        </div>
+        
+        <div class='data-scrollable' id='calendar-scroll-container'>
+            <table>{data_table}</table>
         </div>
         <script>
             // Auto-scroll to position today's date approximately 1/3 down the visible area
