@@ -607,28 +607,9 @@ def display_income_realization_analysis(visits_df, trials_df, patients_df):
     except Exception as e:
         st.error(f"Error displaying income realization analysis: {e}")
 
-def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures):
-    """Display detailed statistics for each site with quarterly and financial year analysis"""
-    if visits_df.empty or patients_df.empty:
-        return
-    
-    st.subheader("📊 Site-wise Analysis")
-    
-    try:
-        # Prepare enhanced visits data
-        enhanced_visits_df = prepare_financial_data(visits_df)
-        
-        # Always create tabs for all visit sites, even if they have no visits
-        # This ensures sites like Kiltearn are visible even when they only have patient recruitment income
-        if len(unique_visit_sites) > 1:
-            tabs = st.tabs(unique_visit_sites)
-            for i, visit_site in enumerate(unique_visit_sites):
-                with tabs[i]:
-                    _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, visit_site, screen_failures)
-        else:
-            _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, unique_visit_sites[0], screen_failures)
-    except Exception as e:
-        st.error(f"Error displaying site-wise statistics: {e}")
+# NOTE: display_site_wise_statistics function removed - it was a duplicate
+# The actual function used by the app is in data_analysis.py (imported in app.py line 21)
+# This duplicate was never imported or called anywhere
 
 def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, site, screen_failures):
     """Display comprehensive analysis for a single site"""
