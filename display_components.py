@@ -367,8 +367,8 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             
             log_activity(f"Styling applied successfully", level='info')
             
-            # Generate HTML with month separators
-            html_table = _generate_calendar_html_with_separators(styled_df)
+            # Generate HTML with month separators, frozen headers, and auto-scroll
+            html_table = _generate_calendar_html_with_frozen_headers(styled_df)
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
             components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
@@ -401,47 +401,130 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             st.write(f"First few rows:")
             st.dataframe(calendar_df.head(), use_container_width=True)
 
-def _generate_calendar_html_with_separators(styled_df):
-    """Generate HTML calendar with month separators"""
+def _generate_calendar_html_with_frozen_headers(styled_df):
+    """Generate HTML calendar with frozen headers, month separators, and auto-scroll to today"""
     try:
         html_table_base = styled_df.to_html(escape=False)
         html_lines = html_table_base.split('\n')
         modified_html_lines = []
 
         prev_month = None
-        header_rows_passed = 0
+        row_index = 0
         
-        for i, line in enumerate(html_lines):
-            # Skip month separator logic for header rows (first 3 data rows after table headers)
-            if '<td>' in line:
-                if header_rows_passed < 3:
-                    header_rows_passed += 1
+        for line in html_lines:
+            # Look for data rows with dates
+            if '<tr>' in line and '<td>' in line:
+                # Track row index for header identification
+                row_index += 1
+                
+                # Skip header rows
+                if line.count('<th>') > 0:
                     modified_html_lines.append(line)
                     continue
+                
+                # Add class to first 3 data rows (header rows) for sticky positioning
+                if row_index <= 3:
+                    line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
                     
-                date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
-                match = re.search(date_pattern, line)
-                if match:
-                    try:
-                        date_obj = pd.to_datetime(match.group(1))
-                        current_month = date_obj.to_period('M')
+                # Add month separators (skip for header rows)
+                if row_index > 3:
+                    date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
+                    match = re.search(date_pattern, line)
+                    if match:
+                        try:
+                            date_obj = pd.to_datetime(match.group(1))
+                            current_month = date_obj.to_period('M')
 
-                        if prev_month is not None and current_month != prev_month:
-                            col_count = line.count('<td>')
-                            separator_line = f'<tr style="border-top: 3px solid #3b82f6; background-color: #eff6ff;"><td colspan="{col_count}" style="text-align: center; font-weight: bold; color: #1e40af; padding: 2px;">{current_month}</td></tr>'
-                            modified_html_lines.append(separator_line)
+                            if prev_month is not None and current_month != prev_month:
+                                col_count = line.count('<td>')
+                                separator_line = f'<tr style="border-top: 3px solid #3b82f6; background-color: #eff6ff;"><td colspan="{col_count}" style="text-align: center; font-weight: bold; color: #1e40af; padding: 2px;">{current_month}</td></tr>'
+                                modified_html_lines.append(separator_line)
 
-                        prev_month = current_month
-                    except:
-                        pass
+                            prev_month = current_month
+                        except:
+                            pass
 
             modified_html_lines.append(line)
 
-        html_table_with_separators = '\n'.join(modified_html_lines)
+        html_table_with_features = '\n'.join(modified_html_lines)
+        
+        # Wrap with enhanced styling for frozen headers and auto-scroll
         return f"""
-        <div style='max-height: 700px; overflow: auto; border: 1px solid #ddd;'>
-            {html_table_with_separators}
+        <style>
+            /* Calendar container with scrolling */
+            .calendar-container {{
+                max-height: 800px;
+                overflow-y: auto;
+                overflow-x: auto;
+                border: 1px solid #ddd;
+                position: relative;
+            }}
+            
+            /* Make first 3 data rows (header rows) sticky */
+            .calendar-container table tr.header-row-1,
+            .calendar-container table tr.header-row-2,
+            .calendar-container table tr.header-row-3 {{
+                position: sticky;
+                z-index: 100;
+                background-color: white;
+            }}
+            
+            /* Stack the header rows at different vertical positions */
+            .calendar-container table tr.header-row-1 {{
+                top: 0px;
+            }}
+            .calendar-container table tr.header-row-2 {{
+                top: 35px;  /* Adjust based on row height */
+            }}
+            .calendar-container table tr.header-row-3 {{
+                top: 70px;  /* Adjust based on row height */
+            }}
+            
+            /* Ensure table cells in sticky rows have background */
+            .calendar-container table tr.header-row-1 td,
+            .calendar-container table tr.header-row-2 td,
+            .calendar-container table tr.header-row-3 td {{
+                background-color: white;
+                border-bottom: 1px solid #ddd;
+            }}
+        </style>
+        <div class='calendar-container' id='calendar-scroll-container'>
+            {html_table_with_features}
         </div>
+        <script>
+            // Auto-scroll to position today's date approximately 1/3 down the visible area
+            setTimeout(function() {{
+                const today = new Date().toISOString().split('T')[0];  // Format: YYYY-MM-DD
+                const container = document.getElementById('calendar-scroll-container');
+                
+                if (container) {{
+                    const rows = container.getElementsByTagName('tr');
+                    
+                    for (let i = 0; i < rows.length; i++) {{
+                        const cells = rows[i].getElementsByTagName('td');
+                        
+                        // Check first cell for today's date
+                        if (cells.length > 0) {{
+                            const cellText = cells[0].textContent || cells[0].innerText;
+                            
+                            if (cellText.includes(today)) {{
+                                // Found today's row - calculate scroll position
+                                const rowTop = rows[i].offsetTop;
+                                const containerHeight = container.clientHeight;
+                                const headerHeight = 105;  // Height of 3 sticky header rows
+                                
+                                // Position today's row at 1/3 down from visible area (below sticky headers)
+                                const scrollPosition = rowTop - headerHeight - (containerHeight / 3);
+                                container.scrollTop = Math.max(0, scrollPosition);
+                                
+                                console.log('Auto-scrolled to today:', today, 'at row', i);
+                                break;
+                            }}
+                        }}
+                    }}
+                }}
+            }}, 100);  // Small delay to ensure DOM is ready
+        </script>
         """
     except Exception as e:
         st.warning(f"Calendar HTML generation failed: {e}")
