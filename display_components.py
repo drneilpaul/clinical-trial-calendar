@@ -449,23 +449,27 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
         html_table_with_features = '\n'.join(modified_html_lines)
         
         # Extract first 3 rows (headers) and remaining rows (data) for separate display
-        html_parts = html_table_with_features.split('</tr>')
-        header_rows_html = []
-        data_rows_html = []
-        row_count = 0
+        # Use a more robust approach - find all <tr> tags
+        import re as regex_module
         
-        for part in html_parts:
-            if '<tr' in part:
-                row_count += 1
-                if row_count <= 3:
-                    header_rows_html.append(part + '</tr>')
-                else:
-                    data_rows_html.append(part + '</tr>')
-            elif part.strip():  # Keep table tags, etc
-                data_rows_html.append(part)
+        # Find all row elements
+        tr_pattern = regex_module.compile(r'<tr[^>]*>.*?</tr>', regex_module.DOTALL)
+        all_rows = tr_pattern.findall(html_table_with_features)
         
-        headers_table = ''.join(header_rows_html)
-        data_table = ''.join(data_rows_html)
+        # First 3 rows are headers, rest are data
+        header_rows = all_rows[:3] if len(all_rows) >= 3 else all_rows
+        data_rows = all_rows[3:] if len(all_rows) > 3 else []
+        
+        # Wrap in table tags
+        table_start = '<table border="1" class="dataframe">'
+        table_end = '</table>'
+        
+        headers_table = table_start + ''.join(header_rows) + table_end
+        data_table = table_start + ''.join(data_rows) + table_end
+        
+        # Log for debugging
+        from helpers import log_activity
+        log_activity(f"Extracted {len(header_rows)} header rows and {len(data_rows)} data rows for frozen display", level='info')
         
         # Wrap with enhanced styling for frozen headers and auto-scroll
         return f"""
@@ -506,7 +510,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
             }}
         </style>
         
-        <div class="header-fixed">
+        <div class="header-fixed" id="header-section">
             <table>{headers_table}</table>
         </div>
         
@@ -514,6 +518,22 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
             <table>{data_table}</table>
         </div>
         <script>
+            // Synchronize horizontal scrolling between header and data sections
+            const headerSection = document.getElementById('header-section');
+            const dataSection = document.getElementById('calendar-scroll-container');
+            
+            if (headerSection && dataSection) {{
+                // When data section scrolls horizontally, sync header
+                dataSection.addEventListener('scroll', function() {{
+                    headerSection.scrollLeft = dataSection.scrollLeft;
+                }});
+                
+                // When header section scrolls horizontally, sync data
+                headerSection.addEventListener('scroll', function() {{
+                    dataSection.scrollLeft = headerSection.scrollLeft;
+                }});
+            }}
+            
             // Auto-scroll to position today's date approximately 1/3 down the visible area
             setTimeout(function() {{
                 const today = new Date().toISOString().split('T')[0];  // Format: YYYY-MM-DD
@@ -533,10 +553,9 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
                                 // Found today's row - calculate scroll position
                                 const rowTop = rows[i].offsetTop;
                                 const containerHeight = container.clientHeight;
-                                const headerHeight = 105;  // Height of 3 sticky header rows
                                 
-                                // Position today's row at 1/3 down from visible area (below sticky headers)
-                                const scrollPosition = rowTop - headerHeight - (containerHeight / 3);
+                                // Position today's row at 1/3 down from visible area
+                                const scrollPosition = rowTop - (containerHeight / 3);
                                 container.scrollTop = Math.max(0, scrollPosition);
                                 
                                 console.log('Auto-scrolled to today:', today, 'at row', i);
