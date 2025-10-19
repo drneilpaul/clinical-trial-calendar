@@ -460,32 +460,44 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
                 position: relative;
             }}
             
-            /* Make first 3 data rows (header rows) sticky */
+            /* Make first 3 data rows (header rows) sticky - multiple selectors for robustness */
+            .calendar-container table tbody tr.header-row-1,
+            .calendar-container table tbody tr.header-row-2,
+            .calendar-container table tbody tr.header-row-3,
             .calendar-container table tr.header-row-1,
             .calendar-container table tr.header-row-2,
             .calendar-container table tr.header-row-3 {{
-                position: sticky;
-                z-index: 100;
-                background-color: white;
+                position: sticky !important;
+                z-index: 1000 !important;
+                background-color: white !important;
             }}
             
             /* Stack the header rows at different vertical positions */
             .calendar-container table tr.header-row-1 {{
-                top: 0px;
+                top: 0px !important;
             }}
             .calendar-container table tr.header-row-2 {{
-                top: 35px;  /* Adjust based on row height */
+                top: 40px !important;  /* Increased from 35px */
             }}
             .calendar-container table tr.header-row-3 {{
-                top: 70px;  /* Adjust based on row height */
+                top: 80px !important;  /* Increased from 70px */
             }}
             
-            /* Ensure table cells in sticky rows have background */
+            /* Ensure table cells in sticky rows have background and proper display */
             .calendar-container table tr.header-row-1 td,
             .calendar-container table tr.header-row-2 td,
             .calendar-container table tr.header-row-3 td {{
-                background-color: white;
-                border-bottom: 1px solid #ddd;
+                background-color: white !important;
+                border-bottom: 2px solid #666 !important;
+                font-weight: bold;
+                position: relative;
+                z-index: 1001;
+            }}
+            
+            /* Ensure table itself allows sticky */
+            .calendar-container table {{
+                border-collapse: separate;
+                border-spacing: 0;
             }}
         </style>
         <div class='calendar-container' id='calendar-scroll-container'>
