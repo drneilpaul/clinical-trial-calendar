@@ -230,15 +230,19 @@ def patient_entry_modal():
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown("**Patient ID***")
         new_patient_id = st.text_input(
             "Patient ID*",
-            help="Enter a unique patient identifier"
+            help="Enter a unique patient identifier",
+            label_visibility="collapsed"
         )
         
+        st.markdown("**Study***")
         selected_study = st.selectbox(
             "Study*",
             options=available_studies,
-            help="Select the study this patient is enrolled in"
+            help="Select the study this patient is enrolled in",
+            label_visibility="collapsed"
         )
     
     with col2:
@@ -269,10 +273,12 @@ def patient_entry_modal():
             help="Enter the actual date of the visit selected above"
         )
         
+        st.markdown("**Recruited By***")
         recruitment_site = st.selectbox(
             "Recruited By*",
             options=["Ashfields", "Kiltearn"],
-            help="Which practice recruited this patient?"
+            help="Which practice recruited this patient?",
+            label_visibility="collapsed"
         )
     
     # Show calculated information
@@ -426,10 +432,12 @@ def visit_entry_modal():
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown("**Select Patient***")
         selected_patient_display = st.selectbox(
             "Select Patient*",
             options=patient_options,
-            help="Choose the patient for this visit"
+            help="Choose the patient for this visit",
+            label_visibility="collapsed"
         )
         
         # Extract patient ID from display string
@@ -447,10 +455,12 @@ def visit_entry_modal():
             for _, row in study_visits.iterrows()
         ]
         
+        st.markdown("**Visit***")
         selected_visit_display = st.selectbox(
             "Visit*",
             options=visit_options,
-            help="Select the visit type"
+            help="Select the visit type",
+            label_visibility="collapsed"
         )
         
         # Extract visit name
@@ -670,21 +680,27 @@ def study_event_entry_modal():
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown("**Study***")
         selected_study = st.selectbox(
             "Study*",
             options=available_studies,
-            help="Select the study for this event"
+            help="Select the study for this event",
+            label_visibility="collapsed"
         )
         
+        st.markdown("**Event Type***")
         event_type = st.selectbox(
             "Event Type*",
             options=["SIV", "Monitor"],
-            help="Site Initiation Visit or Monitoring Visit"
+            help="Site Initiation Visit or Monitoring Visit",
+            label_visibility="collapsed"
         )
         
+        st.markdown("**Event Name***")
         event_name = st.text_input(
             "Event Name*",
-            help="Site-wide events only (SIV, Monitor, Closeout). For patient visits like V1.1 or Unscheduled, use 'Record Patient Visit' button."
+            help="Site-wide events only (SIV, Monitor, Closeout). For patient visits like V1.1 or Unscheduled, use 'Record Patient Visit' button.",
+            label_visibility="collapsed"
         )
     
     with col2:
@@ -695,16 +711,20 @@ def study_event_entry_modal():
             help="Actual date when the event occurred"
         )
         
+        st.markdown("**Status***")
         status = st.selectbox(
             "Status*",
             options=["Completed", "Proposed", "Cancelled"],
-            help="Status of the event"
+            help="Status of the event",
+            label_visibility="collapsed"
         )
         
+        st.markdown("**Site***")
         site = st.selectbox(
             "Site*",
             options=["Ashfields", "Kiltearn"],
-            help="Which site hosted this event"
+            help="Which site hosted this event",
+            label_visibility="collapsed"
         )
     
     notes = st.text_area(
