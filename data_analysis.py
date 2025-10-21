@@ -147,7 +147,11 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                 st.metric("Patients recruited by this site", total_patients)
         
         with col2:
-            total_visits = len(site_visits)
+            # Filter out tolerance window markers (-, +) to get actual visit count
+            total_visits = len(site_visits[
+                (site_visits['Visit'] != '-') & 
+                (site_visits['Visit'] != '+')
+            ])
             st.metric("Total Visits", total_visits)
         
         with col3:
