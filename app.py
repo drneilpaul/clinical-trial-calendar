@@ -16,7 +16,7 @@ from display_components import (
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
     display_site_income_by_fy
 )
-from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
+from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, handle_switch_patient_modal, show_download_sections
 from data_analysis import (
     extract_screen_failures, display_site_wise_statistics, display_processing_messages
 )
@@ -411,6 +411,12 @@ def setup_file_uploaders():
                         log_activity("Database backup created successfully", level='success')
                     else:
                         log_activity("Failed to create database backup", level='error')
+                
+                st.divider()
+                
+                if st.button("🔄 Switch Patient Study", use_container_width=True):
+                    st.session_state.show_switch_patient_form = True
+                    st.rerun()
         else:
             st.sidebar.info("🔒 Admin login required for database operations")
     
@@ -720,6 +726,7 @@ def main():
         handle_patient_modal()
         handle_visit_modal()
         handle_study_event_modal()
+        handle_switch_patient_modal()
         show_download_sections()
 
         try:

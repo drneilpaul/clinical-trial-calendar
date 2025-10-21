@@ -736,6 +736,80 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
         log_activity(f"Error overwriting database: {e}", level='error')
         return False
 
+def switch_patient_study(patient_id, old_study, new_study, new_start_date):
+    """
+    Switch a patient from one study to another, updating all their records
+    
+    Args:
+        patient_id: Patient ID to switch
+        old_study: Current study name
+        new_study: Target study name  
+        new_start_date: New Day 1 date (formatted as string)
+    
+    Returns:
+        tuple: (success: bool, message: str, updated_visits_count: int)
+    """
+    try:
+        client = get_supabase_client()
+        if client is None:
+            log_activity("Cannot switch patient study: Supabase client not available", level='error')
+            return False, "Database connection unavailable", 0
+        
+        # Validate inputs
+        if not patient_id or not old_study or not new_study or not new_start_date:
+            log_activity("Cannot switch patient study: Missing required parameters", level='error')
+            return False, "Missing required parameters", 0
+        
+        if old_study == new_study:
+            log_activity("Cannot switch patient study: Same study selected", level='error')
+            return False, "Cannot switch to the same study", 0
+        
+        # Check if patient exists
+        patient_check = client.table('patients').select('*').eq('patient_id', patient_id).eq('study', old_study).execute()
+        if not patient_check.data:
+            log_activity(f"Cannot switch patient study: Patient {patient_id} not found in study {old_study}", level='error')
+            return False, f"Patient {patient_id} not found in study {old_study}", 0
+        
+        # Check if target study exists in trial schedules
+        trial_check = client.table('trial_schedules').select('study').eq('study', new_study).limit(1).execute()
+        if not trial_check.data:
+            log_activity(f"Cannot switch patient study: Target study {new_study} not found in trial schedules", level='error')
+            return False, f"Target study {new_study} not found in trial schedules", 0
+        
+        # Check if target study has exactly one Day 1 visit
+        day1_check = client.table('trial_schedules').select('*').eq('study', new_study).eq('day', 1).execute()
+        if len(day1_check.data) != 1:
+            log_activity(f"Cannot switch patient study: Target study {new_study} has {len(day1_check.data)} Day 1 visits (should be exactly 1)", level='error')
+            return False, f"Target study {new_study} must have exactly one Day 1 visit", 0
+        
+        # Get count of actual visits to update
+        visits_check = client.table('actual_visits').select('id').eq('patient_id', patient_id).eq('study', old_study).execute()
+        visits_count = len(visits_check.data)
+        
+        # Update patient record
+        patient_update = client.table('patients').update({
+            'study': new_study,
+            'start_date': new_start_date
+        }).eq('patient_id', patient_id).eq('study', old_study).execute()
+        
+        if not patient_update.data:
+            log_activity(f"Failed to update patient {patient_id} record", level='error')
+            return False, "Failed to update patient record", 0
+        
+        # Update all actual visits for this patient
+        visits_update = client.table('actual_visits').update({
+            'study': new_study
+        }).eq('patient_id', patient_id).eq('study', old_study).execute()
+        
+        log_activity(f"Successfully switched patient {patient_id} from {old_study} to {new_study}", level='success')
+        log_activity(f"Updated {visits_count} actual visits", level='info')
+        
+        return True, f"Successfully switched patient {patient_id} from {old_study} to {new_study}", visits_count
+        
+    except Exception as e:
+        log_activity(f"Error switching patient study: {e}", level='error')
+        return False, f"Database error: {str(e)}", 0
+
 def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bool:
     """Safely overwrite a single table with atomic operation"""
     try:
