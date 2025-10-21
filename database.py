@@ -787,9 +787,22 @@ def switch_patient_study(patient_id, old_study, new_study, new_start_date):
         visits_count = len(visits_check.data)
         
         # Update patient record
+        # Convert DD/MM/YYYY to YYYY-MM-DD for database
+        try:
+            if isinstance(new_start_date, str) and '/' in new_start_date:
+                # Convert DD/MM/YYYY to YYYY-MM-DD
+                from datetime import datetime
+                parsed_date = datetime.strptime(new_start_date, '%d/%m/%Y').date()
+                db_start_date = str(parsed_date)
+            else:
+                db_start_date = str(new_start_date)
+        except Exception as date_error:
+            log_activity(f"Date conversion error: {date_error}", level='error')
+            return False, f"Invalid date format: {new_start_date}", 0
+        
         patient_update = client.table('patients').update({
             'study': new_study,
-            'start_date': new_start_date
+            'start_date': db_start_date
         }).eq('patient_id', patient_id).eq('study', old_study).execute()
         
         if not patient_update.data:
