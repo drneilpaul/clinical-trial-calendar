@@ -49,8 +49,8 @@ def get_file_structure_info():
 
 # Application constants
 APP_TITLE = "Clinical Trial Calendar Generator"
-APP_VERSION = "v3.0.0"
-APP_SUBTITLE = "Online Database Integration"
+APP_VERSION = "v1.1"
+APP_SUBTITLE = "Initial Release"
 
 # Default profit sharing weights
 DEFAULT_LIST_WEIGHT = 35
