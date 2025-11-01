@@ -376,6 +376,71 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     
     # Save to BytesIO
     output = io.BytesIO()
+    
+    # === By Study Income (FY) Sheet (financial export only) ===
+    try:
+        if include_financial and visits_df is not None and not visits_df.empty:
+            from openpyxl.styles import PatternFill, Font, Alignment
+            from openpyxl.utils import get_column_letter
+            from calculations import calculate_study_realization_by_study
+            
+            by_study_df = calculate_study_realization_by_study(visits_df, period='current_fy')
+            ws_by = wb.create_sheet("By Study Income (FY)")
+            
+            # Title
+            ws_by['A1'] = "By Study Income (Current Financial Year)"
+            ws_by['A1'].font = Font(size=14, bold=True, color="1F4E79")
+            
+            # Headers
+            headers = list(by_study_df.columns) if not by_study_df.empty else [
+                'Study', 'Completed Income', 'Completed Visits', 'Scheduled Income',
+                'Scheduled Visits', 'Pipeline Income', 'Remaining Visits', 'Realization Rate'
+            ]
+            for col_idx, col_name in enumerate(headers, 1):
+                cell = ws_by.cell(row=3, column=col_idx, value=str(col_name))
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                cell.alignment = Alignment(horizontal="center")
+            
+            # Data rows
+            currency_cols = {'Completed Income', 'Scheduled Income', 'Pipeline Income'}
+            integer_cols = {'Completed Visits', 'Scheduled Visits', 'Remaining Visits'}
+            percent_cols = {'Realization Rate'}
+            
+            for row_idx, row in enumerate(by_study_df.itertuples(index=False), start=4):
+                for col_idx, col_name in enumerate(headers, 1):
+                    val = getattr(row, col_name.replace(' ', '_')) if hasattr(row, col_name.replace(' ', '_')) else getattr(row, col_name, '')
+                    cell = ws_by.cell(row=row_idx, column=col_idx, value=val)
+                    # Number formats
+                    if col_name in currency_cols:
+                        try:
+                            numeric_val = float(val)
+                            cell.value = numeric_val
+                            cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                        except Exception:
+                            pass
+                    elif col_name in integer_cols:
+                        try:
+                            cell.value = int(val)
+                            cell.number_format = '0'
+                        except Exception:
+                            pass
+                    elif col_name in percent_cols:
+                        try:
+                            # Expecting percentage as 0-100
+                            pct = float(val) / 100.0 if float(val) > 1 else float(val)
+                            cell.value = pct
+                            cell.number_format = '0.0%'
+                        except Exception:
+                            pass
+            
+            # Auto width
+            for idx, col_name in enumerate(headers, 1):
+                col_letter = get_column_letter(idx)
+                ws_by.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
+    except Exception as _e:
+        # Non-fatal: keep export even if this sheet fails
+        pass
     try:
         wb.save(output)
         output.seek(0)

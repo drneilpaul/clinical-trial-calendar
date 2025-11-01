@@ -14,7 +14,7 @@ from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
-    display_site_income_by_fy
+    display_site_income_by_fy, display_study_income_summary
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 try:
@@ -766,6 +766,9 @@ def main():
 
                 display_site_income_by_fy(visits_df, trials_df)
                 
+                # By-study income summary (current FY by default)
+                display_study_income_summary(visits_df)
+
                 # Site-wise statistics (includes financial data)
                 display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
             else:

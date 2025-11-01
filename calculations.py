@@ -654,3 +654,102 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
     except Exception as e:
         st.error(f"Error calculating site realization breakdown: {e}")
         return []
+
+def calculate_study_realization_by_study(visits_df, period: str = 'current_fy'):
+    """Build per-study realization (completed vs scheduled vs pipeline) for a period.
+
+    Args:
+        visits_df: Visits with columns including Date, Study, Payment, Visit, IsActual
+        period: 'current_fy' or 'all_time'
+
+    Returns:
+        pd.DataFrame with columns:
+            Study, Completed Income, Completed Visits, Scheduled Income,
+            Scheduled Visits, Pipeline Income, Remaining Visits, Realization Rate
+    """
+    try:
+        if visits_df is None or visits_df.empty:
+            return pd.DataFrame(columns=[
+                'Study', 'Completed Income', 'Completed Visits',
+                'Scheduled Income', 'Scheduled Visits',
+                'Pipeline Income', 'Remaining Visits', 'Realization Rate'
+            ])
+
+        df = visits_df.copy()
+
+        # Filter by period
+        if period == 'current_fy':
+            from helpers import get_current_financial_year_boundaries
+            fy_start, fy_end = get_current_financial_year_boundaries()
+            df = df[(df['Date'] >= fy_start) & (df['Date'] <= fy_end)].copy()
+
+        if df.empty:
+            return pd.DataFrame(columns=[
+                'Study', 'Completed Income', 'Completed Visits',
+                'Scheduled Income', 'Scheduled Visits',
+                'Pipeline Income', 'Remaining Visits', 'Realization Rate'
+            ])
+
+        # Exclude tolerance markers
+        df = df[~df['Visit'].isin(['-', '+'])].copy()
+
+        if df.empty:
+            return pd.DataFrame(columns=[
+                'Study', 'Completed Income', 'Completed Visits',
+                'Scheduled Income', 'Scheduled Visits',
+                'Pipeline Income', 'Remaining Visits', 'Realization Rate'
+            ])
+
+        # Ensure numeric payments
+        df['Payment'] = pd.to_numeric(df.get('Payment', 0), errors='coerce').fillna(0.0)
+
+        # Completed vs scheduled flags
+        is_completed = df.get('IsActual', False) == True
+        is_pipeline = df.get('IsActual', False) == False
+
+        # Group aggregations
+        completed = df[is_completed].groupby('Study').agg(
+            Completed_Income=('Payment', 'sum'),
+            Completed_Visits=('Visit', 'count')
+        )
+        scheduled = df.groupby('Study').agg(
+            Scheduled_Income=('Payment', 'sum'),
+            Scheduled_Visits=('Visit', 'count')
+        )
+        pipeline = df[is_pipeline].groupby('Study').agg(
+            Pipeline_Income=('Payment', 'sum'),
+            Remaining_Visits=('Visit', 'count')
+        )
+
+        # Merge
+        result = scheduled.join(completed, how='left').join(pipeline, how='left').fillna(0)
+
+        # Realization rate
+        result['Realization Rate'] = result.apply(
+            lambda r: (r['Completed_Income'] / r['Scheduled_Income'] * 100) if r['Scheduled_Income'] > 0 else 0,
+            axis=1
+        )
+
+        # Reorder and rename columns for display
+        result = result.reset_index()
+        result = result.rename(columns={
+            'Study': 'Study',
+            'Completed_Income': 'Completed Income',
+            'Completed_Visits': 'Completed Visits',
+            'Scheduled_Income': 'Scheduled Income',
+            'Scheduled_Visits': 'Scheduled Visits',
+            'Pipeline_Income': 'Pipeline Income',
+            'Remaining_Visits': 'Remaining Visits'
+        })
+
+        # Sort by scheduled income desc
+        result = result.sort_values('Scheduled Income', ascending=False)
+
+        return result
+    except Exception as e:
+        st.error(f"Error calculating by-study realization: {e}")
+        return pd.DataFrame(columns=[
+            'Study', 'Completed Income', 'Completed Visits',
+            'Scheduled Income', 'Scheduled Visits',
+            'Pipeline Income', 'Remaining Visits', 'Realization Rate'
+        ])

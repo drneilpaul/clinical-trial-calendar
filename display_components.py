@@ -11,7 +11,8 @@ from calculations import (
     prepare_financial_data, build_profit_sharing_analysis, 
     build_ratio_breakdown_data, get_list_ratios,
     calculate_income_realization_metrics, calculate_monthly_realization_breakdown,
-    calculate_study_pipeline_breakdown, calculate_site_realization_breakdown
+    calculate_study_pipeline_breakdown, calculate_site_realization_breakdown,
+    calculate_study_realization_by_study
 )
 from formatters import (
     format_currency, create_site_header_row, style_calendar_row,
@@ -175,6 +176,46 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
             
     except Exception as e:
         st.error(f"Error in realization analysis: {e}")
+
+def display_study_income_summary(visits_df):
+    """Display by-study income summary for current FY by default, with optional all-time toggle."""
+    try:
+        st.subheader("📚 By Study Income (Current FY)")
+
+        if visits_df is None or visits_df.empty:
+            st.info("No visit data available")
+            return
+
+        # Period control (default Current FY)
+        period_choice = st.radio(
+            "Period",
+            options=["Current FY", "All time"],
+            horizontal=True,
+            index=0,
+            help="Switch to All time if needed"
+        )
+        period_key = 'current_fy' if period_choice == "Current FY" else 'all_time'
+
+        df = calculate_study_realization_by_study(visits_df, period=period_key)
+
+        if df.empty:
+            st.info("No data for selected period")
+            return
+
+        # Format display copy
+        display_df = df.copy()
+        for c in ["Completed Income", "Scheduled Income", "Pipeline Income"]:
+            if c in display_df.columns:
+                display_df[c] = display_df[c].apply(format_currency)
+        for c in ["Completed Visits", "Scheduled Visits", "Remaining Visits"]:
+            if c in display_df.columns:
+                display_df[c] = display_df[c].astype(int)
+        if "Realization Rate" in display_df.columns:
+            display_df["Realization Rate"] = display_df["Realization Rate"].apply(lambda v: f"{v:.1f}%")
+
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"Error displaying by-study income summary: {e}")
 
 def display_site_income_by_fy(visits_df, trials_df):
     """Display site income breakdown by financial year (actual vs predicted)"""
