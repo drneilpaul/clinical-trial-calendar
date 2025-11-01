@@ -271,6 +271,23 @@ def prepare_trials_data(trials_df):
     except:
         st.error("Invalid 'Day' values in trials file. Days must be numeric.")
         raise ValueError("Invalid Day column in trials file")
+
+    # Optional interval-based scheduling columns
+    try:
+        if 'IntervalUnit' in trials_df.columns:
+            trials_df['IntervalUnit'] = trials_df['IntervalUnit'].astype(str).str.strip().str.lower()
+            # Normalize common variants; keep only 'month' or 'day'
+            valid_units = {'month', 'day', '', 'nan', 'none'}
+            invalid_mask = ~trials_df['IntervalUnit'].isin(valid_units)
+            if invalid_mask.any():
+                log_activity(f"Unsupported IntervalUnit values found and ignored: {trials_df.loc[invalid_mask, 'IntervalUnit'].unique().tolist()}", level='warning')
+                trials_df.loc[invalid_mask, 'IntervalUnit'] = ''
+        if 'IntervalValue' in trials_df.columns:
+            # Coerce to integers when possible
+            trials_df['IntervalValue'] = pd.to_numeric(trials_df['IntervalValue'], errors='coerce')
+            # Leave NaN for rows where it's not applicable; handled downstream
+    except Exception as e:
+        log_activity(f"Interval parsing warning: {e}", level='warning')
     
     return trials_df
 

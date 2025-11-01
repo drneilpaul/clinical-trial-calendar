@@ -147,9 +147,12 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         baseline_date = pd.Timestamp(baseline_date)
     baseline_date = pd.Timestamp(baseline_date.date())  # Normalize to date only
     
-    scheduled_date = baseline_date + timedelta(days=visit_day - 1)
-    # Normalize scheduled_date to date only for calendar matching
-    scheduled_date = pd.Timestamp(scheduled_date.date())
+    # Calculate expected date using unified tolerance/interval logic
+    expected_date, _, _, _, _ = calculate_tolerance_windows(
+        visit, baseline_date, visit_day
+    )
+    # Normalize expected_date to date only for calendar matching
+    scheduled_date = pd.Timestamp(pd.Timestamp(expected_date).date())
     
     # Use patient-specific screen failure check
     if screen_fail_date is not None and scheduled_date > screen_fail_date:
@@ -193,9 +196,6 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     }
     
     # Create tolerance window records for predicted visits
-    expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
-        visit, baseline_date, visit_day
-    )
     tolerance_records = create_tolerance_window_records(
         patient_id, study, site, patient_origin, expected_date,
         tolerance_before, tolerance_after, visit_day, visit_name,

@@ -120,7 +120,29 @@ def detect_screen_failures(actual_visits_df, trials_df):
 
 def calculate_tolerance_windows(visit, baseline_date, visit_day):
     """Calculate tolerance windows for a visit"""
-    expected_date = baseline_date + timedelta(days=visit_day - 1)
+    # Determine expected date using optional month-based intervals
+    try:
+        unit = str(visit.get("IntervalUnit", "")).strip().lower() if hasattr(visit, 'get') else str(visit.get("IntervalUnit", "")).strip().lower()
+    except Exception:
+        unit = str(visit.get("IntervalUnit", "")).strip().lower()
+    value = visit.get("IntervalValue", None)
+
+    # Normalize baseline_date to Timestamp if needed
+    if not isinstance(baseline_date, pd.Timestamp):
+        baseline_date = pd.Timestamp(baseline_date)
+
+    if unit == 'month' and pd.notna(value):
+        try:
+            months = int(value)
+        except Exception:
+            months = None
+        if months is not None:
+            # Calendar-aware month addition
+            expected_date = baseline_date + pd.DateOffset(months=months)
+        else:
+            expected_date = baseline_date + timedelta(days=visit_day - 1)
+    else:
+        expected_date = baseline_date + timedelta(days=visit_day - 1)
     
     tolerance_before = 0
     tolerance_after = 0

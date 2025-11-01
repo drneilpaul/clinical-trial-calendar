@@ -82,10 +82,13 @@ def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
                 'site_for_visit': 'SiteforVisit',
                 'payment': 'Payment',
                 'tolerance_before': 'ToleranceBefore',
-                'tolerance_after': 'ToleranceAfter'
+                'tolerance_after': 'ToleranceAfter',
+                # Optional columns for month-based intervals
+                'interval_unit': 'IntervalUnit',
+                'interval_value': 'IntervalValue'
             })
             return df
-        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue'])
     except Exception as e:
         st.error(f"Error fetching trial schedules: {e}")
         return None
@@ -262,7 +265,10 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 'site_for_visit': str(row.get('SiteforVisit', '')),
                 'payment': float(row.get('Payment', 0)),
                 'tolerance_before': int(row.get('ToleranceBefore', 0)),
-                'tolerance_after': int(row.get('ToleranceAfter', 0))
+                'tolerance_after': int(row.get('ToleranceAfter', 0)),
+                # Optional month-based interval fields
+                'interval_unit': (str(row.get('IntervalUnit')).lower().strip() if pd.notna(row.get('IntervalUnit')) else None),
+                'interval_value': (int(row.get('IntervalValue')) if pd.notna(row.get('IntervalValue')) else None)
             }
             records.append(record)
         
@@ -552,7 +558,10 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 'site_for_visit': str(row.get('SiteforVisit', '')),
                 'payment': float(row.get('Payment', 0)),
                 'tolerance_before': int(row.get('ToleranceBefore', 0)),
-                'tolerance_after': int(row.get('ToleranceAfter', 0))
+                'tolerance_after': int(row.get('ToleranceAfter', 0)),
+                # Optional month-based interval fields
+                'interval_unit': (str(row.get('IntervalUnit')).lower().strip() if pd.notna(row.get('IntervalUnit')) else None),
+                'interval_value': (int(row.get('IntervalValue')) if pd.notna(row.get('IntervalValue')) else None)
             }
             records.append(record)
         
@@ -591,7 +600,7 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_trial_schedules()
         if df is None or df.empty:
-            return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter'])
+            return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue'])
         
         if 'Payment' not in df.columns:
             df['Payment'] = 0
@@ -599,8 +608,13 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
             df['ToleranceBefore'] = 0
         if 'ToleranceAfter' not in df.columns:
             df['ToleranceAfter'] = 0
+        # Ensure optional interval columns exist for export
+        if 'IntervalUnit' not in df.columns:
+            df['IntervalUnit'] = ''
+        if 'IntervalValue' not in df.columns:
+            df['IntervalValue'] = ''
         
-        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter']
+        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue']
         df = df[export_columns]
         
         return df
