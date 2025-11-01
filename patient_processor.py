@@ -147,8 +147,8 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         baseline_date = pd.Timestamp(baseline_date)
     baseline_date = pd.Timestamp(baseline_date.date())  # Normalize to date only
     
-    # Calculate expected date using unified tolerance/interval logic
-    expected_date, _, _, _, _ = calculate_tolerance_windows(
+    # Calculate expected date and tolerances using unified interval logic
+    expected_date, _, _, tolerance_before, tolerance_after = calculate_tolerance_windows(
         visit, baseline_date, visit_day
     )
     # Normalize expected_date to date only for calendar matching
