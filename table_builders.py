@@ -384,7 +384,16 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
             from openpyxl.utils import get_column_letter
             from calculations import calculate_study_realization_by_study
             
-            by_study_df = calculate_study_realization_by_study(visits_df, period='current_fy')
+            # Defensive: ensure a 'Date' column exists (fallback from ActualDate if miswired)
+            source_visits_df = visits_df
+            try:
+                if 'Date' not in source_visits_df.columns and 'ActualDate' in source_visits_df.columns:
+                    source_visits_df = source_visits_df.copy()
+                    source_visits_df['Date'] = pd.to_datetime(source_visits_df['ActualDate']).dt.normalize()
+            except Exception:
+                pass
+            
+            by_study_df = calculate_study_realization_by_study(source_visits_df, period='current_fy')
             ws_by = wb.create_sheet("By Study Income (FY)")
             
             # Title
