@@ -844,12 +844,34 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             # Calendar Only - Formatted Excel WITHOUT financials (PUBLIC ACCESS)
             try:
                 from table_builders import create_enhanced_excel_export
+                from datetime import timedelta
+                
+                # Filter calendar for planning view: 2 weeks prior to today onwards
+                # This excludes historic visits but keeps recent and all future visits
+                calendar_only_df = excel_df.copy()
+                if 'Date' in calendar_only_df.columns:
+                    # Ensure Date column is datetime for filtering
+                    if calendar_only_df['Date'].dtype == 'object':
+                        # If already formatted as string, parse it back
+                        calendar_only_df['Date'] = pd.to_datetime(calendar_only_df['Date'], format='%d/%m/%Y', errors='coerce')
+                    
+                    # Calculate cutoff date: today - 14 days
+                    today = pd.Timestamp(date.today())
+                    cutoff_date = today - timedelta(days=14)
+                    
+                    # Filter to keep dates >= cutoff_date
+                    calendar_only_df = calendar_only_df[calendar_only_df['Date'] >= cutoff_date].copy()
+                    
+                    # Restore date formatting for Excel export
+                    if calendar_only_df['Date'].dtype == 'datetime64[ns]':
+                        calendar_only_df['Date'] = calendar_only_df['Date'].dt.strftime('%d/%m/%Y')
+                
                 # Use actual data instead of empty DataFrames
                 patients_data = patients_df if patients_df is not None else pd.DataFrame()
                 visits_data = visits_df if visits_df is not None else pd.DataFrame()
                 
                 calendar_only = create_enhanced_excel_export(
-                    excel_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
+                    calendar_only_df, patients_data, visits_data, site_column_mapping, unique_visit_sites,
                     include_financial=False
                 )
                 
