@@ -71,12 +71,6 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, start_date=None) -> 
     if filtered.empty:
         return pd.DataFrame(columns=EXPORT_COLUMNS)
 
-    if df.empty:
-        return pd.DataFrame(columns=EXPORT_COLUMNS)
-
-    df['VisitType'] = df.get('VisitType', 'patient').astype(str).str.strip().str.lower()
-    df.loc[df['VisitType'].isin(['', 'nan', 'none', 'null']), 'VisitType'] = 'patient'
-
     export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
 
     export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
