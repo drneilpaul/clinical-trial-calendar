@@ -4,6 +4,12 @@ from typing import List
 
 from helpers import get_financial_year, get_current_financial_year_boundaries
 
+try:
+    import xlsxwriter  # noqa: F401
+    XLSX_ENGINE = "xlsxwriter"
+except ImportError:
+    XLSX_ENGINE = "openpyxl"
+
 
 ACTIVITY_TYPES: List[str] = ["patient", "extra", "siv", "monitor"]
 
@@ -153,7 +159,7 @@ def create_activity_summary_workbook(visits_df: pd.DataFrame) -> io.BytesIO:
     historical_sheet = _build_historical_actuals_sheet(prepared_df)
     current_split_sheet = _build_current_fy_split_sheet(prepared_df)
 
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
         if historical_sheet.empty:
             pd.DataFrame({"Message": ["No actual visit data available"]}).to_excel(
                 writer, sheet_name="Historical Actuals", index=False
