@@ -15,10 +15,15 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     if actual_visits_df is None:
         return patient_actual_visits, actual_visits_used, unmatched_visits
     
+    if 'VisitType' in actual_visits_df.columns:
+        visit_type_series = actual_visits_df['VisitType'].astype(str).str.strip().str.lower().fillna('patient')
+    else:
+        visit_type_series = pd.Series(['patient'] * len(actual_visits_df), index=actual_visits_df.index)
+    
     patient_actuals = actual_visits_df[
         (actual_visits_df["PatientID"] == patient_id) & 
         (actual_visits_df["Study"] == study) &
-        (actual_visits_df.get("VisitType", "patient") == "patient")
+        (visit_type_series.isin(['patient', 'extra']))
     ]
     
     if len(patient_actuals) > 0:
@@ -61,6 +66,9 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     """Process a single actual visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
+    visit_type = str(visit.get("VisitType", "patient")).strip().lower()
+    if visit_type in ['', 'nan', 'none', 'null']:
+        visit_type = 'patient'
     visit_date = actual_visit_data["ActualDate"]
     
     # Ensure it's a proper Timestamp and normalize to date only for calendar matching
@@ -129,7 +137,8 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "IsScreenFail": is_screen_fail,
         "IsOutOfProtocol": is_out_of_protocol,
         "VisitDay": visit_day,
-        "VisitName": visit_name
+        "VisitName": visit_name,
+        "VisitType": visit_type
     }
     
     # Simplified: No tolerance window records created
@@ -141,6 +150,9 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     """Process a single scheduled (predicted) visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
+    visit_type = str(visit.get("VisitType", "patient")).strip().lower()
+    if visit_type in ['', 'nan', 'none', 'null']:
+        visit_type = 'patient'
     
     # Ensure baseline_date is a proper Timestamp and normalize to date only
     if not isinstance(baseline_date, pd.Timestamp):
@@ -192,7 +204,8 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "IsScreenFail": False,
         "IsOutOfProtocol": False,
         "VisitDay": visit_day,
-        "VisitName": visit_name
+        "VisitName": visit_name,
+        "VisitType": visit_type
     }
     
     # Create tolerance window records for predicted visits
@@ -361,6 +374,9 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 continue  # Skip this visit entirely
             
             # Create visit record
+            actual_visit_type = str(actual_visit_data.get('VisitType', 'patient')).strip().lower()
+            if actual_visit_type in ['', 'nan', 'none', 'null']:
+                actual_visit_type = 'patient'
             visit_record = {
                 "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
                 "PatientID": patient_id,
@@ -373,7 +389,8 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),
                 "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
                 "VisitDay": visit_day,
-                "VisitName": visit_name
+                "VisitName": visit_name,
+                "VisitType": actual_visit_type
             }
             visit_records.append(visit_record)
     

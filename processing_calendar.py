@@ -363,15 +363,12 @@ def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
     if 'VisitType' in trials_df.columns:
         # FIXED: Include all patient visits including screening (negative days) and Day 0
-        # Only exclude study event templates (siv/monitor)
-        patient_visits = trials_df[
-            ((trials_df['VisitType'] == 'patient') |
-            (pd.isna(trials_df['VisitType'])))
-        ]
+        # Only exclude study event templates (siv/monitor); allow optional extras
+        visit_types = trials_df['VisitType'].astype(str).str.strip().str.lower()
+        patient_mask = visit_types.isin(['patient', 'extra']) | visit_types.isna() | (visit_types == '')
+        patient_visits = trials_df[patient_mask]
         
-        study_event_templates = trials_df[
-            trials_df['VisitType'].isin(['siv', 'monitor'])
-        ]
+        study_event_templates = trials_df[visit_types.isin(['siv', 'monitor'])]
     else:
         # FIXED: Include all patient visits including screening (negative days) and Day 0
         # No filtering by Day - let patient processor handle all visits

@@ -157,18 +157,35 @@ def _show_visit_download():
     
     st.subheader("📥 Download New Visit Data")
     
-    df = pd.DataFrame([visit_data])
+    if isinstance(visit_data, list):
+        visit_records = visit_data
+    else:
+        visit_records = [visit_data]
+    
+    df = pd.DataFrame(visit_records)
     csv_buffer = io.StringIO()
     df.to_csv(csv_buffer, index=False)
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.info(f"Patient: {visit_data['PatientID']} | Visit: {visit_data['VisitName']} | Date: {visit_data['ActualDate']}")
+        primary_visit = visit_records[0]
+        extras_summary = [
+            record['VisitName']
+            for record in visit_records[1:]
+            if record.get('VisitType') == 'extra'
+        ]
+        info_text = (
+            f"Patient: {primary_visit['PatientID']} | Visit: {primary_visit['VisitName']} "
+            f"| Date: {primary_visit['ActualDate']}"
+        )
+        if extras_summary:
+            info_text += f" | Extras: {', '.join(extras_summary)}"
+        st.info(info_text)
     with col2:
         st.download_button(
             label="⬇️ Download CSV",
             data=csv_buffer.getvalue(),
-            file_name=f"new_visit_{visit_data['PatientID']}_{visit_data['VisitName']}.csv",
+            file_name=f"new_visit_{visit_records[0]['PatientID']}_{visit_records[0]['VisitName']}.csv",
             mime="text/csv",
             key="download_visit"
         )
@@ -464,22 +481,136 @@ def visit_entry_modal():
         # Filter visits for this study
         study_visits = trial_schedule_df[trial_schedule_df['Study'] == patient_study].copy()
         
-        # Create visit options with day information
-        visit_options = [
-            f"{row['VisitName']} (Day {row['Day']})"
-            for _, row in study_visits.iterrows()
-        ]
+        if study_visits.empty:
+            st.error(f"No visits defined for study {patient_study}.")
+            if st.button("Close"):
+                st.session_state.show_visit_form = False
+                st.rerun()
+            return
         
-        st.markdown("**Visit***")
-        selected_visit_display = st.selectbox(
-            "Visit*",
-            options=visit_options,
-            help="Select the visit type",
-            label_visibility="collapsed"
+        # Normalize visit types for easier filtering
+        if 'VisitType' in study_visits.columns:
+            visit_type_series = study_visits['VisitType'].astype(str).str.strip().str.lower().replace(
+                {'nan': '', 'none': '', 'null': ''}
+            )
+        else:
+            visit_type_series = pd.Series(['patient'] * len(study_visits), index=study_visits.index)
+        visit_type_series = visit_type_series.replace('', 'patient')
+        study_visits = study_visits.assign(_VisitType=visit_type_series)
+        
+        # Split primary visits (scheduled patient visits) and optional extras
+        primary_visits_df = study_visits[~study_visits['_VisitType'].isin(['siv', 'monitor', 'extra'])].copy()
+        extras_df = study_visits[study_visits['_VisitType'] == 'extra'].copy()
+        
+        primary_visits_df = primary_visits_df.sort_values(by=['Day', 'VisitName']).reset_index(drop=True)
+        extras_df = extras_df.sort_values(by=['VisitName']).reset_index(drop=True)
+        
+        # Determine which visits already have actual records
+        if visits_df is not None and not visits_df.empty:
+            patient_actuals_existing = visits_df[
+                (visits_df['PatientID'].astype(str) == selected_patient_id) &
+                (visits_df['Study'].astype(str) == patient_study)
+            ].copy()
+            if 'VisitType' in patient_actuals_existing.columns:
+                patient_actuals_existing['_VisitType'] = (
+                    patient_actuals_existing['VisitType'].astype(str).str.strip().str.lower()
+                )
+            else:
+                patient_actuals_existing['_VisitType'] = 'patient'
+            patient_actuals_existing['_VisitType'] = patient_actuals_existing['_VisitType'].replace(
+                {'': 'patient', 'nan': 'patient', 'none': 'patient', 'null': 'patient'}
+            )
+        else:
+            patient_actuals_existing = pd.DataFrame(columns=['VisitName', '_VisitType'])
+        
+        completed_visit_names = set(
+            patient_actuals_existing.loc[
+                patient_actuals_existing['_VisitType'].isin(['patient', '']),
+                'VisitName'
+            ].astype(str).str.strip().str.lower()
+        )
+        extras_completed_names = set(
+            patient_actuals_existing.loc[
+                patient_actuals_existing['_VisitType'] == 'extra',
+                'VisitName'
+            ].astype(str).str.strip().str.lower()
         )
         
-        # Extract visit name
-        selected_visit_name = selected_visit_display.split(' (Day')[0]
+        pending_visits_df = primary_visits_df[
+            ~primary_visits_df['VisitName'].astype(str).str.strip().str.lower().isin(completed_visit_names)
+        ].copy()
+        
+        if pending_visits_df.empty and not primary_visits_df.empty:
+            st.info("ℹ️ All scheduled visits have recorded actuals. Showing full visit list.")
+            selection_visits_df = primary_visits_df.copy()
+        else:
+            selection_visits_df = pending_visits_df.reset_index(drop=True)
+        
+        if selection_visits_df.empty:
+            st.error("No visits available to record for this patient.")
+            if st.button("Close"):
+                st.session_state.show_visit_form = False
+                st.rerun()
+            return
+        
+        visit_choice_records = []
+        for _, visit_row in selection_visits_df.iterrows():
+            visit_name = str(visit_row['VisitName'])
+            visit_day = visit_row.get('Day', '')
+            label = f"{visit_name} (Day {visit_day})"
+            if visit_name.strip().lower() in completed_visit_names:
+                label += " – already recorded"
+            visit_choice_records.append(
+                {
+                    "label": label,
+                    "value": visit_name,
+                    "day": visit_day
+                }
+            )
+        
+        visit_choice_indices = list(range(len(visit_choice_records)))
+        default_index = 0
+        
+        st.markdown("**Visit***")
+        selected_visit_index = st.selectbox(
+            "Visit*",
+            options=visit_choice_indices,
+            index=default_index if default_index < len(visit_choice_indices) else 0,
+            format_func=lambda idx: visit_choice_records[idx]["label"],
+            help="Select the visit to record",
+            label_visibility="collapsed"
+        )
+        selected_visit_name = visit_choice_records[selected_visit_index]["value"]
+        
+        # Extras selection – optional Day 0 add-ons
+        selected_extra_names = []
+        available_extras_df = extras_df[
+            ~extras_df['VisitName'].astype(str).str.strip().str.lower().isin(extras_completed_names)
+        ].copy()
+        
+        if not extras_df.empty:
+            st.markdown("**Optional extras**")
+            if available_extras_df.empty:
+                st.caption("All extras have already been recorded for this patient.")
+            else:
+                extra_options = list(available_extras_df['VisitName'])
+                extra_label_map = {}
+                for _, extra_row in available_extras_df.iterrows():
+                    extra_name = str(extra_row['VisitName'])
+                    payment = extra_row.get('Payment', 0)
+                    try:
+                        payment_value = float(payment)
+                        payment_text = f"+£{payment_value:,.2f}" if payment_value else "+£0.00"
+                    except (TypeError, ValueError):
+                        payment_text = "+£0.00"
+                    extra_label_map[extra_name] = f"{extra_name} ({payment_text})"
+                
+                selected_extra_names = st.multiselect(
+                    "Extras performed (optional)",
+                    options=extra_options,
+                    format_func=lambda name: extra_label_map.get(name, name),
+                    help="Tick any additional activities completed at the same visit"
+                )
     
     with col2:
         visit_date = st.date_input(
@@ -599,27 +730,75 @@ def visit_entry_modal():
             # Get visit details from trial schedule
             visit_details = study_visits[study_visits['VisitName'] == selected_visit_name].iloc[0]
             
+            primary_visit_type = str(visit_details.get('VisitType', 'patient')).strip().lower()
+            if primary_visit_type in ['', 'nan', 'none']:
+                primary_visit_type = 'patient'
+            
             # Create new visit data
             new_visit = {
                 'PatientID': selected_patient_id,
                 'Study': patient_study,
                 'VisitName': selected_visit_name,
                 'ActualDate': formatted_date,
-                'Day': int(visit_details['Day']),
-                'Notes': notes if notes else ''
+                'Day': int(visit_details.get('Day', 0)),
+                'Notes': notes if notes else '',
+                'VisitType': primary_visit_type
             }
+            
+            # Build extra visit records (if any selected)
+            extra_visits_data = []
+            for extra_name in selected_extra_names:
+                extra_row_match = extras_df[extras_df['VisitName'] == extra_name]
+                if extra_row_match.empty:
+                    continue
+                extra_row = extra_row_match.iloc[0]
+                
+                is_dup_extra, is_same_extra_diff, existing_extra = check_for_duplicates(
+                    selected_patient_id, patient_study, extra_name, formatted_date, visits_df
+                )
+                
+                if is_dup_extra:
+                    st.warning(
+                        f"Extra '{extra_name}' already exists on {existing_extra['ActualDate']} - skipping duplicate."
+                    )
+                    continue
+                if is_same_extra_diff:
+                    st.warning(
+                        f"Extra '{extra_name}' already exists on a different date "
+                        f"({existing_extra['ActualDate']}). Skipping duplicate entry."
+                    )
+                    continue
+                
+                extra_visits_data.append({
+                    'PatientID': selected_patient_id,
+                    'Study': patient_study,
+                    'VisitName': extra_name,
+                    'ActualDate': formatted_date,
+                    'Day': int(extra_row.get('Day', 0)),
+                    'Notes': notes if notes else '',
+                    'VisitType': 'extra'
+                })
+            
+            all_new_visits = [new_visit] + extra_visits_data
             
             # Handle database or file mode
             if load_from_database:
                 try:
                     import database as db
                     # Convert dict to DataFrame
-                    visit_df = pd.DataFrame([new_visit])
+                    visit_df = pd.DataFrame(all_new_visits)
                     success, message, code = db.append_visit_to_database(visit_df)
                     
                     if success:
-                        st.success(f"Visit recorded successfully for patient {selected_patient_id}!")
-                        log_activity(f"Recorded visit {selected_visit_name} for patient {selected_patient_id}", level='success')
+                        success_msg = f"Visit recorded successfully for patient {selected_patient_id}!"
+                        if extra_visits_data:
+                            success_msg += f" ({len(extra_visits_data)} extra{'s' if len(extra_visits_data) != 1 else ''} added)"
+                        st.success(success_msg)
+                        log_activity(
+                            f"Recorded visit {selected_visit_name} for patient {selected_patient_id} "
+                            f"with {len(extra_visits_data)} extras",
+                            level='success'
+                        )
                         
                         # Trigger data refresh
                         st.session_state.data_refresh_needed = True
@@ -642,8 +821,12 @@ def visit_entry_modal():
                     log_activity(f"Database error recording visit: {str(e)}", level='error')
             else:
                 # File mode - update session state and offer download
-                st.session_state.new_visit_data = new_visit
-                log_activity(f"Created new visit record for {selected_patient_id}", level='success')
+                st.session_state.new_visit_data = all_new_visits
+                log_activity(
+                    f"Created new visit record for {selected_patient_id} "
+                    f"with {len(extra_visits_data)} extras",
+                    level='success'
+                )
                 st.session_state.show_visit_form = False
                 st.rerun()
     
