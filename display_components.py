@@ -21,16 +21,14 @@ def render_calendar_start_selector(years_back: int = 4):
     session_key = "calendar_start_year"
     default_index = 1 if len(labels) > 1 else 0
     
-    # Ensure session state has a valid default before rendering the widget
-    if session_key not in st.session_state or st.session_state[session_key] not in labels:
-        st.session_state[session_key] = labels[default_index]
-    
-    current_index = labels.index(st.session_state[session_key])
+    # If Streamlit has a stale value that's no longer valid, clear it before rendering
+    if session_key in st.session_state and st.session_state[session_key] not in labels:
+        del st.session_state[session_key]
     
     selected_label = st.selectbox(
         "Calendar view from",
         labels,
-        index=current_index,
+        index=default_index,
         key=session_key,
         help="Filter the calendar to show visits from the selected financial year onward."
     )
