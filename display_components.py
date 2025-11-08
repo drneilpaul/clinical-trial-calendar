@@ -965,6 +965,26 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                     st.warning(f"Financial export unavailable: {e}")
             else:
                 st.info("🔒 Login as admin to download financial data")
+        
+        st.markdown("---")
+        st.subheader("📊 Activity Summary Report")
+        st.caption("Download activity counts by financial year, site, and study (actuals vs. predicted).")
+        
+        from activity_report import create_activity_summary_workbook
+        try:
+            report_workbook = create_activity_summary_workbook(
+                visits_df if visits_df is not None else pd.DataFrame()
+            )
+            st.download_button(
+                "📈 Activity Summary (Excel)",
+                data=report_workbook.getvalue(),
+                file_name="Activity_Summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Activity counts by FY/site/study with current-year actual vs predicted split",
+                width="stretch"
+            )
+        except Exception as e:
+            st.warning(f"Activity summary not available: {e}")
 
     except Exception as e:
         st.error(f"Error creating download options: {e}")
