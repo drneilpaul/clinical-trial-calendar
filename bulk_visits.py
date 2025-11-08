@@ -28,36 +28,50 @@ EXPORT_COLUMNS = [
 ]
 
 
+def _normalise_key(patient_id: Any, study: Any) -> Tuple[str, str]:
+    return (str(patient_id).strip(), str(study).strip())
+
+
 def _filter_overdue_predicted(visits_df: pd.DataFrame, start_date=None) -> pd.DataFrame:
     if visits_df is None or visits_df.empty:
         return pd.DataFrame()
 
-    df = visits_df.copy()
-
-    if 'Date' not in df.columns:
+    df_all = visits_df.copy()
+    if 'Date' not in df_all.columns:
         return pd.DataFrame()
 
-    if not pd.api.types.is_datetime64_any_dtype(df['Date']):
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df_all['Date'] = pd.to_datetime(df_all['Date'], errors='coerce')
+    df_all = df_all[df_all['Date'].notna()]
 
-    today = pd.Timestamp(date.today())
+    screen_fail_map: Dict[Tuple[str, str], pd.Timestamp] = {}
+    if 'IsScreenFail' in df_all.columns:
+        screen_fail_df = df_all[df_all['IsScreenFail'].astype(bool)].copy()
+        if not screen_fail_df.empty:
+            screen_fail_df['PatientID'] = screen_fail_df['PatientID'].astype(str).str.strip()
+            screen_fail_df['Study'] = screen_fail_df['Study'].astype(str).str.strip()
+            screen_fail_dates = screen_fail_df.groupby(['PatientID', 'Study'])['Date'].min()
+            screen_fail_map = {
+                (pid, study): dt for (pid, study), dt in screen_fail_dates.items() if pd.notna(dt)
+            }
 
     if start_date is None:
         start_date = get_current_financial_year_boundaries()[0]
     else:
         start_date = pd.Timestamp(start_date)
 
-    df = df[
-        (~df.get('IsActual', False)) &
-        (df['Date'].notna()) &
-        (df['Date'] <= today) &
-        (df['Date'] >= start_date)
+    today = pd.Timestamp(date.today())
+
+    df = df_all[
+        (~df_all.get('IsActual', False)) &
+        (df_all['Date'] <= today) &
+        (df_all['Date'] >= start_date)
     ].copy()
 
     if df.empty:
         return pd.DataFrame()
 
-    df = df[~df.get('Visit', '').isin(['-', '+'])]
+    if 'Visit' in df.columns:
+        df = df[~df['Visit'].isin(['-', '+'])]
     df = df[df.get('VisitDay', 0) != 0]
 
     if df.empty:
@@ -65,6 +79,15 @@ def _filter_overdue_predicted(visits_df: pd.DataFrame, start_date=None) -> pd.Da
 
     df['VisitType'] = df.get('VisitType', 'patient').astype(str).str.strip().str.lower()
     df.loc[df['VisitType'].isin(['', 'nan', 'none', 'null']), 'VisitType'] = 'patient'
+
+    if screen_fail_map:
+        df = df[df.apply(
+            lambda row: row['Date'] < screen_fail_map.get(_normalise_key(row['PatientID'], row['Study']), pd.Timestamp.max),
+            axis=1
+        )]
+
+    if df.empty:
+        return pd.DataFrame()
 
     df = df[[
         'PatientID', 'Study', 'VisitName', 'VisitDay', 'Date', 'SiteofVisit',
@@ -91,7 +114,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
         if not extras_lookup.empty:
             extras_lookup['VisitName'] = extras_lookup['VisitName'].astype(str).str.strip()
             extras_group = extras_lookup.groupby('Study')['VisitName'].apply(list)
-            extras_by_study = {k: sorted(set(v)) for k, v in extras_group.items() if v}
+            extras_by_study = {str(k).strip(): sorted(set(v)) for k, v in extras_group.items() if v}
 
     export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
     output = io.BytesIO()
@@ -120,9 +143,14 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
         workbook = writer.book
         worksheet = writer.sheets["OverdueVisits"]
 
-        header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+        header_format = None
+        if XLSX_ENGINE == "xlsxwriter":
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
         for col_num, value in enumerate(EXPORT_COLUMNS):
-            worksheet.write(0, col_num, value, header_format)
+            if header_format is not None:
+                worksheet.write(0, col_num, value, header_format)
+            else:
+                worksheet.write(0, col_num, value)
 
         col_widths = {
             "ExportGeneratedAt": 22,
@@ -170,7 +198,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             }
         )
 
-        if extras_by_study:
+        if extras_by_study and XLSX_ENGINE == "xlsxwriter":
             helper = workbook.add_worksheet("ExtraOptions")
             helper.hide()
             helper.write(0, 0, "Study")
@@ -195,14 +223,31 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
                             'error_message': f"Choose an extra defined for study {study}."
                         }
                     )
+        elif extras_by_study:
+            for row_idx, row in export_df.iterrows():
+                study = row['Study']
+                extras = extras_by_study.get(study, [])
+                if extras:
+                    worksheet.data_validation(
+                        row_idx + 1, extras_col,
+                        row_idx + 1, extras_col,
+                        {
+                            'validate': 'list',
+                            'source': extras
+                        }
+                    )
 
     output.seek(0)
-    return output, None
+    return output, ""
 
 
 def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame, start_date=None) -> Dict[str, Any]:
     try:
-        uploaded = pd.read_excel(uploaded_file) if uploaded_file.name.lower().endswith('xlsx') else pd.read_csv(uploaded_file)
+        suffix = uploaded_file.name.lower()
+        if suffix.endswith('.xlsx') or suffix.endswith('.xls'):
+            uploaded = pd.read_excel(uploaded_file)
+        else:
+            uploaded = pd.read_csv(uploaded_file)
     except Exception as e:
         return {"errors": [f"Failed to read file: {e}"], "records": [], "warnings": []}
 
