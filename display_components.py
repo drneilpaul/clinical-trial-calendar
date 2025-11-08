@@ -13,24 +13,28 @@ def render_calendar_start_selector(years_back: int = 4):
     Returns:
         dict: The selected option with keys label/start/end.
     """
-    options = generate_financial_year_options(years_back=years_back, include_future=False, include_show_all=True)
+    options = generate_financial_year_options(
+        years_back=years_back, include_future=False, include_show_all=True
+    )
     labels = [opt["label"] for opt in options]
     
-    # Default to current FY (second option when "Show All" is included)
-    default_index = 1 if len(labels) > 1 else 0
     session_key = "calendar_start_year"
+    default_index = 1 if len(labels) > 1 else 0
     
+    # Ensure session state has a valid default before rendering the widget
     if session_key not in st.session_state or st.session_state[session_key] not in labels:
         st.session_state[session_key] = labels[default_index]
+    
+    current_index = labels.index(st.session_state[session_key])
     
     selected_label = st.selectbox(
         "Calendar view from",
         labels,
+        index=current_index,
         key=session_key,
         help="Filter the calendar to show visits from the selected financial year onward."
     )
     
-    st.session_state[session_key] = selected_label
     selected_option = next(opt for opt in options if opt["label"] == selected_label)
     return selected_option
 
