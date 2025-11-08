@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import date, datetime, timedelta
-from helpers import load_file, log_activity
+from helpers import load_file, log_activity, get_visit_type_series
 
 def calculate_day_1_date(entered_date, study, trial_schedule_df):
     """
@@ -489,13 +489,7 @@ def visit_entry_modal():
             return
         
         # Normalize visit types for easier filtering
-        if 'VisitType' in study_visits.columns:
-            visit_type_series = study_visits['VisitType'].astype(str).str.strip().str.lower().replace(
-                {'nan': '', 'none': '', 'null': ''}
-            )
-        else:
-            visit_type_series = pd.Series(['patient'] * len(study_visits), index=study_visits.index)
-        visit_type_series = visit_type_series.replace('', 'patient')
+        visit_type_series = get_visit_type_series(study_visits, default='patient')
         study_visits = study_visits.assign(_VisitType=visit_type_series)
         
         # Split primary visits (scheduled patient visits) and optional extras
@@ -511,14 +505,8 @@ def visit_entry_modal():
                 (visits_df['PatientID'].astype(str) == selected_patient_id) &
                 (visits_df['Study'].astype(str) == patient_study)
             ].copy()
-            if 'VisitType' in patient_actuals_existing.columns:
-                patient_actuals_existing['_VisitType'] = (
-                    patient_actuals_existing['VisitType'].astype(str).str.strip().str.lower()
-                )
-            else:
-                patient_actuals_existing['_VisitType'] = 'patient'
-            patient_actuals_existing['_VisitType'] = patient_actuals_existing['_VisitType'].replace(
-                {'': 'patient', 'nan': 'patient', 'none': 'patient', 'null': 'patient'}
+            patient_actuals_existing['_VisitType'] = get_visit_type_series(
+                patient_actuals_existing, default='patient'
             )
         else:
             patient_actuals_existing = pd.DataFrame(columns=['VisitName', '_VisitType'])

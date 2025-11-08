@@ -193,8 +193,10 @@ class DatabaseValidator:
             self.info.append(f"✅ No duplicate visit definitions")
         
         # Check 5: Study events have valid sites
-        if 'VisitType' in trials_df.columns:
-            study_events = trials_df[trials_df['VisitType'].isin(['siv', 'monitor'])]
+        from helpers import get_visit_type_series
+        visit_types = get_visit_type_series(trials_df, default='patient')
+        if not visit_types.empty:
+            study_events = trials_df[visit_types.isin(['siv', 'monitor'])]
             if not study_events.empty:
                 invalid_event_sites = study_events['_TempSite'].isin(invalid_sites).sum()
                 if invalid_event_sites > 0:
@@ -248,8 +250,8 @@ class DatabaseValidator:
                 study = visit['Study']
                 visit_name = visit['VisitName']
                 
-                # Skip study events
-                if str(visit.get('VisitType', 'patient')).lower() in ['siv', 'monitor']:
+                visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
+                if visit_type in ['siv', 'monitor']:
                     continue
                 
                 matching = trials_df[

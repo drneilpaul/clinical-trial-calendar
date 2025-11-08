@@ -105,14 +105,16 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
         if response.data:
             df = pd.DataFrame(response.data)
             
-            df = df.rename(columns={
+            rename_map = {
                 'patient_id': 'PatientID',
                 'study': 'Study',
                 'visit_name': 'VisitName',
                 'actual_date': 'ActualDate',
                 'notes': 'Notes',
-                'visit_type': 'VisitType'
-            })
+            }
+            if 'visit_type' in df.columns:
+                rename_map['visit_type'] = 'VisitType'
+            df = df.rename(columns=rename_map)
             
             if 'ActualDate' in df.columns:
                 df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
@@ -292,8 +294,11 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
         if client is None:
             return False
         
+        from helpers import get_visit_type_series
+        visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
+        
         records = []
-        for _, row in actual_visits_df.iterrows():
+        for idx, row in actual_visits_df.iterrows():
             actual_date = row['ActualDate']
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
@@ -301,6 +306,8 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
                 actual_date_str = str(actual_date.date())
             else:
                 actual_date_str = None
+            
+            visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
                 
             record = {
                 'patient_id': str(row['PatientID']),
@@ -308,7 +315,7 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
                 'visit_name': str(row['VisitName']),
                 'actual_date': actual_date_str,
                 'notes': str(row.get('Notes', '')),
-                'visit_type': str(row.get('VisitType', 'patient'))
+                'VisitType': str(visit_type_value)
             }
             records.append(record)
         
@@ -408,6 +415,9 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
                 message = f"Same visit exists on different date: {duplicate_info['patient_id']} - {duplicate_info['visit_name']} (existing: {duplicate_info['actual_date']})"
                 log_activity(f"Visit with different date detected: {message}", level='info')
         
+        from helpers import get_visit_type_series
+        visit_type_series = get_visit_type_series(visit_df, default='patient')
+        
         records = []
         for _, row in visit_df.iterrows():
             actual_date = row.get('ActualDate')
@@ -418,13 +428,15 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
             else:
                 actual_date_str = None
             
+            visit_type_value = visit_type_series.loc[row.name] if row.name in visit_type_series.index else 'patient'
+            
             record = {
                 'patient_id': str(row['PatientID']),
                 'study': str(row['Study']),
                 'visit_name': str(row['VisitName']),
                 'actual_date': actual_date_str,
                 'notes': str(row.get('Notes', '')),
-                'visit_type': str(row.get('VisitType', 'patient'))
+                'VisitType': str(visit_type_value)
             }
             records.append(record)
         

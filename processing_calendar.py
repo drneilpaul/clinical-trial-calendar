@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import timedelta
 from helpers import (safe_string_conversion, standardize_visit_columns, validate_required_columns, 
-                    get_financial_year_start_year, is_financial_year_end, log_activity)
+                    get_financial_year_start_year, is_financial_year_end, log_activity, get_visit_type_series)
 from payment_handler import normalize_payment_column, validate_payment_data
 
 # Import from our new modules
@@ -361,11 +361,10 @@ def validate_study_structure(patients_df, trials_df):
 
 def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
-    if 'VisitType' in trials_df.columns:
-        # FIXED: Include all patient visits including screening (negative days) and Day 0
-        # Only exclude study event templates (siv/monitor); allow optional extras
-        visit_types = trials_df['VisitType'].astype(str).str.strip().str.lower()
-        patient_mask = visit_types.isin(['patient', 'extra']) | visit_types.isna() | (visit_types == '')
+    from helpers import get_visit_type_series
+    if 'VisitType' in trials_df.columns or 'visit_type' in trials_df.columns or 'visitType' in trials_df.columns:
+        visit_types = get_visit_type_series(trials_df, default='patient')
+        patient_mask = visit_types.isin(['patient', 'extra'])
         patient_visits = trials_df[patient_mask]
         
         study_event_templates = trials_df[visit_types.isin(['siv', 'monitor'])]

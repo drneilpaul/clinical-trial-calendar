@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import timedelta
-from helpers import safe_string_conversion
+from helpers import safe_string_conversion, get_visit_type_series
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
 
@@ -15,10 +15,8 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     if actual_visits_df is None:
         return patient_actual_visits, actual_visits_used, unmatched_visits
     
-    if 'VisitType' in actual_visits_df.columns:
-        visit_type_series = actual_visits_df['VisitType'].astype(str).str.strip().str.lower().fillna('patient')
-    else:
-        visit_type_series = pd.Series(['patient'] * len(actual_visits_df), index=actual_visits_df.index)
+    from helpers import get_visit_type_series
+    visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
     
     patient_actuals = actual_visits_df[
         (actual_visits_df["PatientID"] == patient_id) & 
@@ -66,9 +64,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     """Process a single actual visit"""
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
-    visit_type = str(visit.get("VisitType", "patient")).strip().lower()
-    if visit_type in ['', 'nan', 'none', 'null']:
-        visit_type = 'patient'
+    visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
     visit_date = actual_visit_data["ActualDate"]
     
     # Ensure it's a proper Timestamp and normalize to date only for calendar matching
@@ -374,9 +370,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
                 continue  # Skip this visit entirely
             
             # Create visit record
-            actual_visit_type = str(actual_visit_data.get('VisitType', 'patient')).strip().lower()
-            if actual_visit_type in ['', 'nan', 'none', 'null']:
-                actual_visit_type = 'patient'
+            actual_visit_type = get_visit_type_series(pd.DataFrame([actual_visit_data]), default='patient').iloc[0]
             visit_record = {
                 "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
                 "PatientID": patient_id,

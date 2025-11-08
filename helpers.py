@@ -279,6 +279,38 @@ def get_current_financial_year_boundaries():
     
     return fy_start, fy_end
 
+def get_visit_type_series(df, default='patient'):
+    """
+    Retrieve VisitType column from a DataFrame, tolerating different casing and missing values.
+    
+    Args:
+        df: pandas DataFrame
+        default: value to use when VisitType is missing/blank
+    
+    Returns:
+        pandas Series with normalized lowercase visit types.
+    """
+    if df is None or len(df.columns) == 0:
+        return pd.Series(dtype='object')
+    
+    column_name = None
+    if 'VisitType' in df.columns:
+        column_name = 'VisitType'
+    elif 'visit_type' in df.columns:
+        column_name = 'visit_type'
+    elif 'visitType' in df.columns:
+        column_name = 'visitType'
+    
+    if column_name is None:
+        return pd.Series([default] * len(df), index=df.index, dtype='object')
+    
+    series = df[column_name].astype(str)
+    series = series.replace({'': default, 'nan': default, 'None': default, 'none': default, 'null': default, 'NULL': default})
+    series = series.fillna(default)
+    series = series.str.strip().str.lower()
+    series = series.mask(series == '', default)
+    return series
+
 def generate_financial_year_options(years_back: int = 4, include_future: bool = False, include_show_all: bool = True):
     """
     Build a list of financial year options for UI selectors.
