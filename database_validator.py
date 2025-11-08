@@ -5,7 +5,7 @@ Validates data integrity on startup and after database operations
 
 import pandas as pd
 from typing import Dict, List, Tuple
-from helpers import log_activity
+from helpers import log_activity, get_visit_type_series
 
 class DatabaseValidator:
     """Validates database integrity and data quality"""
