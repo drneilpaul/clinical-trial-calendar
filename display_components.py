@@ -4,7 +4,49 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
-from helpers import log_activity
+from helpers import log_activity, generate_financial_year_options
+
+def render_calendar_start_selector(years_back: int = 4):
+    """
+    Render a financial year selectbox for filtering the calendar view.
+    
+    Returns:
+        dict: The selected option with keys label/start/end.
+    """
+    options = generate_financial_year_options(years_back=years_back, include_future=False, include_show_all=True)
+    labels = [opt["label"] for opt in options]
+    
+    # Default to current FY (second option when "Show All" is included)
+    default_index = 1 if len(labels) > 1 else 0
+    session_key = "calendar_start_year"
+    
+    if session_key not in st.session_state or st.session_state[session_key] not in labels:
+        st.session_state[session_key] = labels[default_index]
+    
+    selected_label = st.selectbox(
+        "Calendar view from",
+        labels,
+        key=session_key,
+        help="Filter the calendar to show visits from the selected financial year onward."
+    )
+    
+    st.session_state[session_key] = selected_label
+    selected_option = next(opt for opt in options if opt["label"] == selected_label)
+    return selected_option
+
+def apply_calendar_start_filter(df, start_date):
+    """
+    Filter a visits/calendar dataframe to only include rows on/after start_date.
+    """
+    if df is None or df.empty or start_date is None:
+        return df
+    
+    if 'Date' not in df.columns:
+        return df
+    
+    filtered_df = df[df['Date'] >= start_date].copy()
+    return filtered_df
+
 
 # Import only from modules that don't import back to us
 from calculations import (

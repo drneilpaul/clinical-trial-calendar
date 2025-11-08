@@ -279,6 +279,47 @@ def get_current_financial_year_boundaries():
     
     return fy_start, fy_end
 
+def generate_financial_year_options(years_back: int = 4, include_future: bool = False, include_show_all: bool = True):
+    """
+    Build a list of financial year options for UI selectors.
+    
+    Args:
+        years_back: How many completed financial years (prior to the current FY) to include.
+        include_future: Whether to include the next financial year after the current one.
+        include_show_all: Whether to prepend a "Show All" option with no start date.
+    
+    Returns:
+        List of dicts with keys:
+            - label: Friendly label (e.g., "FY 2024-25")
+            - start: pd.Timestamp start date for the FY (or None for Show All)
+            - end: pd.Timestamp end date (None for Show All)
+    """
+    current_start, current_end = get_current_financial_year_boundaries()
+    options = []
+    
+    if include_show_all:
+        options.append({"label": "Show All", "start": None, "end": None})
+    
+    # Current FY
+    current_label = f"FY {current_start.year}-{current_end.year}"
+    options.append({"label": current_label, "start": current_start, "end": current_end})
+    
+    # Previous FYs
+    for i in range(1, years_back + 1):
+        start_year = current_start.year - i
+        start = pd.Timestamp(f"{start_year}-04-01")
+        end = pd.Timestamp(f"{start_year + 1}-03-31")
+        label = f"FY {start.year}-{end.year}"
+        options.append({"label": label, "start": start, "end": end})
+    
+    if include_future:
+        next_start = pd.Timestamp(f"{current_end.year}-04-01")
+        next_end = pd.Timestamp(f"{current_end.year + 1}-03-31")
+        next_label = f"FY {next_start.year}-{next_end.year}"
+        options.insert(1 if include_show_all else 0, {"label": next_label + " (Next)", "start": next_start, "end": next_end})
+    
+    return options
+
 def create_trial_payment_lookup(trials_df):
     """Create a lookup dictionary for trial payments by study and visit name"""
     trials_lookup = {}

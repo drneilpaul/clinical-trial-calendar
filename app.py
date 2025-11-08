@@ -14,7 +14,8 @@ from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
-    display_site_income_by_fy, display_study_income_summary
+    display_site_income_by_fy, display_study_income_summary,
+    render_calendar_start_selector, apply_calendar_start_filter
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 try:
@@ -745,8 +746,19 @@ def main():
 
             display_processing_messages(messages)
             
+            # Calendar range selector
+            calendar_filter_option = render_calendar_start_selector()
+            calendar_start_date = calendar_filter_option.get("start")
+            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
+            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
+            
+            if calendar_start_date is not None:
+                st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({calendar_filter_option.get('label')}).")
+            else:
+                st.caption("Showing all recorded visits.")
+            
             # Public - Always show
-            display_calendar(calendar_df, site_column_mapping, unique_visit_sites)
+            display_calendar(calendar_df_filtered, site_column_mapping, unique_visit_sites)
             
             show_legend(actual_visits_df)
             
@@ -756,25 +768,25 @@ def main():
             
             # Admin only - Financial reports
             if st.session_state.get('auth_level') == 'admin':
-                display_monthly_income_tables(visits_df)
+                display_monthly_income_tables(visits_df_filtered)
                 
-                financial_df = prepare_financial_data(visits_df)
+                financial_df = prepare_financial_data(visits_df_filtered)
                 if not financial_df.empty:
                     display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
-                display_income_realization_analysis(visits_df, trials_df, patients_df)
+                display_income_realization_analysis(visits_df_filtered, trials_df, patients_df)
 
-                display_site_income_by_fy(visits_df, trials_df)
+                display_site_income_by_fy(visits_df_filtered, trials_df)
                 
                 # By-study income summary (current FY by default)
-                display_study_income_summary(visits_df)
+                display_study_income_summary(visits_df_filtered)
 
                 # Site-wise statistics (includes financial data)
-                display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures)
+                display_site_wise_statistics(visits_df_filtered, patients_df, unique_visit_sites, screen_failures)
             else:
                 st.info("🔒 Login as admin to view financial reports and income analysis")
 
-            display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df, visits_df)
+            display_download_buttons(calendar_df_filtered, site_column_mapping, unique_visit_sites, patients_df, visits_df_filtered)
 
             display_error_log_section()
 
