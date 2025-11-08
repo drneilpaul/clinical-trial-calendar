@@ -440,6 +440,8 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
 
         # Apply styling for three header rows
         try:
+            st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
+            
             log_activity(f"Applying styling to DataFrame with shape: {display_with_headers.shape}", level='info')
             today = pd.to_datetime(date.today())
             
