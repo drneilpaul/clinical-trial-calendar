@@ -997,31 +997,47 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
         st.subheader("📥 Overdue Predicted Visits")
         st.caption("Export overdue predicted visits for secretary review and bulk update.")
 
+        if trials_df is not None and not trials_df.empty:
+            extras_lookup = trials_df[
+                trials_df.get('VisitType', '').astype(str).str.lower() == 'extra'
+            ].copy()
+            if not extras_lookup.empty:
+                extras_display = extras_lookup[['Study', 'VisitName', 'Payment']].copy()
+                extras_display = extras_display.rename(columns={
+                    'Study': 'Study',
+                    'VisitName': 'Extra Name',
+                    'Payment': 'Payment'
+                })
+                st.info(
+                    "When filling the CSV, put the extra name(s) exactly as listed below in the "
+                    "`ExtrasPerformed` column (comma-separated if multiple)."
+                )
+                st.dataframe(extras_display.sort_values(['Study', 'Extra Name']).reset_index(drop=True), width="stretch", hide_index=True)
+            else:
+                st.caption("No extras defined in current trial schedule.")
+
         from bulk_visits import build_overdue_predicted_export, parse_bulk_upload
         try:
             calendar_start = get_calendar_start_date()
-            export_df = build_overdue_predicted_export(
+            export_workbook, message = build_overdue_predicted_export(
                 visits_df if visits_df is not None else pd.DataFrame(),
+                trials_df if trials_df is not None else pd.DataFrame(),
                 calendar_start
             )
-            if export_df.empty:
-                st.info("No overdue predicted visits found for the selected date range.")
+            if export_workbook is None:
+                st.info(message or "No overdue predicted visits found for the selected date range.")
             else:
-                csv_data = export_df.to_csv(index=False)
                 st.download_button(
-                    "📄 Export Overdue Predicted Visits",
-                    data=csv_data,
-                    file_name="Overdue_Predicted_Visits.csv",
-                    mime="text/csv",
-                    help="Download CSV of overdue predicted visits for data entry.",
+                    "📄 Export Overdue Predicted Visits (Excel)",
+                    data=export_workbook.getvalue(),
+                    file_name="Overdue_Predicted_Visits.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Download Excel with overdue predicted visits, including dropdowns for extras.",
                     width="stretch"
                 )
                 st.caption(
-                    "The export includes columns for ActualDate, Outcome, Notes, and ExtrasPerformed. "
-                    "Fill in the rows that have happened and leave others blank."
+                    "The Excel file includes dropdowns per row for study-specific extras, plus fields for ActualDate and Outcome."
                 )
-                with st.expander("Preview (first 10 rows)", expanded=False):
-                    st.dataframe(export_df.head(10), width="stretch")
         except Exception as e:
             st.warning(f"Overdue visit export unavailable: {e}")
 

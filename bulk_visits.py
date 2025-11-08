@@ -1,7 +1,15 @@
 from datetime import date
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+import io
+import datetime
 import pandas as pd
 from helpers import get_current_financial_year_boundaries
+
+try:
+    import xlsxwriter  # noqa: F401
+    XLSX_ENGINE = "xlsxwriter"
+except ImportError:
+    XLSX_ENGINE = "openpyxl"
 
 EXPORT_COLUMNS = [
     "ExportGeneratedAt",
@@ -18,6 +26,7 @@ EXPORT_COLUMNS = [
     "Notes",
     "ExtrasPerformed"
 ]
+
 
 def _filter_overdue_predicted(visits_df: pd.DataFrame, start_date=None) -> pd.DataFrame:
     if visits_df is None or visits_df.empty:
@@ -47,7 +56,7 @@ def _filter_overdue_predicted(visits_df: pd.DataFrame, start_date=None) -> pd.Da
 
     if df.empty:
         return pd.DataFrame()
-    
+
     df = df[~df.get('Visit', '').isin(['-', '+'])]
     df = df[df.get('VisitDay', 0) != 0]
 
@@ -65,52 +74,145 @@ def _filter_overdue_predicted(visits_df: pd.DataFrame, start_date=None) -> pd.Da
     return df
 
 
-def build_overdue_predicted_export(visits_df: pd.DataFrame, start_date=None) -> pd.DataFrame:
+def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFrame, start_date=None) -> Tuple[io.BytesIO, str]:
     filtered = _filter_overdue_predicted(visits_df, start_date)
 
     if filtered.empty:
-        return pd.DataFrame(columns=EXPORT_COLUMNS)
+        return None, "No overdue predicted visits found."
+
+    filtered = filtered.sort_values(['Study', 'PatientID', 'VisitName']).reset_index(drop=True)
+    filtered['ScheduledDate'] = filtered['Date'].dt.strftime('%Y-%m-%d')
+
+    extras_by_study: Dict[str, List[str]] = {}
+    if trials_df is not None and not trials_df.empty:
+        extras_lookup = trials_df[
+            trials_df.get('VisitType', '').astype(str).str.lower() == 'extra'
+        ].copy()
+        if not extras_lookup.empty:
+            extras_lookup['VisitName'] = extras_lookup['VisitName'].astype(str).str.strip()
+            extras_group = extras_lookup.groupby('Study')['VisitName'].apply(list)
+            extras_by_study = {k: sorted(set(v)) for k, v in extras_group.items() if v}
 
     export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
+    output = io.BytesIO()
 
-    export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
+    with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
+        export_df = pd.DataFrame({
+            "ExportGeneratedAt": export_generated_at,
+            "PatientID": filtered['PatientID'].astype(str).str.strip(),
+            "Study": filtered['Study'].astype(str).str.strip(),
+            "VisitName": filtered['VisitName'].astype(str).str.strip(),
+            "VisitDay": filtered['VisitDay'],
+            "ScheduledDate": filtered['ScheduledDate'],
+            "SiteofVisit": filtered.get('SiteofVisit', ''),
+            "Payment": filtered.get('Payment', 0),
+            "VisitType": filtered.get('VisitType', '')
+        })
 
-    result = pd.DataFrame({
-        "ExportGeneratedAt": export_generated_at,
-        "PatientID": filtered.get('PatientID', ''),
-        "Study": filtered.get('Study', ''),
-        "VisitName": filtered.get('VisitName', ''),
-        "VisitDay": filtered.get('VisitDay', ''),
-        "ScheduledDate": filtered['Date'].dt.strftime('%Y-%m-%d'),
-        "SiteofVisit": filtered.get('SiteofVisit', ''),
-        "Payment": filtered.get('Payment', 0),
-        "VisitType": filtered.get('VisitType', '')
-    })
+        export_df["ActualDate"] = ""
+        export_df["Outcome"] = ""
+        export_df["Notes"] = ""
+        export_df["ExtrasPerformed"] = ""
 
-    result["ActualDate"] = ""
-    result["Outcome"] = ""
-    result["Notes"] = ""
-    result["ExtrasPerformed"] = ""
+        export_df = export_df.reindex(columns=EXPORT_COLUMNS)
+        export_df.to_excel(writer, sheet_name="OverdueVisits", index=False)
 
-    result = result.reindex(columns=EXPORT_COLUMNS)
-    result = result.sort_values(["ScheduledDate", "Study", "PatientID"]).reset_index(drop=True)
+        workbook = writer.book
+        worksheet = writer.sheets["OverdueVisits"]
 
-    return result
+        header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+        for col_num, value in enumerate(EXPORT_COLUMNS):
+            worksheet.write(0, col_num, value, header_format)
+
+        col_widths = {
+            "ExportGeneratedAt": 22,
+            "PatientID": 15,
+            "Study": 20,
+            "VisitName": 25,
+            "VisitDay": 10,
+            "ScheduledDate": 15,
+            "SiteofVisit": 15,
+            "Payment": 12,
+            "VisitType": 12,
+            "ActualDate": 15,
+            "Outcome": 18,
+            "Notes": 30,
+            "ExtrasPerformed": 25
+        }
+        for idx, column in enumerate(EXPORT_COLUMNS):
+            width = col_widths.get(column, 15)
+            worksheet.set_column(idx, idx, width)
+
+        actual_date_col = EXPORT_COLUMNS.index("ActualDate")
+        outcome_col = EXPORT_COLUMNS.index("Outcome")
+        extras_col = EXPORT_COLUMNS.index("ExtrasPerformed")
+
+        worksheet.data_validation(
+            1, actual_date_col,
+            len(export_df) + 1, actual_date_col,
+            {
+                'validate': 'date',
+                'criteria': 'between',
+                'minimum': datetime.date(2000, 1, 1),
+                'maximum': datetime.date(2100, 12, 31),
+                'error_title': 'Invalid Date',
+                'error_message': 'Enter a valid date (YYYY-MM-DD).'
+            }
+        )
+
+        outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
+        worksheet.data_validation(
+            1, outcome_col,
+            len(export_df) + 1, outcome_col,
+            {
+                'validate': 'list',
+                'source': outcome_options
+            }
+        )
+
+        if extras_by_study:
+            helper = workbook.add_worksheet("ExtraOptions")
+            helper.hide()
+            helper.write(0, 0, "Study")
+            helper.write(0, 1, "Extras")
+            helper_row = 1
+            for study_name, extras in extras_by_study.items():
+                helper.write(helper_row, 0, study_name)
+                helper.write(helper_row, 1, ",".join(extras))
+                helper_row += 1
+
+            for row_idx, row in export_df.iterrows():
+                study = row['Study']
+                extras = extras_by_study.get(study, [])
+                if extras:
+                    worksheet.data_validation(
+                        row_idx + 1, extras_col,
+                        row_idx + 1, extras_col,
+                        {
+                            'validate': 'list',
+                            'source': extras,
+                            'error_title': 'Invalid Extra',
+                            'error_message': f"Choose an extra defined for study {study}."
+                        }
+                    )
+
+    output.seek(0)
+    return output, None
 
 
-def parse_bulk_upload(csv_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame, start_date=None) -> Dict[str, Any]:
+def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame, start_date=None) -> Dict[str, Any]:
     try:
-        uploaded = pd.read_csv(csv_file)
+        uploaded = pd.read_excel(uploaded_file) if uploaded_file.name.lower().endswith('xlsx') else pd.read_csv(uploaded_file)
     except Exception as e:
-        return {"errors": [f"Failed to read CSV: {e}"], "records": [], "warnings": []}
+        return {"errors": [f"Failed to read file: {e}"], "records": [], "warnings": []}
 
     required_columns = {
         "PatientID", "Study", "VisitName", "ScheduledDate",
         "ActualDate", "Outcome", "ExtrasPerformed", "Notes"
     }
-    missing_columns = required_columns - set(uploaded.columns)
-    if missing_columns:
-        return {"errors": [f"Missing required columns: {', '.join(sorted(missing_columns))}"], "records": [], "warnings": []}
+    missing = required_columns - set(uploaded.columns)
+    if missing:
+        return {"errors": [f"Missing required columns: {', '.join(sorted(missing))}"], "records": [], "warnings": []}
 
     predicted_df = _filter_overdue_predicted(visits_df, start_date)
     warnings: List[str] = []
@@ -127,20 +229,16 @@ def parse_bulk_upload(csv_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame
         predicted_df['VisitName'].astype(str).str.strip() + "|" +
         predicted_df['ScheduledDate']
     )
-    predicted_df_indexed = predicted_df.set_index('key')
+    predicted_indexed = predicted_df.set_index('key')
 
+    extras_lookup = pd.DataFrame()
     if trials_df is not None and not trials_df.empty:
         extras_lookup = trials_df[
             trials_df.get('VisitType', '').astype(str).str.lower() == 'extra'
         ].copy()
         extras_lookup['VisitName'] = extras_lookup['VisitName'].astype(str).str.strip()
-        extras_lookup = extras_lookup[['Study', 'VisitName']]
-    else:
-        extras_lookup = pd.DataFrame(columns=['Study', 'VisitName'])
 
-    outcome_positive = {'happened', 'completed', 'yes', 'y', 'true', 't', '1', ''}
     outcome_negative = {'no', 'did not happen', 'cancelled', 'canceled', 'missed', 'n', 'false', 'f', '0'}
-
     used_keys = set()
 
     for row in uploaded.itertuples(index=False):
@@ -171,11 +269,11 @@ def parse_bulk_upload(csv_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame
             warnings.append(f"Duplicate row for {patient_id}/{study}/{visit_name} on {scheduled_date}. Skipping.")
             continue
 
-        if key not in predicted_df_indexed.index:
+        if key not in predicted_indexed.index:
             warnings.append(f"Predicted visit not found or no longer due: {patient_id}/{study}/{visit_name} ({scheduled_date}). Skipping.")
             continue
 
-        predicted_row = predicted_df_indexed.loc[key]
+        predicted_row = predicted_indexed.loc[key]
         visit_type = predicted_row.get('VisitType', 'patient')
 
         record = {
@@ -189,7 +287,7 @@ def parse_bulk_upload(csv_file, visits_df: pd.DataFrame, trials_df: pd.DataFrame
         records.append(record)
         used_keys.add(key)
 
-        if extras_field:
+        if extras_field and not extras_lookup.empty:
             extras_list = [item.strip() for item in extras_field.replace(';', ',').split(',') if item.strip()]
             for extra_name in extras_list:
                 extra_match = extras_lookup[
