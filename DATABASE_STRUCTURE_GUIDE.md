@@ -488,6 +488,18 @@ PatientID: "P100", Study: "STUDY-2020-001", VisitName: "Month 36", ActualDate: "
    - If visit name doesn't match trial schedule, it may be an unmatched/optional visit
    - Do not force matches - if unclear, mark as unmatched
 
+### Bulk Overdue Visit Workflow
+- **Export**: Use “Export Overdue Predicted Visits” in the app to download a CSV of overdue scheduled visits for the current financial year (excludes tolerance markers and Day 0 optional events).
+- **Secretary Completion**:
+  - Fill `ActualDate` for visits that happened (format `YYYY-MM-DD`).
+  - Populate `Outcome` (e.g., “Happened”, “Did not happen”); rows marked as negative or left without an ActualDate are ignored on import.
+  - Add any notes in `Notes`.
+  - For extras performed at the same visit, list the extra visit names in `ExtrasPerformed` separated by commas (must match `VisitType="extra"` entries in the trial schedule).
+- **Import**: Upload the completed CSV via the “Import Completed Visits” section.
+  - The system validates each row against current predictions and the trial schedule.
+  - Valid rows create new actual visits (extras generate additional rows with `VisitType="extra"`).
+  - In database mode, the visits are appended automatically; in file mode, a new actual_visits CSV is generated for manual merge.
+
 ---
 
 ## EXAMPLE SCENARIOS
