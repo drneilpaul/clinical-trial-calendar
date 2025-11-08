@@ -535,55 +535,56 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
 
         html_table_with_features = '\n'.join(modified_html_lines)
         
-        # Simple wrapper with auto-scroll only
-        # Note: Frozen headers don't work reliably in Streamlit's iframe environment
-        # Keeping the single-table approach with just auto-scroll
-        return f"""
-        <style>
-            .calendar-container {{
-                max-height: 800px;
-                overflow-y: auto;
-                overflow-x: auto;
-                border: 1px solid #ddd;
-            }}
-        </style>
-        <div class='calendar-container' id='calendar-scroll-container'>
-            {html_table_with_features}
-        </div>
-        <script>
-            // Auto-scroll to position today's date approximately 1/3 down the visible area
-            setTimeout(function() {{
-                const today = new Date().toISOString().split('T')[0];  // Format: YYYY-MM-DD
-                const container = document.getElementById('calendar-scroll-container');
-                
-                if (container) {{
-                    const rows = container.getElementsByTagName('tr');
-                    
-                    for (let i = 0; i < rows.length; i++) {{
-                        const cells = rows[i].getElementsByTagName('td');
+        from textwrap import dedent
+        html_doc = f"""
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    .calendar-container {{
+                        max-height: 800px;
+                        overflow-y: auto;
+                        overflow-x: auto;
+                        border: 1px solid #ddd;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="calendar-container" id="calendar-scroll-container">
+                    {html_table_with_features}
+                </div>
+                <script>
+                    // Auto-scroll to position today's date approximately 1/3 down the visible area
+                    setTimeout(function() {{
+                        const today = new Date().toISOString().split('T')[0];
+                        const container = document.getElementById('calendar-scroll-container');
                         
-                        // Check first cell for today's date
-                        if (cells.length > 0) {{
-                            const cellText = cells[0].textContent || cells[0].innerText;
+                        if (container) {{
+                            const rows = container.getElementsByTagName('tr');
                             
-                            if (cellText.includes(today)) {{
-                                // Found today's row - calculate scroll position
-                                const rowTop = rows[i].offsetTop;
-                                const containerHeight = container.clientHeight;
+                            for (let i = 0; i < rows.length; i++) {{
+                                const cells = rows[i].getElementsByTagName('td');
                                 
-                                // Position today's row at 1/3 down from visible area
-                                const scrollPosition = rowTop - (containerHeight / 3);
-                                container.scrollTop = Math.max(0, scrollPosition);
-                                
-                                console.log('Auto-scrolled to today:', today, 'at row', i);
-                                break;
+                                if (cells.length > 0) {{
+                                    const cellText = cells[0].textContent || cells[0].innerText;
+                                    
+                                    if (cellText.includes(today)) {{
+                                        const rowTop = rows[i].offsetTop;
+                                        const containerHeight = container.clientHeight;
+                                        const scrollPosition = rowTop - (containerHeight / 3);
+                                        container.scrollTop = Math.max(0, scrollPosition);
+                                        break;
+                                    }}
+                                }}
                             }}
                         }}
-                    }}
-                }}
-            }}, 100);  // Small delay to ensure DOM is ready
-        </script>
+                    }}, 100);
+                </script>
+            </body>
+        </html>
         """
+        return dedent(html_doc).strip()
     except Exception as e:
         st.warning(f"Calendar HTML generation failed: {e}")
         return styled_df.to_html(escape=False)
