@@ -12,14 +12,12 @@ except ImportError:
     XLSX_ENGINE = "openpyxl"
 
 EXPORT_COLUMNS = [
-    "ExportGeneratedAt",
     "PatientID",
     "Study",
     "VisitName",
     "VisitDay",
     "ScheduledDate",
     "SiteofVisit",
-    "Payment",
     "VisitType",
     "ActualDate",
     "Outcome",
@@ -116,21 +114,18 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             extras_group = extras_lookup.groupby('Study')['VisitName'].apply(list)
             extras_by_study = {str(k).strip(): sorted(set(v)) for k, v in extras_group.items() if v}
 
-    export_generated_at = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
         scheduled_column = pd.to_datetime(filtered['Date']).dt.strftime('%d/%m/%Y')
 
         export_df = pd.DataFrame({
-            "ExportGeneratedAt": export_generated_at,
             "PatientID": filtered['PatientID'].astype(str).str.strip(),
             "Study": filtered['Study'].astype(str).str.strip(),
             "VisitName": filtered['VisitName'].astype(str).str.strip(),
             "VisitDay": filtered['VisitDay'],
             "ScheduledDate": scheduled_column,
             "SiteofVisit": filtered.get('SiteofVisit', ''),
-            "Payment": filtered.get('Payment', 0),
             "VisitType": filtered.get('VisitType', '')
         })
 
@@ -156,14 +151,12 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
                 worksheet.write(0, col_num, value)
 
         col_widths = {
-            "ExportGeneratedAt": 22,
             "PatientID": 15,
             "Study": 20,
             "VisitName": 25,
             "VisitDay": 10,
             "ScheduledDate": 15,
             "SiteofVisit": 15,
-            "Payment": 12,
             "VisitType": 12,
             "ActualDate": 15,
             "Outcome": 18,
