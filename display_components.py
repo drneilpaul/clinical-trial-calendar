@@ -18,7 +18,7 @@ def render_calendar_start_selector(years_back: int = 4):
     )
     labels = [opt["label"] for opt in options]
     
-    session_key = "calendar_start_year"
+    session_key = "calendar_start_year_select"
     default_index = 1 if len(labels) > 1 else 0
     
     # If Streamlit has a stale value that's no longer valid, clear it before rendering
