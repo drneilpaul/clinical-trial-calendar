@@ -1041,11 +1041,11 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             st.warning(f"Overdue visit export unavailable: {e}")
 
         st.subheader("⬆️ Import Completed Visits")
-        st.caption("Upload the completed overdue visit CSV to add actual visits in bulk.")
+        st.caption("Upload the completed overdue visit Excel file to add actual visits in bulk.")
 
         uploaded_file = st.file_uploader(
-            "Upload completed overdue visits CSV",
-            type="csv",
+            "Upload completed overdue visits workbook",
+            type=["xlsx", "xls", "csv"],
             key="bulk_overdue_upload"
         )
 

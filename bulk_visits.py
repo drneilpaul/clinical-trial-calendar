@@ -132,6 +132,9 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             "VisitType": filtered.get('VisitType', '')
         })
 
+        date_format_display = "%d/%m/%Y"
+        export_df["ScheduledDate"] = pd.to_datetime(export_df["ScheduledDate"], format="%Y-%m-%d", errors='coerce').dt.strftime(date_format_display)
+
         export_df["ActualDate"] = ""
         export_df["Outcome"] = ""
         export_df["Notes"] = ""
@@ -184,7 +187,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
                 'minimum': datetime.date(2000, 1, 1),
                 'maximum': datetime.date(2100, 12, 31),
                 'error_title': 'Invalid Date',
-                'error_message': 'Enter a valid date (YYYY-MM-DD).'
+                'error_message': 'Enter a valid date (DD/MM/YYYY).'
             }
         )
 
@@ -303,11 +306,20 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         if outcome in outcome_negative or not actual_date_raw:
             continue
 
-        try:
-            actual_date = pd.to_datetime(actual_date_raw, errors='raise')
-        except Exception:
-            warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}. Skipping.")
-            continue
+        parsed_date = None
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y"):
+            try:
+                parsed_date = datetime.datetime.strptime(actual_date_raw, fmt)
+                break
+            except Exception:
+                continue
+        if parsed_date is None:
+            try:
+                parsed_date = pd.to_datetime(actual_date_raw, dayfirst=True, errors='raise')
+            except Exception:
+                warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}. Skipping.")
+                continue
+        actual_date = pd.Timestamp(parsed_date)
 
         key = f"{patient_id}|{study}|{visit_name}|{scheduled_date}"
         if key in used_keys:
