@@ -993,117 +993,100 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
         except Exception as e:
             st.warning(f"Activity summary not available: {e}")
 
-        st.markdown("---")
-        st.subheader("📥 Overdue Predicted Visits")
-        st.caption("Export overdue predicted visits for secretary review and bulk update.")
+        if st.session_state.get('auth_level') == 'admin':
+            st.markdown("---")
+            st.subheader("📥 Overdue Predicted Visits")
+            st.caption("Export overdue predicted visits for secretary review and bulk update.")
 
-        if trials_df is not None and not trials_df.empty:
-            extras_lookup = trials_df[
-                trials_df.get('VisitType', '').astype(str).str.lower() == 'extra'
-            ].copy()
-            if not extras_lookup.empty:
-                extras_display = extras_lookup[['Study', 'VisitName', 'Payment']].copy()
-                extras_display = extras_display.rename(columns={
-                    'Study': 'Study',
-                    'VisitName': 'Extra Name',
-                    'Payment': 'Payment'
-                })
-                st.info(
-                    "When filling the Excel sheet, use the dropdown in the `ExtrasPerformed` column to select extras defined for each study."
+            from bulk_visits import build_overdue_predicted_export, parse_bulk_upload
+            try:
+                calendar_start = get_calendar_start_date()
+                export_workbook, message = build_overdue_predicted_export(
+                    visits_df if visits_df is not None else pd.DataFrame(),
+                    trials_df if trials_df is not None else pd.DataFrame(),
+                    calendar_start
                 )
-                st.dataframe(extras_display.sort_values(['Study', 'Extra Name']).reset_index(drop=True), width="stretch", hide_index=True)
-            else:
-                st.caption("No extras defined in current trial schedule.")
-
-        from bulk_visits import build_overdue_predicted_export, parse_bulk_upload
-        try:
-            calendar_start = get_calendar_start_date()
-            export_workbook, message = build_overdue_predicted_export(
-                visits_df if visits_df is not None else pd.DataFrame(),
-                trials_df if trials_df is not None else pd.DataFrame(),
-                calendar_start
-            )
-            if export_workbook is None:
-                st.info(message or "No overdue predicted visits found for the selected date range.")
-            else:
-                st.download_button(
-                    "📄 Export Overdue Predicted Visits (Excel)",
-                    data=export_workbook.getvalue(),
-                    file_name="Overdue_Predicted_Visits.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    help="Download Excel with overdue predicted visits, including dropdowns for extras.",
-                    width="stretch"
-                )
-                st.caption(
-                    "The Excel file includes dropdowns per row for study-specific extras, plus fields for ActualDate and Outcome."
-                )
-        except Exception as e:
-            st.warning(f"Overdue visit export unavailable: {e}")
-
-        st.subheader("⬆️ Import Completed Visits")
-        st.caption("Upload the completed overdue visit Excel file to add actual visits in bulk.")
-
-        uploaded_file = st.file_uploader(
-            "Upload completed overdue visits workbook",
-            type=["xlsx", "xls", "csv"],
-            key="bulk_overdue_upload"
-        )
-
-        if uploaded_file is not None:
-            parsing = parse_bulk_upload(
-                uploaded_file,
-                visits_df if visits_df is not None else pd.DataFrame(),
-                trials_df if trials_df is not None else pd.DataFrame(),
-                calendar_start
-            )
-
-            errors = parsing.get("errors", [])
-            warnings = parsing.get("warnings", [])
-            records = parsing.get("records", [])
-
-            if errors:
-                for err in errors:
-                    st.error(err)
-            else:
-                if warnings:
-                    for warn in warnings:
-                        st.warning(warn)
-
-                if not records:
-                    st.info("No completed visits detected in the uploaded file.")
+                if export_workbook is None:
+                    st.info(message or "No overdue predicted visits found for the selected date range.")
                 else:
-                    records_df = pd.DataFrame(records)
-                    records_df_display = records_df.copy()
-                    if 'ActualDate' in records_df_display.columns and not pd.api.types.is_string_dtype(records_df_display['ActualDate']):
-                        records_df_display['ActualDate'] = records_df_display['ActualDate'].dt.strftime('%d/%m/%Y')
+                    st.download_button(
+                        "📄 Export Overdue Predicted Visits (Excel)",
+                        data=export_workbook.getvalue(),
+                        file_name="Overdue_Predicted_Visits.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="Download Excel with overdue predicted visits, including dropdowns for extras.",
+                        width="stretch"
+                    )
+                    st.caption(
+                        "The Excel file includes dropdowns per row for study-specific extras, plus fields for ActualDate and Outcome."
+                    )
+            except Exception as e:
+                st.warning(f"Overdue visit export unavailable: {e}")
 
-                    st.success(f"Parsed {len(records_df)} visit record(s) ready for import.")
-                    with st.expander("Preview import records", expanded=False):
-                        st.dataframe(records_df_display, width="stretch", hide_index=True)
+            st.subheader("⬆️ Import Completed Visits")
+            st.caption("Upload the completed overdue visit Excel file to add actual visits in bulk.")
 
-                    if st.session_state.get('use_database'):
-                        if st.button("Apply Bulk Update", type="primary", key="apply_bulk_update"):
-                            try:
-                                import database as db
-                                success, message, code = db.append_visit_to_database(records_df)
-                                if success:
-                                    st.success(message)
-                                    st.session_state.data_refresh_needed = True
-                                else:
-                                    st.error(message)
-                            except Exception as e:
-                                st.error(f"Failed to append visits: {e}")
+            uploaded_file = st.file_uploader(
+                "Upload completed overdue visit workbook",
+                type=["xlsx", "xls"],
+                key="bulk_overdue_upload"
+            )
+
+            if uploaded_file is not None:
+                parsing = parse_bulk_upload(
+                    uploaded_file,
+                    visits_df if visits_df is not None else pd.DataFrame(),
+                    trials_df if trials_df is not None else pd.DataFrame(),
+                    calendar_start
+                )
+
+                errors = parsing.get("errors", [])
+                warnings = parsing.get("warnings", [])
+                records = parsing.get("records", [])
+
+                if errors:
+                    for err in errors:
+                        st.error(err)
+                else:
+                    if warnings:
+                        for warn in warnings:
+                            st.warning(warn)
+
+                    if not records:
+                        st.info("No completed visits detected in the uploaded file.")
                     else:
-                        csv_update = records_df_display.to_csv(index=False)
-                        st.download_button(
-                            "⬇️ Download Actual Visits CSV (append to actual_visits file)",
-                            data=csv_update,
-                            file_name="actual_visits_updates.csv",
-                            mime="text/csv",
-                            help="Download the prepared actual visits for manual merging.",
-                            width="stretch",
-                            key="bulk_overdue_download_updates"
-                        )
+                        records_df = pd.DataFrame(records)
+                        records_df_display = records_df.copy()
+                        if 'ActualDate' in records_df_display.columns and not pd.api.types.is_string_dtype(records_df_display['ActualDate']):
+                            records_df_display['ActualDate'] = records_df_display['ActualDate'].dt.strftime('%d/%m/%Y')
+
+                        st.success(f"Parsed {len(records_df)} visit record(s) ready for import.")
+                        with st.expander("Preview import records", expanded=False):
+                            st.dataframe(records_df_display, width="stretch", hide_index=True)
+
+                        if st.session_state.get('use_database'):
+                            if st.button("Apply Bulk Update", type="primary", key="apply_bulk_update"):
+                                try:
+                                    import database as db
+                                    success, message, code = db.append_visit_to_database(records_df)
+                                    if success:
+                                        st.success(message)
+                                        st.session_state.data_refresh_needed = True
+                                    else:
+                                        st.error(message)
+                                except Exception as e:
+                                    st.error(f"Failed to append visits: {e}")
+                        else:
+                            csv_update = records_df_display.to_csv(index=False)
+                            st.download_button(
+                                "⬇️ Download Actual Visits CSV (append to actual_visits file)",
+                                data=csv_update,
+                                file_name="actual_visits_updates.csv",
+                                mime="text/csv",
+                                help="Download the prepared actual visits for manual merging.",
+                                width="stretch",
+                                key="bulk_overdue_download_updates"
+                            )
 
     except Exception as e:
         st.error(f"Error creating download options: {e}")
