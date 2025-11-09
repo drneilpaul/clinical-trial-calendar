@@ -120,11 +120,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
-        scheduled_series = pd.to_datetime(filtered['Date'])
-        if XLSX_ENGINE == "xlsxwriter":
-            scheduled_column = scheduled_series
-        else:
-            scheduled_column = scheduled_series.dt.strftime('%d/%m/%Y')
+        scheduled_column = pd.to_datetime(filtered['Date']).dt.strftime('%d/%m/%Y')
 
         export_df = pd.DataFrame({
             "ExportGeneratedAt": export_generated_at,
@@ -195,9 +191,11 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             }
         )
 
+        worksheet.set_column(EXPORT_COLUMNS.index("ScheduledDate"), EXPORT_COLUMNS.index("ScheduledDate"), col_widths["ScheduledDate"])
         if XLSX_ENGINE == "xlsxwriter":
-            worksheet.set_column(EXPORT_COLUMNS.index("ScheduledDate"), EXPORT_COLUMNS.index("ScheduledDate"), col_widths["ScheduledDate"], date_format)
             worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"], date_format)
+        else:
+            worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"])
 
         outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
         worksheet.data_validation(
@@ -316,7 +314,8 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         actual_date_raw = str(getattr(row, 'ActualDate', '')).strip()
         outcome_raw = getattr(row, 'Outcome', '')
         outcome = '' if pd.isna(outcome_raw) else str(outcome_raw).strip().lower()
-        notes = str(getattr(row, 'Notes', '')).strip()
+        notes_raw = getattr(row, 'Notes', '')
+        notes = '' if pd.isna(notes_raw) else str(notes_raw).strip()
         extras_raw = getattr(row, 'ExtrasPerformed', '')
         extras_field = '' if pd.isna(extras_raw) else str(extras_raw).strip()
 
