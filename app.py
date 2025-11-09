@@ -751,18 +751,73 @@ def main():
             calendar_start_date = calendar_filter_option.get("start")
             calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
             visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
-            
+
+            available_sites = sorted([site for site in unique_visit_sites])
+            available_studies = []
+            if 'Study' in visits_df_filtered.columns:
+                available_studies = sorted(visits_df_filtered['Study'].dropna().astype(str).unique().tolist())
+
+            filter_row = st.columns([1, 2, 2])
+            with filter_row[0]:
+                st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
+            with filter_row[1]:
+                selected_sites = st.multiselect(
+                    "Sites",
+                    options=available_sites,
+                    default=available_sites,
+                    key="calendar_site_filter",
+                    help="Filter calendar columns by site."
+                )
+            with filter_row[2]:
+                selected_studies = st.multiselect(
+                    "Studies",
+                    options=available_studies,
+                    default=available_studies,
+                    key="calendar_study_filter",
+                    help="Filter calendar data by study."
+                )
+
+            effective_sites = selected_sites if selected_sites else available_sites
+            effective_studies = selected_studies if selected_studies else available_studies
+
+            if effective_studies and 'Study' in visits_df_filtered.columns:
+                visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
+            if effective_sites and 'SiteofVisit' in visits_df_filtered.columns:
+                visits_df_filtered = visits_df_filtered[visits_df_filtered['SiteofVisit'].isin(effective_sites)]
+
+            allowed_columns = set()
+            base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
+            allowed_columns.update(base_columns)
+            for site in (effective_sites if effective_sites else available_sites):
+                site_columns = site_column_mapping.get(site, {}).get('columns', [])
+                allowed_columns.update(site_columns)
+            keep_columns = [col for col in calendar_df_filtered.columns if col in allowed_columns]
+            if keep_columns:
+                calendar_df_filtered = calendar_df_filtered[keep_columns]
+
+            filtered_site_column_mapping = {site: site_column_mapping.get(site, {}) for site in effective_sites if site in site_column_mapping}
+            if not filtered_site_column_mapping:
+                filtered_site_column_mapping = site_column_mapping
+
+            filtered_unique_visit_sites = [site for site in unique_visit_sites if site in effective_sites]
+            if not filtered_unique_visit_sites:
+                filtered_unique_visit_sites = unique_visit_sites
+
             if calendar_start_date is not None:
                 st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({calendar_filter_option.get('label')}).")
             else:
                 st.caption("Showing all recorded visits.")
-            
+
             # Public - Always show
-            display_calendar(calendar_df_filtered, site_column_mapping, unique_visit_sites)
+            display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites)
             
             show_legend(actual_visits_df)
             
             site_summary_df = extract_site_summary(patients_df, screen_failures)
+            if not site_summary_df.empty and effective_sites:
+                site_column_candidates = [col for col in ['Site', 'Visit Site', 'VisitSite'] if col in site_summary_df.columns]
+                if site_column_candidates:
+                    site_summary_df = site_summary_df[site_summary_df[site_column_candidates[0]].isin(effective_sites)]
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
@@ -782,11 +837,11 @@ def main():
                 display_study_income_summary(visits_df_filtered)
 
                 # Site-wise statistics (includes financial data)
-                display_site_wise_statistics(visits_df_filtered, patients_df, unique_visit_sites, screen_failures)
+                display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures)
             else:
                 st.info("🔒 Login as admin to view financial reports and income analysis")
 
-            display_download_buttons(calendar_df_filtered, site_column_mapping, unique_visit_sites, patients_df, visits_df_filtered, trials_df)
+            display_download_buttons(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, patients_df, visits_df_filtered, trials_df)
 
             display_error_log_section()
 

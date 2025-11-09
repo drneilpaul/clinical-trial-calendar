@@ -447,41 +447,6 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
 
         # Apply styling for three header rows
         try:
-            calendar_filter_option = render_calendar_start_selector()
-            calendar_start_date = calendar_filter_option.get("start")
-            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
-            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
-
-            filter_row = st.columns([1, 2, 2])
-            with filter_row[0]:
-                st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
-            unique_sites = sorted(calendar_df_filtered['Site'].unique()) if 'Site' in calendar_df_filtered.columns else []
-            unique_studies = sorted(calendar_df_filtered['Study'].unique()) if 'Study' in calendar_df_filtered.columns else []
-            with filter_row[1]:
-                selected_sites = st.multiselect(
-                    "Sites",
-                    options=unique_sites,
-                    default=unique_sites,
-                    help="Filter calendar columns by site."
-                )
-            with filter_row[2]:
-                selected_studies = st.multiselect(
-                    "Studies",
-                    options=unique_studies,
-                    default=unique_studies,
-                    help="Filter calendar columns by study."
-                )
-
-            if selected_studies and 'Study' in visits_df_filtered.columns:
-                visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(selected_studies)]
-            if selected_sites and 'SiteofVisit' in visits_df_filtered.columns:
-                visits_df_filtered = visits_df_filtered[visits_df_filtered['SiteofVisit'].isin(selected_sites)]
-
-            if selected_sites:
-                base_cols = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
-                matching_cols = [col for col in calendar_df_filtered.columns if any(site in col for site in selected_sites)]
-                calendar_df_filtered = calendar_df_filtered[base_cols + matching_cols]
-
             log_activity(f"Applying styling to DataFrame with shape: {display_with_headers.shape}", level='info')
             today = pd.to_datetime(date.today())
             
