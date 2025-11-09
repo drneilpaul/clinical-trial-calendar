@@ -315,6 +315,10 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         actual_date_raw = '' if pd.isna(actual_value) else actual_value
         outcome_value = getattr(row, 'Outcome', '')
         outcome = '' if pd.isna(outcome_value) else str(outcome_value).strip().lower()
+        notes_value = getattr(row, 'Notes', '')
+        notes = '' if pd.isna(notes_value) else str(notes_value).strip()
+        extras_value = getattr(row, 'ExtrasPerformed', '')
+        extras_field = '' if pd.isna(extras_value) else str(extras_value).strip()
 
         if outcome in outcome_negative or actual_date_raw == '' or str(actual_date_raw).lower() in ('nan', 'nat'):
             continue
