@@ -277,15 +277,16 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
     if predicted_df.empty:
         warnings.append("No overdue predicted visits found. Uploaded rows may be outdated.")
 
-    predicted_df = predicted_df.copy()
-    predicted_df['ScheduledDate'] = predicted_df['Date'].dt.strftime('%Y-%m-%d')
-    predicted_df['key'] = (
-        predicted_df['PatientID'].astype(str).str.strip() + "|" +
-        predicted_df['Study'].astype(str).str.strip() + "|" +
-        predicted_df['VisitName'].astype(str).str.strip() + "|" +
-        predicted_df['ScheduledDate']
+    filtered_df = predicted_df.copy()
+    filtered_df['ScheduledDate'] = filtered_df['Date'].dt.strftime('%Y-%m-%d')
+    filtered_df['ScheduledDateNormalized'] = filtered_df['ScheduledDate']
+    filtered_df['key'] = (
+        filtered_df['PatientID'].astype(str).str.strip() + "|" +
+        filtered_df['Study'].astype(str).str.strip() + "|" +
+        filtered_df['VisitName'].astype(str).str.strip() + "|" +
+        filtered_df['ScheduledDateNormalized']
     )
-    predicted_indexed = predicted_df.set_index('key')
+    predicted_indexed = filtered_df.set_index('key')
 
     extras_lookup = pd.DataFrame()
     if trials_df is not None and not trials_df.empty:
@@ -301,7 +302,17 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         patient_id = str(getattr(row, 'PatientID', '')).strip()
         study = str(getattr(row, 'Study', '')).strip()
         visit_name = str(getattr(row, 'VisitName', '')).strip()
-        scheduled_date = str(getattr(row, 'ScheduledDate', '')).strip()
+        scheduled_raw = getattr(row, 'ScheduledDate', '')
+        if pd.isna(scheduled_raw):
+            scheduled_date = ''
+        elif isinstance(scheduled_raw, (datetime.date, datetime.datetime)):
+            scheduled_date = pd.to_datetime(scheduled_raw).strftime('%Y-%m-%d')
+        else:
+            scheduled_date = str(scheduled_raw).strip()
+            try:
+                scheduled_date = pd.to_datetime(scheduled_date, dayfirst=True).strftime('%Y-%m-%d')
+            except Exception:
+                scheduled_date = scheduled_date
         actual_date_raw = str(getattr(row, 'ActualDate', '')).strip()
         outcome_raw = getattr(row, 'Outcome', '')
         outcome = '' if pd.isna(outcome_raw) else str(outcome_raw).strip().lower()
