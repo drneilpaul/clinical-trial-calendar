@@ -327,15 +327,11 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
             continue
 
         parsed_date = None
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            parsed_date = pd.to_datetime(actual_date_raw, dayfirst=True, errors='raise')
+        except Exception:
             try:
-                parsed_date = datetime.datetime.strptime(actual_date_raw, fmt)
-                break
-            except Exception:
-                continue
-        if parsed_date is None:
-            try:
-                parsed_date = pd.to_datetime(actual_date_raw, dayfirst=True, errors='raise')
+                parsed_date = pd.to_datetime(actual_date_raw, errors='raise')
             except Exception:
                 warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}. Skipping.")
                 continue
