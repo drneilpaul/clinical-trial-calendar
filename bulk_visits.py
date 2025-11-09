@@ -311,31 +311,34 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
                 scheduled_date = pd.to_datetime(scheduled_date, dayfirst=True).strftime('%Y-%m-%d')
             except Exception:
                 scheduled_date = scheduled_date
-        actual_date_raw = str(getattr(row, 'ActualDate', '')).strip()
-        outcome_raw = getattr(row, 'Outcome', '')
-        outcome = '' if pd.isna(outcome_raw) else str(outcome_raw).strip().lower()
-        notes_raw = getattr(row, 'Notes', '')
-        notes = '' if pd.isna(notes_raw) else str(notes_raw).strip()
-        extras_raw = getattr(row, 'ExtrasPerformed', '')
-        extras_field = '' if pd.isna(extras_raw) else str(extras_raw).strip()
-
-        if not patient_id or not study or not visit_name:
-            warnings.append("Skipping row with missing PatientID/Study/VisitName.")
-            continue
+        actual_value = getattr(row, 'ActualDate', '')
+        actual_date_raw = '' if pd.isna(actual_value) else actual_value
 
         if outcome in outcome_negative or actual_date_raw == '' or str(actual_date_raw).lower() in ('nan', 'nat'):
             continue
 
         parsed_date = None
-        try:
-            parsed_date = pd.to_datetime(actual_date_raw, dayfirst=True, errors='raise')
-        except Exception:
+        if isinstance(actual_date_raw, (datetime.date, datetime.datetime)):
+            parsed_date = pd.Timestamp(actual_date_raw)
+        elif isinstance(actual_date_raw, (int, float)):
             try:
-                parsed_date = pd.to_datetime(actual_date_raw, errors='raise')
+                parsed_date = pd.to_datetime("1899-12-30") + pd.to_timedelta(float(actual_date_raw), unit='D')
             except Exception:
-                warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}. Skipping.")
-                continue
-        actual_date = pd.Timestamp(parsed_date)
+                parsed_date = None
+        elif isinstance(actual_date_raw, str):
+            try:
+                parsed_date = pd.to_datetime(actual_date_raw, dayfirst=True, errors='raise')
+            except Exception:
+                try:
+                    parsed_date = pd.to_datetime(actual_date_raw, errors='raise')
+                except Exception:
+                    parsed_date = None
+
+        if parsed_date is None:
+            warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}. Skipping.")
+            continue
+
+        actual_date = pd.Timestamp(parsed_date).normalize()
 
         key = f"{patient_id}|{study}|{visit_name}|{scheduled_date}"
         if key in used_keys:
