@@ -1074,8 +1074,8 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                 else:
                     records_df = pd.DataFrame(records)
                     records_df_display = records_df.copy()
-                    if not pd.api.types.is_string_dtype(records_df_display['ActualDate']):
-                        records_df_display['ActualDate'] = records_df_display['ActualDate'].dt.strftime('%Y-%m-%d')
+                    if 'ActualDate' in records_df_display.columns and not pd.api.types.is_string_dtype(records_df_display['ActualDate']):
+                        records_df_display['ActualDate'] = records_df_display['ActualDate'].dt.strftime('%d/%m/%Y')
 
                     st.success(f"Parsed {len(records_df)} visit record(s) ready for import.")
                     with st.expander("Preview import records", expanded=False):

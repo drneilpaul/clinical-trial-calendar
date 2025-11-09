@@ -120,22 +120,25 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
+        scheduled_series = pd.to_datetime(filtered['Date'])
+        if XLSX_ENGINE == "xlsxwriter":
+            scheduled_column = scheduled_series
+        else:
+            scheduled_column = scheduled_series.dt.strftime('%d/%m/%Y')
+
         export_df = pd.DataFrame({
             "ExportGeneratedAt": export_generated_at,
             "PatientID": filtered['PatientID'].astype(str).str.strip(),
             "Study": filtered['Study'].astype(str).str.strip(),
             "VisitName": filtered['VisitName'].astype(str).str.strip(),
             "VisitDay": filtered['VisitDay'],
-            "ScheduledDate": filtered['ScheduledDate'],
+            "ScheduledDate": scheduled_column,
             "SiteofVisit": filtered.get('SiteofVisit', ''),
             "Payment": filtered.get('Payment', 0),
             "VisitType": filtered.get('VisitType', '')
         })
 
-        date_format_display = "%d/%m/%Y"
-        export_df["ScheduledDate"] = pd.to_datetime(export_df["ScheduledDate"], format="%Y-%m-%d", errors='coerce').dt.strftime(date_format_display)
-
-        export_df["ActualDate"] = ""
+        export_df["ActualDate"] = pd.NaT
         export_df["Outcome"] = ""
         export_df["Notes"] = ""
         export_df["ExtrasPerformed"] = ""
@@ -149,6 +152,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
         header_format = None
         if XLSX_ENGINE == "xlsxwriter":
             header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
         for col_num, value in enumerate(EXPORT_COLUMNS):
             if header_format is not None:
                 worksheet.write(0, col_num, value, header_format)
@@ -190,6 +194,10 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
                 'error_message': 'Enter a valid date (DD/MM/YYYY).'
             }
         )
+
+        if XLSX_ENGINE == "xlsxwriter":
+            worksheet.set_column(EXPORT_COLUMNS.index("ScheduledDate"), EXPORT_COLUMNS.index("ScheduledDate"), col_widths["ScheduledDate"], date_format)
+            worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"], date_format)
 
         outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
         worksheet.data_validation(
@@ -295,15 +303,17 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         visit_name = str(getattr(row, 'VisitName', '')).strip()
         scheduled_date = str(getattr(row, 'ScheduledDate', '')).strip()
         actual_date_raw = str(getattr(row, 'ActualDate', '')).strip()
-        outcome = str(getattr(row, 'Outcome', '')).strip().lower()
+        outcome_raw = getattr(row, 'Outcome', '')
+        outcome = '' if pd.isna(outcome_raw) else str(outcome_raw).strip().lower()
         notes = str(getattr(row, 'Notes', '')).strip()
-        extras_field = str(getattr(row, 'ExtrasPerformed', '')).strip()
+        extras_raw = getattr(row, 'ExtrasPerformed', '')
+        extras_field = '' if pd.isna(extras_raw) else str(extras_raw).strip()
 
         if not patient_id or not study or not visit_name:
             warnings.append("Skipping row with missing PatientID/Study/VisitName.")
             continue
 
-        if outcome in outcome_negative or not actual_date_raw:
+        if outcome in outcome_negative or actual_date_raw == '' or str(actual_date_raw).lower() in ('nan', 'nat'):
             continue
 
         parsed_date = None
@@ -344,7 +354,7 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         records.append(record)
         used_keys.add(key)
 
-        if extras_field and not extras_lookup.empty:
+        if extras_field and extras_field.lower() not in ('nan', 'nat', 'none') and not extras_lookup.empty:
             extras_list = [item.strip() for item in extras_field.replace(';', ',').split(',') if item.strip()]
             for extra_name in extras_list:
                 extra_match = extras_lookup[
