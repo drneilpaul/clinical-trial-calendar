@@ -1009,8 +1009,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                     'Payment': 'Payment'
                 })
                 st.info(
-                    "When filling the CSV, put the extra name(s) exactly as listed below in the "
-                    "`ExtrasPerformed` column (comma-separated if multiple)."
+                    "When filling the Excel sheet, use the dropdown in the `ExtrasPerformed` column to select extras defined for each study."
                 )
                 st.dataframe(extras_display.sort_values(['Study', 'Extra Name']).reset_index(drop=True), width="stretch", hide_index=True)
             else:
