@@ -757,33 +757,62 @@ def main():
             if 'Study' in visits_df_filtered.columns:
                 available_studies = sorted(visits_df_filtered['Study'].dropna().astype(str).unique().tolist())
 
-            filter_row = st.columns([1, 2, 2])
+            # Build combined site/study selector
+            site_field = None
+            for candidate in ['SiteofVisit', 'VisitSite', 'Site', 'OriginSite', 'Practice']:
+                if candidate in visits_df_filtered.columns:
+                    site_field = candidate
+                    break
+
+            site_label_fallback = 'Unknown Site'
+            combo_options = {}
+            if available_studies:
+                if site_field is None:
+                    temp_df = visits_df_filtered[['Study']].dropna(subset=['Study']).copy()
+                    temp_df['__site'] = site_label_fallback
+                    site_field = '__site'
+                else:
+                    temp_df = visits_df_filtered[[site_field, 'Study']].dropna(subset=['Study']).copy()
+                temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
+                temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
+                temp_df = temp_df.drop_duplicates()
+
+                for _, row in temp_df.iterrows():
+                    site_value = row[site_field] if site_field in row else site_label_fallback
+                    label = f"{site_value} • {row['Study']}"
+                    combo_options[label] = {
+                        'site': site_value,
+                        'study': row['Study']
+                    }
+
+            filter_row = st.columns([1, 3])
             with filter_row[0]:
                 st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
             with filter_row[1]:
-                selected_sites = st.multiselect(
-                    "Sites",
-                    options=available_sites,
-                    default=available_sites,
-                    key="calendar_site_filter",
-                    help="Filter calendar columns by site."
-                )
-            with filter_row[2]:
-                selected_studies = st.multiselect(
-                    "Studies",
-                    options=available_studies,
-                    default=available_studies,
-                    key="calendar_study_filter",
-                    help="Filter calendar data by study."
-                )
+                combo_labels = list(combo_options.keys())
+                default_selection = combo_labels.copy()
+                selected_labels = st.multiselect(
+                    "Sites & Studies",
+                    options=combo_labels,
+                    default=default_selection,
+                    key="calendar_site_study_filter",
+                    help="Filter calendar data by site/study combination."
+                ) if combo_labels else []
 
-            effective_sites = selected_sites if selected_sites else available_sites
+            if not selected_labels and combo_labels:
+                selected_labels = combo_labels
+
+            selected_meta = [combo_options[label] for label in selected_labels if label in combo_options]
+            selected_studies = {item['study'] for item in selected_meta}
+            selected_sites = {item['site'] for item in selected_meta}
+
             effective_studies = selected_studies if selected_studies else available_studies
+            effective_sites = selected_sites if selected_sites else available_sites
 
             if effective_studies and 'Study' in visits_df_filtered.columns:
                 visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
-            if effective_sites and 'SiteofVisit' in visits_df_filtered.columns:
-                visits_df_filtered = visits_df_filtered[visits_df_filtered['SiteofVisit'].isin(effective_sites)]
+            if effective_sites and site_field and site_field in visits_df_filtered.columns:
+                visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
 
             allowed_columns = set()
             base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
