@@ -814,21 +814,52 @@ def main():
             if effective_sites and site_field and site_field in visits_df_filtered.columns:
                 visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
 
+            # Filter site column mapping to match selections
+            filtered_site_column_mapping = {}
+            for site, site_data in site_column_mapping.items():
+                if effective_sites and site not in effective_sites:
+                    continue
+
+                patient_info = site_data.get('patient_info', [])
+                events_col = site_data.get('events_column')
+
+                filtered_patient_info = []
+                filtered_columns = []
+
+                for info in patient_info:
+                    study_name = str(info.get('study', '')).strip()
+                    if effective_studies and study_name not in effective_studies:
+                        continue
+                    filtered_columns.append(info.get('col_id'))
+                    filtered_patient_info.append(info)
+
+                if events_col:
+                    filtered_columns.append(events_col)
+
+                if filtered_columns:
+                    filtered_site_column_mapping[site] = {
+                        **site_data,
+                        'columns': filtered_columns,
+                        'patient_info': filtered_patient_info,
+                        'events_column': events_col
+                    }
+
+            # Ensure we always have at least one site mapping to display
+            if not filtered_site_column_mapping:
+                filtered_site_column_mapping = site_column_mapping
+
             allowed_columns = set()
             base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
             allowed_columns.update(base_columns)
-            for site in (effective_sites if effective_sites else available_sites):
-                site_columns = site_column_mapping.get(site, {}).get('columns', [])
+            for site_data in filtered_site_column_mapping.values():
+                site_columns = site_data.get('columns', [])
                 allowed_columns.update(site_columns)
+
             keep_columns = [col for col in calendar_df_filtered.columns if col in allowed_columns]
             if keep_columns:
                 calendar_df_filtered = calendar_df_filtered[keep_columns]
 
-            filtered_site_column_mapping = {site: site_column_mapping.get(site, {}) for site in effective_sites if site in site_column_mapping}
-            if not filtered_site_column_mapping:
-                filtered_site_column_mapping = site_column_mapping
-
-            filtered_unique_visit_sites = [site for site in unique_visit_sites if site in effective_sites]
+            filtered_unique_visit_sites = [site for site in unique_visit_sites if site in filtered_site_column_mapping]
             if not filtered_unique_visit_sites:
                 filtered_unique_visit_sites = unique_visit_sites
 
