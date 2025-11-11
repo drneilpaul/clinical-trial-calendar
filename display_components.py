@@ -4,7 +4,7 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
-from helpers import log_activity, generate_financial_year_options
+from helpers import log_activity, generate_financial_year_options, trigger_data_refresh
 
 def render_calendar_start_selector(years_back: int = 4):
     """
@@ -1069,7 +1069,8 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                                     success, message, code = db.append_visit_to_database(records_df)
                                     if success:
                                         st.success(message)
-                                        st.session_state.data_refresh_needed = True
+                                        trigger_data_refresh()
+                                        st.experimental_rerun()
                                     else:
                                         st.error(message)
                                 except Exception as e:

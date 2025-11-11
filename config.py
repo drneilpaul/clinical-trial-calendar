@@ -27,6 +27,8 @@ def initialize_session_state():
         st.session_state.work_weight = 35
     if 'recruitment_weight' not in st.session_state:
         st.session_state.recruitment_weight = 30
+    if 'calendar_cache_buster' not in st.session_state:
+        st.session_state.calendar_cache_buster = 0
     if 'show_weights_form' not in st.session_state:
         st.session_state.show_weights_form = False
 

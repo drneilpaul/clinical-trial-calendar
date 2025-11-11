@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import date, datetime, timedelta
-from helpers import load_file, log_activity, get_visit_type_series
+from helpers import load_file, log_activity, get_visit_type_series, trigger_data_refresh
 
 def calculate_day_1_date(entered_date, study, trial_schedule_df):
     """
@@ -387,7 +387,7 @@ def patient_entry_modal():
                         log_activity(f"Added patient {new_patient_id} to database", level='success')
                         
                         # Trigger data refresh
-                        st.session_state.data_refresh_needed = True
+                        trigger_data_refresh()
                         st.session_state.show_patient_form = False
                         st.rerun()
                     else:
@@ -789,7 +789,7 @@ def visit_entry_modal():
                         )
                         
                         # Trigger data refresh
-                        st.session_state.data_refresh_needed = True
+                        trigger_data_refresh()
                         st.session_state.show_visit_form = False
                         st.rerun()
                     else:
@@ -1016,7 +1016,7 @@ def study_event_entry_modal():
                         log_activity(f"Recorded study event {event_name} for {selected_study}", level='success')
                         
                         # Trigger data refresh
-                        st.session_state.data_refresh_needed = True
+                        trigger_data_refresh()
                         st.session_state.show_study_event_form = False
                         st.rerun()
                     else:
@@ -1309,7 +1309,7 @@ def switch_patient_study_modal():
                     log_activity(f"Successfully switched patient {selected_patient_id} from {current_study} to {target_study}", level='success')
                     
                     # Trigger data refresh
-                    st.session_state.data_refresh_needed = True
+                    trigger_data_refresh()
                     st.session_state.show_switch_patient_form = False
                     st.rerun()
                 else:

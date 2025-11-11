@@ -5,11 +5,11 @@ from helpers import (
     load_file, normalize_columns, parse_dates_column, 
     standardize_visit_columns, safe_string_conversion_series, 
     load_file_with_defaults, init_error_system, display_error_log_section,
-    log_activity, display_activity_log_sidebar
+    log_activity, display_activity_log_sidebar, trigger_data_refresh
 )
 from file_validation import validate_file_upload, get_validation_summary, FileValidationError
 import database as db
-from processing_calendar import build_calendar
+from processing_calendar import build_calendar, clear_build_calendar_cache
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
@@ -59,17 +59,20 @@ def extract_site_summary(patients_df, screen_failures=None):
 def check_and_refresh_data():
     """Check if data refresh is needed and reload from database"""
     if st.session_state.get('data_refresh_needed', False):
-        if st.session_state.get('use_database', False):
-            try:
+        try:
+            if st.session_state.get('use_database', False):
                 st.session_state.patients_df = db.fetch_all_patients()
                 st.session_state.trials_df = db.fetch_all_trial_schedules()
                 st.session_state.actual_visits_df = db.fetch_all_actual_visits()
-                
+
                 log_activity("Data refreshed from database", level='success')
-                st.session_state.data_refresh_needed = False
-            except Exception as e:
-                st.error(f"Error refreshing data: {e}")
-                log_activity(f"Error refreshing data: {e}", level='error')
+
+            clear_build_calendar_cache()
+            st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+            st.session_state.data_refresh_needed = False
+        except Exception as e:
+            st.error(f"Error refreshing data: {e}")
+            log_activity(f"Error refreshing data: {e}", level='error')
 
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
@@ -179,9 +182,8 @@ def setup_file_uploaders():
                                         
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_patients_confirmed = False
-                                        st.session_state.data_refresh_needed = True
+                                        trigger_data_refresh()
                                         st.session_state.overwrite_in_progress = False
-                                        st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite patients table")
                                         st.session_state.overwrite_patients_confirmed = False
@@ -243,9 +245,8 @@ def setup_file_uploaders():
                                         
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_trials_confirmed = False
-                                        st.session_state.data_refresh_needed = True
+                                        trigger_data_refresh()
                                         st.session_state.overwrite_in_progress = False
-                                        st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite trials table")
                                         st.session_state.overwrite_trials_confirmed = False
@@ -307,9 +308,8 @@ def setup_file_uploaders():
                                         
                                         st.session_state.use_database = True
                                         st.session_state.overwrite_visits_confirmed = False
-                                        st.session_state.data_refresh_needed = True
+                                        trigger_data_refresh()
                                         st.session_state.overwrite_in_progress = False
-                                        st.rerun()
                                     else:
                                         st.error("❌ Failed to overwrite visits table")
                                         st.session_state.overwrite_visits_confirmed = False
@@ -556,6 +556,7 @@ def main():
             
             if st.button("❌ Close Database View", width="stretch"):
                 st.session_state.show_database_contents = False
+                trigger_data_refresh()
                 st.rerun()
                 
         except Exception as e:
@@ -777,13 +778,40 @@ def main():
                 temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
                 temp_df = temp_df.drop_duplicates()
 
-                for _, row in temp_df.iterrows():
-                    site_value = row[site_field] if site_field in row else site_label_fallback
-                    label = f"{site_value} • {row['Study']}"
-                    combo_options[label] = {
-                        'site': site_value,
-                        'study': row['Study']
-                    }
+                signature = tuple(sorted((row[site_field], row['Study']) for _, row in temp_df.iterrows()))
+                cached_signature = st.session_state.get('calendar_combo_signature')
+                if signature != cached_signature:
+                    combo_options = {}
+                    for _, row in temp_df.iterrows():
+                        site_value = row[site_field] if site_field in row else site_label_fallback
+                        label = f"{site_value} • {row['Study']}"
+                        combo_options[label] = {
+                            'site': site_value,
+                            'study': row['Study']
+                        }
+                    st.session_state['calendar_combo_options'] = combo_options
+                    st.session_state['calendar_combo_signature'] = signature
+                else:
+                    cached_options = st.session_state.get('calendar_combo_options')
+                    if cached_options is None:
+                        combo_options = {}
+                        for _, row in temp_df.iterrows():
+                            site_value = row[site_field] if site_field in row else site_label_fallback
+                            label = f"{site_value} • {row['Study']}"
+                            combo_options[label] = {
+                                'site': site_value,
+                                'study': row['Study']
+                            }
+                        st.session_state['calendar_combo_options'] = combo_options
+                    else:
+                        combo_options = cached_options
+
+            if 'calendar_site_study_filter' in st.session_state:
+                valid_selection = [label for label in st.session_state['calendar_site_study_filter'] if label in combo_options]
+                if valid_selection:
+                    st.session_state['calendar_site_study_filter'] = valid_selection
+                else:
+                    st.session_state.pop('calendar_site_study_filter', None)
 
             filter_row = st.columns([1, 3])
             with filter_row[0]:

@@ -2,6 +2,8 @@ import pandas as pd
 from datetime import timedelta
 from helpers import safe_string_conversion, format_site_events, log_activity
 
+CALENDAR_DEBUG = False
+
 def build_calendar_dataframe(visits_df, patients_df):
     """Build the basic calendar dataframe structure"""
     log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
@@ -142,8 +144,9 @@ def build_calendar_dataframe(visits_df, patients_df):
         
         # Debug: Log patient info for this site
         # Process patients for this site
-        for patient_info in site_patients_info:
-            log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
+        if CALENDAR_DEBUG:
+            for patient_info in site_patients_info:
+                log_activity(f"  - {patient_info['col_id']} (origin: {patient_info['origin_site']})", level='info')
         
         # Add patient columns for this visit site (handle duplicates with suffixes)
         # Only process if there are patients with visits at this site
@@ -154,7 +157,8 @@ def build_calendar_dataframe(visits_df, patients_df):
             # Handle duplicates by adding site suffix
             if col_id in global_seen_columns:
                 final_col_id = f"{col_id}_{visit_site}"
-                log_activity(f"Patient {col_id} appears in multiple sites. Using column name: {final_col_id}", level='info')
+                if CALENDAR_DEBUG:
+                    log_activity(f"Patient {col_id} appears in multiple sites. Using column name: {final_col_id}", level='info')
             
             ordered_columns.append(final_col_id)
             site_columns.append(final_col_id)
@@ -305,19 +309,22 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             if current_value in ["-", "+", ""]:
                                 calendar_df.at[i, col_id] = visit_info
                                 if is_actual:
-                                    log_activity(f"    -> Placed in cell with tolerance markers", level='info')
+                                    if CALENDAR_DEBUG:
+                                        log_activity(f"    -> Placed in cell with tolerance markers", level='info')
                             else:
                                 # Check if there's already an actual visit
                                 if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
                                     # Multiple actual visits on same day
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                                     if is_actual:
-                                        log_activity(f"    -> Added to existing actual visit", level='info')
+                                        if CALENDAR_DEBUG:
+                                            log_activity(f"    -> Added to existing actual visit", level='info')
                                 else:
                                     # Replace predicted/planned with actual
                                     calendar_df.at[i, col_id] = visit_info
                                     if is_actual:
-                                        log_activity(f"    -> Replaced predicted/planned with actual", level='info')
+                                        if CALENDAR_DEBUG:
+                                            log_activity(f"    -> Replaced predicted/planned with actual", level='info')
                 else:
                     # NEW: Log when column not found
                     if is_actual:

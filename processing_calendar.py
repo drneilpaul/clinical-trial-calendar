@@ -10,7 +10,9 @@ from visit_processor import process_study_events, detect_screen_failures
 from patient_processor import process_single_patient
 from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
 
-def build_calendar(patients_df, trials_df, actual_visits_df=None):
+PROCESSING_DEBUG = False
+
+def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
     """Enhanced calendar builder with study events support - Main orchestrator function"""
     
     # Clean columns - ensure they are strings before using .str accessor
@@ -29,9 +31,9 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     # Standardize visit columns
     trials_df = standardize_visit_columns(trials_df)
     if actual_visits_df is not None:
-        # Debug: Log actual columns before processing
-        log_activity(f"Actual visits columns before processing: {list(actual_visits_df.columns)}", level='info')
-        log_activity(f"Actual visits shape: {actual_visits_df.shape}", level='info')
+        if PROCESSING_DEBUG:
+            log_activity(f"Actual visits columns before processing: {list(actual_visits_df.columns)}", level='info')
+            log_activity(f"Actual visits shape: {actual_visits_df.shape}", level='info')
         
         # Add missing columns with defaults before validation
         if 'VisitType' not in actual_visits_df.columns:
@@ -64,8 +66,8 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
         if 'Notes' not in actual_visits_df.columns:
             actual_visits_df['Notes'] = ''
         
-        # Debug: Log columns after adding defaults
-        log_activity(f"Actual visits columns after adding defaults: {list(actual_visits_df.columns)}", level='info')
+        if PROCESSING_DEBUG:
+            log_activity(f"Actual visits columns after adding defaults: {list(actual_visits_df.columns)}", level='info')
         
         # Check for required columns with more detailed error message
         required_columns = {"PatientID", "Study", "VisitName", "ActualDate"}
@@ -114,9 +116,10 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Create visits DataFrame
     visits_df = pd.DataFrame(visit_records)
-    log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
-    if not visits_df.empty:
-        log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
+    if PROCESSING_DEBUG:
+        log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
+        if not visits_df.empty:
+            log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
     
@@ -130,14 +133,16 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     
     # Check for duplicate indices in visits DataFrame
     if not visits_df.index.is_unique:
-        log_activity(f"Reset duplicate indices in visits DataFrame", level='info')
+        if PROCESSING_DEBUG:
+            log_activity(f"Reset duplicate indices in visits DataFrame", level='info')
         visits_df = visits_df.reset_index(drop=True)
 
     # Build processing messages
     processing_messages = build_processing_messages(processing_stats, unmatched_visits)
 
     # DEBUG: Check visits_df state before building calendar
-    log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
+    if PROCESSING_DEBUG:
+        log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
     
     # Build calendar dataframe
     calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df)
@@ -159,20 +164,39 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None):
     # DEBUG: Log visits_df SiteofVisit values to trace Kiltearn issue
     if not visits_df.empty and 'SiteofVisit' in visits_df.columns:
         site_values = visits_df['SiteofVisit'].dropna().unique()
-        log_activity(f"🔍 DEBUG: visits_df SiteofVisit values: {list(site_values)}", level='info')
-        
-        # Count visits by site
-        site_counts = visits_df['SiteofVisit'].value_counts()
-        log_activity(f"🔍 DEBUG: visits by site: {dict(site_counts)}", level='info')
-        
-        # If Kiltearn is present, find the specific visits
-        if 'Kiltearn' in site_values:
-            kiltearn_visits = visits_df[visits_df['SiteofVisit'] == 'Kiltearn']
-            log_activity(f"🔍 DEBUG: Found {len(kiltearn_visits)} visits with SiteofVisit=Kiltearn", level='warning')
-            for idx, visit in kiltearn_visits.iterrows():
-                log_activity(f"🔍 DEBUG: Kiltearn visit - PatientID: {visit.get('PatientID')}, Visit: {visit.get('Visit')}, Date: {visit.get('Date')}", level='warning')
+        if PROCESSING_DEBUG:
+            log_activity(f"🔍 DEBUG: visits_df SiteofVisit values: {list(site_values)}", level='info')
+            
+            # Count visits by site
+            site_counts = visits_df['SiteofVisit'].value_counts()
+            log_activity(f"🔍 DEBUG: visits by site: {dict(site_counts)}", level='info')
+            
+            # If Kiltearn is present, find the specific visits
+            if 'Kiltearn' in site_values:
+                kiltearn_visits = visits_df[visits_df['SiteofVisit'] == 'Kiltearn']
+                if PROCESSING_DEBUG:
+                    for idx, visit in kiltearn_visits.iterrows():
+                        log_activity(f"🔍 DEBUG: Kiltearn visit - PatientID: {visit.get('PatientID')}, Visit: {visit.get('Visit')}, Date: {visit.get('Date')}", level='warning')
 
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites, patients_df
+
+
+@st.cache_data(show_spinner=False)
+def _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster):
+    """Cached wrapper around the core calendar builder."""
+    return _build_calendar_impl(patients_df, trials_df, actual_visits_df)
+
+
+def build_calendar(patients_df, trials_df, actual_visits_df=None, cache_buster=None):
+    """Public calendar builder with caching support."""
+    if cache_buster is None:
+        cache_buster = st.session_state.get('calendar_cache_buster', 0)
+    return _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster)
+
+
+def clear_build_calendar_cache():
+    """Clear cached calendar data."""
+    _build_calendar_cached.clear()
 
 def prepare_actual_visits_data(actual_visits_df):
     """Prepare actual visits data with proper data types"""
@@ -198,7 +222,8 @@ def prepare_actual_visits_data(actual_visits_df):
     # FIXED: Normalize all dates to consistent format for calendar matching
     # Convert to date-only timestamps to avoid timezone/time comparison issues
     actual_visits_df["ActualDate"] = pd.to_datetime(actual_visits_df["ActualDate"]).dt.normalize()
-    log_activity(f"Normalized {len(actual_visits_df)} actual visit dates to date-only timestamps", level='info')
+    if PROCESSING_DEBUG:
+        log_activity(f"Normalized {len(actual_visits_df)} actual visit dates to date-only timestamps", level='info')
     
     if "Notes" not in actual_visits_df.columns:
         actual_visits_df["Notes"] = ""
@@ -300,22 +325,24 @@ def prepare_patients_data(patients_df, trials_df):
     if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
         patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
 
-    # Debug: Log available columns and trials data
-    log_activity(f"Patients columns: {list(patients_df.columns)}", level='info')
-    log_activity(f"Trials columns: {list(trials_df.columns)}", level='info')
-    if 'SiteforVisit' in trials_df.columns:
-        log_activity(f"SiteforVisit values: {trials_df['SiteforVisit'].unique()}", level='info')
-    else:
+    if PROCESSING_DEBUG:
+        log_activity(f"Patients columns: {list(patients_df.columns)}", level='info')
+        log_activity(f"Trials columns: {list(trials_df.columns)}", level='info')
+        if 'SiteforVisit' in trials_df.columns:
+            log_activity(f"SiteforVisit values: {trials_df['SiteforVisit'].unique()}", level='info')
+    elif 'SiteforVisit' not in trials_df.columns:
         log_activity("No SiteforVisit column in trials data", level='warning')
 
     # Clean up redundant columns - remove Site and OriginSite if they exist
     # The real source of truth should be PatientPractice
     if 'Site' in patients_df.columns:
-        log_activity("Removing redundant 'Site' column", level='info')
+        if PROCESSING_DEBUG:
+            log_activity("Removing redundant 'Site' column", level='info')
         patients_df = patients_df.drop('Site', axis=1)
     
     if 'OriginSite' in patients_df.columns:
-        log_activity("Removing redundant 'OriginSite' column", level='info')
+        if PROCESSING_DEBUG:
+            log_activity("Removing redundant 'OriginSite' column", level='info')
         patients_df = patients_df.drop('OriginSite', axis=1)
     
     # CHANGED: Raise error instead of silently defaulting to 'Unknown Site'
@@ -343,7 +370,8 @@ def prepare_patients_data(patients_df, trials_df):
         log_activity(error_msg, level='error')
         raise ValueError(error_msg)
     
-    log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
+    if PROCESSING_DEBUG:
+        log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
     
     return patients_df
 
@@ -397,8 +425,7 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             patient, patient_visits, screen_failures, actual_visits_df
         )
         
-        # Debug: Log actual visits used for this patient
-        if actual_visits_used > 0:
+        if PROCESSING_DEBUG:
             log_activity(f"DEBUG: Patient {patient_id} used {actual_visits_used} actual visits", level='info')
         
         if not visit_records and len(patient_visits[patient_visits["Study"] == study]) == 0:
@@ -415,9 +442,9 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         if patient_needs_recalc:
             recalculated_patients.append(f"{patient_id} ({study})")
     
-    if len(all_visit_records) > 0:
+    if PROCESSING_DEBUG:
         log_activity(f"✅ Generated {len(all_visit_records)} visit records from {len(patients_df)} patients", level='info')
-    if len(patients_with_no_visits) > 0:
+    if patients_with_no_visits:
         log_activity(f"⚠️ {len(patients_with_no_visits)} patients have no visits scheduled", level='warning')
     
     return {

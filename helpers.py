@@ -576,3 +576,11 @@ def display_activity_log_sidebar():
             # Show details if present
             if entry.get('details'):
                 st.caption(f"   {entry['details']}")
+
+
+def trigger_data_refresh():
+    """Mark that data should be refreshed and bump cache buster."""
+    import streamlit as st
+
+    st.session_state.data_refresh_needed = True
+    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
