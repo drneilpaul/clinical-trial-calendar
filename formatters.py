@@ -163,6 +163,8 @@ def get_visit_based_style(cell_str):
         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
     elif '⚠️ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
+    elif '⚠️ Withdrawn' in cell_str or 'Withdrawn' in cell_str:
+        return 'background-color: #fff3cd; color: #856404; font-weight: bold; border: 2px solid #ffc107;'
     elif '📋' in cell_str and '(Predicted)' in cell_str:
         # Predicted visits (no actual visit yet)
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
@@ -188,10 +190,12 @@ def format_dataframe_index_as_string(df, index_col=None):
         df_display.index = df_display.index.astype(str)
     return df_display
 
-def format_visit_display_string(visit_name, is_actual=False, is_screen_fail=False, is_out_of_protocol=False):
+def format_visit_display_string(visit_name, is_actual=False, is_screen_fail=False, is_withdrawn=False, is_out_of_protocol=False):
     """Format visit display string with appropriate emoji and status - simplified without tolerance windows"""    
     if is_screen_fail:
         return f"⚠️ Screen Fail {visit_name}"
+    elif is_withdrawn:
+        return f"⚠️ Withdrawn {visit_name}"
     elif visit_name.lower() in ["randomisation", "randomization"] and is_actual:
         # Randomisation is always just completed
         return f"✅ {visit_name}"

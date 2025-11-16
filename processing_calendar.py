@@ -6,7 +6,7 @@ from helpers import (safe_string_conversion, standardize_visit_columns, validate
 from payment_handler import normalize_payment_column, validate_payment_data
 
 # Import from our new modules
-from visit_processor import process_study_events, detect_screen_failures
+from visit_processor import process_study_events, detect_screen_failures, detect_withdrawals, detect_patient_stoppages
 from patient_processor import process_single_patient
 from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
 
@@ -84,11 +84,16 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
     # Prepare actual visits data
     unmatched_visits = []
     screen_failures = {}
+    withdrawals = {}
+    stoppages = {}  # Combined screen failures and withdrawals
     
     if actual_visits_df is not None:
         actual_visits_df = prepare_actual_visits_data(actual_visits_df)
         screen_failures, screen_fail_unmatched = detect_screen_failures(actual_visits_df, trials_df)
+        withdrawals, withdrawal_unmatched = detect_withdrawals(actual_visits_df, trials_df)
+        stoppages, stoppage_unmatched = detect_patient_stoppages(actual_visits_df, trials_df)
         unmatched_visits.extend(screen_fail_unmatched)
+        unmatched_visits.extend(withdrawal_unmatched)
 
     # Prepare other data
     trials_df = prepare_trials_data(trials_df)
@@ -107,9 +112,9 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
     if not study_event_templates.empty:
         visit_records.extend(process_study_events(study_event_templates, actual_visits_df))
     
-    # Process patient visits
+    # Process patient visits (using stoppages which includes both screen failures and withdrawals)
     processing_stats = process_all_patients(
-        patients_df, patient_visits, screen_failures, actual_visits_df
+        patients_df, patient_visits, stoppages, actual_visits_df
     )
     
     visit_records.extend(processing_stats['visit_records'])
@@ -487,7 +492,7 @@ def build_processing_messages(processing_stats, unmatched_visits):
         processing_messages.append(f"✅ {processing_stats['actual_visits_used']} actual visits matched and used in calendar")
 
     if processing_stats['screen_fail_exclusions'] > 0:
-        processing_messages.append(f"⚠️ {processing_stats['screen_fail_exclusions']} visits were excluded because they occur after screen failure dates")
+        processing_messages.append(f"⚠️ {processing_stats['screen_fail_exclusions']} visits were excluded because they occur after screen failure or withdrawal dates")
     
     return processing_messages
 

@@ -320,12 +320,26 @@ def validate_visits_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     
     # Clean optional columns
     optional_columns = {
-        'Notes': str
+        'Notes': str,
+        'IsWithdrawn': object  # accept any truthy/falsy representation
     }
-    
+
+    def _normalize_withdrawn(val):
+        if pd.isna(val):
+            return ''
+        s = str(val).strip().lower()
+        if s in {'true', 'yes', 'y', '1', 'withdrawn'}:
+            return 'True'
+        if s in {'false', 'no', 'n', '0', ''}:
+            return ''
+        return s  # leave as-is for visibility
+
     for col, dtype in optional_columns.items():
         if col in df_clean.columns:
-            df_clean[col] = df_clean[col].fillna('').astype(str)
+            if col == 'IsWithdrawn':
+                df_clean[col] = df_clean[col].apply(_normalize_withdrawn)
+            else:
+                df_clean[col] = df_clean[col].fillna('').astype(str)
         else:
             df_clean[col] = ''
             warnings.append(f"Missing optional column '{col}', filled with empty strings")

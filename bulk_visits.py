@@ -21,6 +21,7 @@ EXPORT_COLUMNS = [
     "VisitType",
     "ActualDate",
     "Outcome",
+    "IsWithdrawn",
     "Notes",
     "ExtrasPerformed"
 ]
@@ -131,6 +132,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
 
         export_df["ActualDate"] = pd.NaT
         export_df["Outcome"] = ""
+        export_df["IsWithdrawn"] = ""
         export_df["Notes"] = ""
         export_df["ExtrasPerformed"] = ""
 
@@ -160,6 +162,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             "VisitType": 12,
             "ActualDate": 15,
             "Outcome": 18,
+            "IsWithdrawn": 14,
             "Notes": 30,
             "ExtrasPerformed": 25
         }
@@ -253,6 +256,12 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
     except Exception as e:
         return {"errors": [f"Failed to read file: {e}"], "records": [], "warnings": []}
 
+    def _truthy(val) -> bool:
+        if pd.isna(val):
+            return False
+        s = str(val).strip().lower()
+        return s in {"true", "yes", "y", "1", "withdrawn"}
+
     required_columns = {
         "PatientID", "Study", "VisitName", "ScheduledDate",
         "ActualDate", "Outcome", "ExtrasPerformed", "Notes"
@@ -310,6 +319,10 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         outcome = '' if pd.isna(outcome_value) else str(outcome_value).strip().lower()
         notes_value = getattr(row, 'Notes', '')
         notes = '' if pd.isna(notes_value) else str(notes_value).strip()
+        # Optional IsWithdrawn column
+        is_withdrawn_val = getattr(row, 'IsWithdrawn', '') if hasattr(row, 'IsWithdrawn') else ''
+        if _truthy(is_withdrawn_val) and 'Withdrawn' not in notes:
+            notes = (notes + ('; ' if notes else '') + 'Withdrawn').strip()
         extras_value = getattr(row, 'ExtrasPerformed', '')
         extras_field = '' if pd.isna(extras_value) else str(extras_value).strip()
 

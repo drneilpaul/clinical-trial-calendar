@@ -118,6 +118,57 @@ def detect_screen_failures(actual_visits_df, trials_df):
     
     return screen_failures, unmatched_visits
 
+def detect_withdrawals(actual_visits_df, trials_df):
+    """Detect patient withdrawals from actual visits data"""
+    withdrawals = {}
+    unmatched_visits = []
+    
+    if actual_visits_df is None:
+        return withdrawals, unmatched_visits
+    
+    withdrawal_visits = actual_visits_df[
+        actual_visits_df["Notes"].str.contains("Withdrawn", case=False, na=False)
+    ]
+    
+    for _, visit in withdrawal_visits.iterrows():
+        # Create patient-specific key
+        patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+        withdrawal_date = visit['ActualDate']
+        
+        study_visits = trials_df[
+            (trials_df["Study"] == visit["Study"]) & 
+            (trials_df["VisitName"] == visit["VisitName"])
+        ]
+        
+        if len(study_visits) == 0:
+            unmatched_visits.append(f"Withdrawal visit '{visit['VisitName']}' not found in study {visit['Study']}")
+            continue
+        
+        # Store earliest withdrawal date for this specific patient
+        if patient_study_key not in withdrawals or withdrawal_date < withdrawals[patient_study_key]:
+            withdrawals[patient_study_key] = withdrawal_date
+    
+    return withdrawals, unmatched_visits
+
+def detect_patient_stoppages(actual_visits_df, trials_df):
+    """Detect both screen failures and withdrawals, returning combined stoppage dates"""
+    screen_failures, screen_fail_unmatched = detect_screen_failures(actual_visits_df, trials_df)
+    withdrawals, withdrawal_unmatched = detect_withdrawals(actual_visits_df, trials_df)
+    
+    # Combine stoppages - use earliest date for each patient+study
+    stoppages = {}
+    for key in set(list(screen_failures.keys()) + list(withdrawals.keys())):
+        dates = []
+        if key in screen_failures:
+            dates.append(screen_failures[key])
+        if key in withdrawals:
+            dates.append(withdrawals[key])
+        if dates:
+            stoppages[key] = min(dates)
+    
+    unmatched_visits = screen_fail_unmatched + withdrawal_unmatched
+    return stoppages, unmatched_visits
+
 def calculate_tolerance_windows(visit, baseline_date, visit_day):
     """Calculate tolerance windows for a visit"""
     # Determine expected date using optional month-based intervals
@@ -177,15 +228,19 @@ def is_visit_out_of_protocol(visit_date, visit_day, visit_name, earliest_accepta
 
 def create_tolerance_window_records(patient_id, study, site, patient_origin, expected_date, 
                                   tolerance_before, tolerance_after, visit_day, visit_name, 
-                                  screen_fail_date, actual_visit_date=None):
-    """Create tolerance window records for a visit"""
+                                  stoppage_date, actual_visit_date=None):
+    """Create tolerance window records for a visit
+    
+    Args:
+        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+    """
     records = []
     
     # Add tolerance windows before the visit
     if visit_day > 1:
         for i in range(1, tolerance_before + 1):
             tolerance_date = expected_date - timedelta(days=i)
-            if screen_fail_date is not None and tolerance_date > screen_fail_date:
+            if stoppage_date is not None and tolerance_date > stoppage_date:
                 continue
             if actual_visit_date is not None and tolerance_date == actual_visit_date:
                 continue  # Don't duplicate actual visit date
@@ -208,7 +263,7 @@ def create_tolerance_window_records(patient_id, study, site, patient_origin, exp
     # Add tolerance windows after the visit
     for i in range(1, tolerance_after + 1):
         tolerance_date = expected_date + timedelta(days=i)
-        if screen_fail_date is not None and tolerance_date > screen_fail_date:
+        if stoppage_date is not None and tolerance_date > stoppage_date:
             continue
         if actual_visit_date is not None and tolerance_date == actual_visit_date:
             continue  # Don't duplicate actual visit date

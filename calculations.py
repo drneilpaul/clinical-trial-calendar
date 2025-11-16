@@ -41,7 +41,7 @@ def prepare_financial_data(visits_df):
         empty_df = pd.DataFrame()
         # Add all the required columns that the rest of the code expects
         for col in ['Date', 'Visit', 'Study', 'Payment', 'SiteofVisit', 'PatientOrigin', 
-                   'IsActual', 'IsScreenFail', 'IsOutOfProtocol', 'VisitDay', 'VisitName',
+                   'IsActual', 'IsScreenFail', 'IsWithdrawn', 'IsOutOfProtocol', 'VisitDay', 'VisitName',
                    'MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
             empty_df[col] = pd.Series(dtype='object')
         return empty_df

@@ -324,6 +324,7 @@ def show_legend(actual_visits_df):
     - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
     - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
+    - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future visits - stops all scheduled visits)
 
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
@@ -758,7 +759,7 @@ def display_income_realization_analysis(visits_df, trials_df, patients_df):
 # The actual function used by the app is in data_analysis.py (imported in app.py line 21)
 # This duplicate was never imported or called anywhere
 
-def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, site, screen_failures):
+def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, site, screen_failures, withdrawals=None):
     """Display comprehensive analysis for a single site"""
     try:
         # Filter for visits that actually happen at this site
@@ -832,15 +833,16 @@ def _display_single_site_analysis(visits_df, patients_df, enhanced_visits_df, si
         else:
             st.info("No patient origin site information available")
         
-        # Screen failures for patients with visits at this site
-        _display_site_screen_failures(site_related_patients, screen_failures)
+        # Screen failures and withdrawals for patients with visits at this site
+        _display_site_screen_failures(site_related_patients, screen_failures, withdrawals)
     except Exception as e:
         st.error(f"Error displaying analysis for site {site}: {e}")
 
-def _display_site_screen_failures(site_patients, screen_failures):
-    """Display screen failures for patients related to a site"""
+def _display_site_screen_failures(site_patients, screen_failures, withdrawals=None):
+    """Display screen failures and withdrawals for patients related to a site"""
     try:
         site_screen_failures = []
+        site_withdrawals = []
         for patient in site_patients.itertuples():
             patient_study_key = f"{patient.PatientID}_{patient.Study}"
             if patient_study_key in screen_failures:
@@ -849,12 +851,22 @@ def _display_site_screen_failures(site_patients, screen_failures):
                     'Study': patient.Study,
                     'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
                 })
+            if withdrawals and patient_study_key in withdrawals:
+                site_withdrawals.append({
+                    'Patient': patient.PatientID,
+                    'Study': patient.Study,
+                    'Withdrawal Date': withdrawals[patient_study_key].strftime('%Y-%m-%d')
+                })
         
         if site_screen_failures:
             st.write("**Screen Failures**")
             st.dataframe(pd.DataFrame(site_screen_failures), width="stretch", hide_index=True)
+        
+        if site_withdrawals:
+            st.write("**Withdrawals**")
+            st.dataframe(pd.DataFrame(site_withdrawals), width="stretch", hide_index=True)
     except Exception as e:
-        st.error(f"Error displaying screen failures: {e}")
+        st.error(f"Error displaying screen failures and withdrawals: {e}")
 
 def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df=None, visits_df=None, trials_df=None):
     """Display comprehensive download options with Excel formatting"""

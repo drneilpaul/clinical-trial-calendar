@@ -23,6 +23,26 @@ def extract_screen_failures(actual_visits_df):
     
     return screen_failures
 
+def extract_withdrawals(actual_visits_df):
+    """Extract withdrawal information from actual visits"""
+    withdrawals = {}
+    
+    if actual_visits_df is not None and not actual_visits_df.empty:
+        # Find visits marked as withdrawals
+        withdrawal_visits = actual_visits_df[
+            actual_visits_df["Notes"].str.contains("Withdrawn", case=False, na=False)
+        ]
+        
+        for _, visit in withdrawal_visits.iterrows():
+            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+            withdrawal_date = visit['ActualDate']
+            
+            # Store the earliest withdrawal date for each patient-study combination
+            if patient_study_key not in withdrawals or withdrawal_date < withdrawals[patient_study_key]:
+                withdrawals[patient_study_key] = withdrawal_date
+    
+    return withdrawals
+
 def prepare_financial_data(visits_df):
     """Prepare financial data with proper columns for profit sharing analysis"""
     if visits_df.empty:
@@ -63,7 +83,7 @@ def display_processing_messages(messages):
             else:
                 log_activity(message, level='info')
 
-def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures):
+def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, screen_failures, withdrawals=None):
     """Display detailed statistics for each visit site with quarterly and financial year analysis"""
     if visits_df.empty or patients_df.empty:
         return
@@ -98,12 +118,12 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
         
         for i, visit_site in enumerate(unique_visit_sites):
             with tabs[i]:
-                _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, visit_site, screen_failures)
+                _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, visit_site, screen_failures, withdrawals)
     else:
         # If only one site, display directly
-        _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, unique_visit_sites[0], screen_failures)
+        _display_enhanced_single_site_stats(visits_df_enhanced, patients_df, unique_visit_sites[0], screen_failures, withdrawals)
 
-def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_failures):
+def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_failures, withdrawals=None):
     """Display enhanced statistics for a single visit site including quarterly and financial year analysis"""
     try:
         # Filter data for this visit site (where work is actually done)
@@ -397,8 +417,9 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
             fy_summary_df = pd.DataFrame(fy_summary_data)
             st.dataframe(fy_summary_df, width='stretch')
         
-        # Screen failures for patients who have visits at this site
+        # Screen failures and withdrawals for patients who have visits at this site
         site_screen_failures = []
+        site_withdrawals = []
         for patient in site_related_patients.itertuples():
             patient_study_key = f"{patient.PatientID}_{patient.Study}"
             if patient_study_key in screen_failures:
@@ -407,10 +428,20 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
                     'Study': patient.Study,
                     'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
                 })
+            if withdrawals and patient_study_key in withdrawals:
+                site_withdrawals.append({
+                    'Patient': patient.PatientID,
+                    'Study': patient.Study,
+                    'Withdrawal Date': withdrawals[patient_study_key].strftime('%Y-%m-%d')
+                })
         
         if site_screen_failures:
             st.write("**Screen Failures**")
             st.dataframe(pd.DataFrame(site_screen_failures), width='stretch')
+        
+        if site_withdrawals:
+            st.write("**Withdrawals**")
+            st.dataframe(pd.DataFrame(site_withdrawals), width='stretch')
         
     except Exception as e:
         st.error(f"Error displaying site statistics: {e}")

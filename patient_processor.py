@@ -60,8 +60,12 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     return patient_actual_visits, actual_visits_used, unmatched_visits
 
 def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_data, 
-                        baseline_date, screen_fail_date, processing_messages, out_of_window_visits, skipped_counter=None):
-    """Process a single actual visit"""
+                        baseline_date, stoppage_date, processing_messages, out_of_window_visits, skipped_counter=None):
+    """Process a single actual visit
+    
+    Args:
+        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+    """
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
@@ -89,21 +93,24 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     else:
         payment = 0.0
     
-    # Check for screen failure
+    # Check for screen failure and withdrawal
     notes = str(actual_visit_data.get("Notes", ""))
     is_screen_fail = "ScreenFail" in notes
+    is_withdrawn = "Withdrawn" in notes
     
     # Improved data validation with warnings
-    if screen_fail_date is not None and visit_date > screen_fail_date:
+    if stoppage_date is not None and visit_date > stoppage_date:
         visit_status = f"⚠️ DATA ERROR {visit_name}"
         is_out_of_protocol = False
-        processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure")
+        processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure or withdrawal")
     else:
         # Simplified: All actual visits are just marked as completed (no tolerance window checking)
         is_out_of_protocol = False  # Always False - we don't check tolerance windows anymore
         
         if is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
+        elif is_withdrawn:
+            visit_status = f"⚠️ Withdrawn {visit_name}"
         else:
             visit_status = f"✅ {visit_name}"
     
@@ -131,6 +138,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "PatientOrigin": patient_origin,
         "IsActual": True,
         "IsScreenFail": is_screen_fail,
+        "IsWithdrawn": is_withdrawn,
         "IsOutOfProtocol": is_out_of_protocol,
         "VisitDay": visit_day,
         "VisitName": visit_name,
@@ -142,8 +150,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, screen_fail_date):
-    """Process a single scheduled (predicted) visit"""
+def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, stoppage_date):
+    """Process a single scheduled (predicted) visit
+    
+    Args:
+        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+    """
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     visit_type = str(visit.get("VisitType", "patient")).strip().lower()
@@ -162,8 +174,8 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     # Normalize expected_date to date only for calendar matching
     scheduled_date = pd.Timestamp(pd.Timestamp(expected_date).date())
     
-    # Use patient-specific screen failure check
-    if screen_fail_date is not None and scheduled_date > screen_fail_date:
+    # Use patient-specific stoppage check (screen failure or withdrawal)
+    if stoppage_date is not None and scheduled_date > stoppage_date:
         return [], 1  # Return empty list and increment exclusion count
     
     try:
@@ -208,12 +220,16 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     tolerance_records = create_tolerance_window_records(
         patient_id, study, site, patient_origin, expected_date,
         tolerance_before, tolerance_after, visit_day, visit_name,
-        screen_fail_date
+        stoppage_date
     )
     return [main_record] + tolerance_records, 0
 
-def process_single_patient(patient, patient_visits, screen_failures, actual_visits_df=None):
-    """Process all visits for a single patient"""
+def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=None):
+    """Process all visits for a single patient
+    
+    Args:
+        stoppages: Dictionary of patient+study keys to stoppage dates (screen failures or withdrawals)
+    """
     from helpers import log_activity
     
     # Debug: Track skipped visits due to invalid dates
@@ -239,9 +255,9 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
         log_activity(f"Patient {patient_id} has invalid start_date: {start_date}", level='warning')
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
-    # Use patient-specific screen failure key
-    this_patient_screen_fail_key = f"{patient_id}_{study}"
-    screen_fail_date = screen_failures.get(this_patient_screen_fail_key)
+    # Use patient-specific stoppage key (includes both screen failures and withdrawals)
+    this_patient_stoppage_key = f"{patient_id}_{study}"
+    stoppage_date = stoppages.get(this_patient_stoppage_key)
     
     study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
     
@@ -286,7 +302,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, visit, actual_visit_data,
-                baseline_date, screen_fail_date, processing_messages, out_of_window_visits, skipped_invalid_dates
+                baseline_date, stoppage_date, processing_messages, out_of_window_visits, skipped_invalid_dates
             )
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
@@ -310,7 +326,7 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             if visit_day != 0:
                 # Process scheduled visit with full tolerance windows
                 scheduled_records, exclusions = process_scheduled_visit(
-                    patient_id, study, patient_origin, visit, baseline_date, screen_fail_date
+                    patient_id, study, patient_origin, visit, baseline_date, stoppage_date
                 )
                 visit_records.extend(scheduled_records)
                 screen_fail_exclusions += exclusions
@@ -371,16 +387,28 @@ def process_single_patient(patient, patient_visits, screen_failures, actual_visi
             
             # Create visit record
             actual_visit_type = get_visit_type_series(pd.DataFrame([actual_visit_data]), default='patient').iloc[0]
+            notes_str = str(actual_visit_data.get("Notes", ""))
+            is_screen_fail = "ScreenFail" in notes_str
+            is_withdrawn = "Withdrawn" in notes_str
+            
+            if is_screen_fail:
+                visit_display = f"⚠️ Screen Fail {visit_name}"
+            elif is_withdrawn:
+                visit_display = f"⚠️ Withdrawn {visit_name}"
+            else:
+                visit_display = f"✅ {visit_name}"
+            
             visit_record = {
                 "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
                 "PatientID": patient_id,
-                "Visit": f"⚠️ Screen Fail {visit_name}" if "ScreenFail" in str(actual_visit_data.get("Notes", "")) else f"✅ {visit_name}",
+                "Visit": visit_display,
                 "Study": study,
                 "Payment": payment,
                 "SiteofVisit": str(visit_site).strip(),
                 "PatientOrigin": patient_origin,
                 "IsActual": True,
-                "IsScreenFail": "ScreenFail" in str(actual_visit_data.get("Notes", "")),
+                "IsScreenFail": is_screen_fail,
+                "IsWithdrawn": is_withdrawn,
                 "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
                 "VisitDay": visit_day,
                 "VisitName": visit_name,

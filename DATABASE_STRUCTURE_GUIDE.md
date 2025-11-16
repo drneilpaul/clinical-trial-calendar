@@ -202,7 +202,29 @@ Notes: "ScreenFail - Patient did not meet inclusion criteria"
 VisitType: "patient"
 ```
 
-#### C. VISITS THAT ARE DUE (Scheduled/Upcoming Visits)
+#### C. PATIENT WITHDRAWALS
+**Identification:**
+- Record exists in actual_visits table
+- **Notes column contains "Withdrawn"** (case-insensitive match)
+- ActualDate is populated
+
+**Important Rules:**
+- Withdrawals are detected by searching for "Withdrawn" in the Notes column (case-insensitive)
+- Once a patient has withdrawn, NO future visits should be scheduled for that patient
+- The withdrawal date is the earliest date where Notes contains "Withdrawn" for that patient+study combination
+- Withdrawals stop all future visit predictions for that patient (same behavior as screen failures)
+
+**Example:**
+```
+PatientID: "P002"
+Study: "STUDY-2024-001"
+VisitName: "V3"
+ActualDate: "15/05/2024"
+Notes: "Withdrawn - Patient withdrew consent"
+VisitType: "patient"
+```
+
+#### D. VISITS THAT ARE DUE (Scheduled/Upcoming Visits)
 **Identification:**
 - **NO matching record in actual_visits table** for that PatientID + Study + VisitName combination
 - OR IsActual = False (when processed)

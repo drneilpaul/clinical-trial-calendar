@@ -25,7 +25,7 @@ except ImportError as e:
     print(f"Switch patient modal not available: {e}")
     SWITCH_PATIENT_AVAILABLE = False
 from data_analysis import (
-    extract_screen_failures, display_site_wise_statistics, display_processing_messages
+    extract_screen_failures, extract_withdrawals, display_site_wise_statistics, display_processing_messages
 )
 from calculations import prepare_financial_data
 from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
@@ -744,6 +744,7 @@ def main():
             )
             
             screen_failures = extract_screen_failures(actual_visits_df)
+            withdrawals = extract_withdrawals(actual_visits_df)
 
             display_processing_messages(messages)
             
@@ -925,7 +926,7 @@ def main():
                 display_study_income_summary(visits_df_filtered)
 
                 # Site-wise statistics (includes financial data)
-                display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures)
+                display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
             else:
                 st.info("🔒 Login as admin to view financial reports and income analysis")
 
@@ -986,10 +987,11 @@ def main():
             - **ActualDate** - When visit actually occurred
             
             Optional columns:
-            - **Notes** - Visit notes (use 'ScreenFail' to mark failures)
+            - **Notes** - Visit notes (use 'ScreenFail' to mark failures, 'Withdrawn' to mark withdrawals)
             - **VisitType** - patient/siv/monitor (defaults to patient)
             
             Note: If a study event (siv/monitor) is in Actual Visits, it happened (completed).
+            Both 'ScreenFail' and 'Withdrawn' in Notes will stop all future scheduled visits for that patient.
             """)
         
         st.markdown("---")
@@ -1000,7 +1002,8 @@ def main():
         - Dates should be in UK format: DD/MM/YYYY (e.g., 31/12/2024)
         - PatientID, Study, and VisitName columns must match exactly between files
         - Each study must have exactly one Day 1 visit (baseline reference point)
-        - Use 'ScreenFail' in the Notes column to automatically exclude future visits
+        - Use 'ScreenFail' in the Notes column to automatically exclude future visits (screen failure)
+        - Use 'Withdrawn' in the Notes column to automatically exclude future visits (patient withdrawal)
         - For study events (SIV/Monitor): use empty Day field in Trials file, manage via Actual Visits
         """)
 

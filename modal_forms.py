@@ -613,6 +613,9 @@ def visit_entry_modal():
             help="Any additional notes about this visit",
             height=100
         )
+        withdrawn_flag = st.checkbox(
+            "Withdrawn – stop future visits",
+            help="Tick to mark the patient as withdrawn. This will stop all future scheduled visits.")
     
     # Duplicate checking logic
     def check_for_duplicates(patient_id, study, visit_name, actual_date, visits_df):
@@ -722,6 +725,11 @@ def visit_entry_modal():
             if primary_visit_type in ['', 'nan', 'none']:
                 primary_visit_type = 'patient'
             
+            # Ensure Notes includes 'Withdrawn' if checkbox selected
+            final_notes = notes if notes else ''
+            if withdrawn_flag and 'Withdrawn' not in final_notes:
+                final_notes = (final_notes + ('; ' if final_notes else '') + 'Withdrawn').strip()
+
             # Create new visit data
             new_visit = {
                 'PatientID': selected_patient_id,
@@ -729,7 +737,7 @@ def visit_entry_modal():
                 'VisitName': selected_visit_name,
                 'ActualDate': formatted_date,
                 'Day': int(visit_details.get('Day', 0)),
-                'Notes': notes if notes else '',
+                'Notes': final_notes,
                 'VisitType': primary_visit_type
             }
             
@@ -763,7 +771,7 @@ def visit_entry_modal():
                     'VisitName': extra_name,
                     'ActualDate': formatted_date,
                     'Day': int(extra_row.get('Day', 0)),
-                    'Notes': notes if notes else '',
+                    'Notes': final_notes,
                     'VisitType': 'extra'
                 })
             

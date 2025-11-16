@@ -632,10 +632,12 @@ def display_complete_realization_analysis(visits_df, trials_df, patients_df):
     except Exception as e:
         st.error(f"Error in realization analysis: {e}")
 
-def display_site_screen_failures(site_patients, screen_failures):
-    """Display screen failures for a site"""
+def display_site_screen_failures(site_patients, screen_failures, withdrawals=None):
+    """Display screen failures and withdrawals for a site"""
     try:
         site_screen_failures = []
+        site_withdrawals = []
+        
         for patient in site_patients.itertuples():
             patient_study_key = f"{patient.PatientID}_{patient.Study}"
             if patient_study_key in screen_failures:
@@ -644,12 +646,22 @@ def display_site_screen_failures(site_patients, screen_failures):
                     'Study': patient.Study,
                     'Screen Fail Date': screen_failures[patient_study_key].strftime('%Y-%m-%d')
                 })
+            if withdrawals and patient_study_key in withdrawals:
+                site_withdrawals.append({
+                    'Patient': patient.PatientID,
+                    'Study': patient.Study,
+                    'Withdrawal Date': withdrawals[patient_study_key].strftime('%Y-%m-%d')
+                })
         
         if site_screen_failures:
             st.write("**Screen Failures**")
             st.dataframe(pd.DataFrame(site_screen_failures), width='stretch', hide_index=True)
+        
+        if site_withdrawals:
+            st.write("**Withdrawals**")
+            st.dataframe(pd.DataFrame(site_withdrawals), width='stretch', hide_index=True)
     except Exception as e:
-        st.error(f"Error displaying screen failures: {e}")
+        st.error(f"Error displaying screen failures and withdrawals: {e}")
 
 def create_excel_export_data(calendar_df, site_column_mapping, unique_sites):
     """Create Excel export data with proper formatting"""

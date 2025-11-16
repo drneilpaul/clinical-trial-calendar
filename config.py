@@ -46,7 +46,8 @@ def get_file_structure_info():
     **Actual Visits File (Optional):**
     - PatientID, Study, VisitName, ActualDate
     - ActualPayment, Notes (optional)
-    - Use 'ScreenFail' in Notes to stop future visits
+    - Use 'ScreenFail' in Notes to stop future visits (screen failure)
+    - Use 'Withdrawn' in Notes to stop future visits (patient withdrawal)
     """
 
 # Application constants
