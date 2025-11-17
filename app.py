@@ -741,7 +741,11 @@ def main():
         try:
             hide_inactive = st.session_state.get('hide_inactive_patients', False)
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
-                patients_df, trials_df, actual_visits_df, cache_buster=None, hide_inactive=hide_inactive
+                patients_df=patients_df, 
+                trials_df=trials_df, 
+                actual_visits_df=actual_visits_df, 
+                cache_buster=None, 
+                hide_inactive=hide_inactive
             )
             
             screen_failures = extract_screen_failures(actual_visits_df)
