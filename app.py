@@ -740,11 +740,12 @@ def main():
 
         try:
             hide_inactive = st.session_state.get('hide_inactive_patients', False)
+            cache_buster = st.session_state.get('calendar_cache_buster', 0)
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
                 patients_df=patients_df, 
                 trials_df=trials_df, 
                 actual_visits_df=actual_visits_df, 
-                cache_buster=None, 
+                cache_buster=cache_buster, 
                 hide_inactive=hide_inactive
             )
             
@@ -822,13 +823,21 @@ def main():
             # Calendar display options
             col_options = st.columns([1, 1, 1, 3])
             with col_options[0]:
+                prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
                 hide_inactive = st.checkbox(
                     "Hide inactive patients",
-                    value=st.session_state.get('hide_inactive_patients', False),
+                    value=prev_hide_inactive,
                     help="Hide patients who have withdrawn, screen failed, or finished all visits",
                     key="hide_inactive_checkbox"
                 )
-                st.session_state.hide_inactive_patients = hide_inactive
+                # Check if value changed and clear cache if so
+                if hide_inactive != prev_hide_inactive:
+                    clear_build_calendar_cache()
+                    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                    st.session_state.hide_inactive_patients = hide_inactive
+                    st.rerun()
+                else:
+                    st.session_state.hide_inactive_patients = hide_inactive
             with col_options[1]:
                 compact_mode = st.checkbox(
                     "Compact view",
@@ -921,6 +930,10 @@ def main():
 
             # Public - Always show
             compact_mode = st.session_state.get('compact_calendar_mode', False)
+            hide_inactive_status = "enabled" if st.session_state.get('hide_inactive_patients', False) else "disabled"
+            compact_status = "enabled" if compact_mode else "disabled"
+            if hide_inactive_status == "enabled" or compact_status == "enabled":
+                st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
             display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
             show_legend(actual_visits_df)

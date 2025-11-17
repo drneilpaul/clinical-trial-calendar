@@ -467,7 +467,8 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             )
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
-            components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
+            # Use compact_mode in key to force regeneration when it changes
+            components.html(html_table, height=800, scrolling=True, key=f"calendar_html_{compact_mode}")  # Increased height for extra headers
             
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
