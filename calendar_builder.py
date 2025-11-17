@@ -4,7 +4,56 @@ from helpers import safe_string_conversion, format_site_events, log_activity
 
 CALENDAR_DEBUG = False
 
-def build_calendar_dataframe(visits_df, patients_df):
+def is_patient_inactive(patient_id, study, visits_df, actual_visits_df=None):
+    """
+    Determine if a patient is inactive (withdrawn, screen failed, or finished).
+    
+    Args:
+        patient_id: Patient ID
+        study: Study name
+        visits_df: DataFrame with all visits (actual and predicted)
+        actual_visits_df: Optional DataFrame with actual visits (for checking Notes)
+    
+    Returns:
+        tuple: (is_inactive: bool, reason: str)
+    """
+    patient_key = f"{patient_id}_{study}"
+    
+    # Check for withdrawals or screen failures in actual visits
+    if actual_visits_df is not None and not actual_visits_df.empty:
+        patient_actuals = actual_visits_df[
+            (actual_visits_df['PatientID'].astype(str) == str(patient_id)) &
+            (actual_visits_df['Study'].astype(str) == str(study))
+        ]
+        
+        if not patient_actuals.empty:
+            notes_combined = ' '.join(patient_actuals['Notes'].fillna('').astype(str))
+            if 'Withdrawn' in notes_combined:
+                return True, 'withdrawn'
+            if 'ScreenFail' in notes_combined:
+                return True, 'screen_failed'
+    
+    # Check if patient has any predicted visits remaining
+    if visits_df is not None and not visits_df.empty:
+        patient_visits = visits_df[
+            (visits_df['PatientID'].astype(str) == str(patient_id)) &
+            (visits_df['Study'].astype(str) == str(study))
+        ]
+        
+        if not patient_visits.empty:
+            # Check if there are any predicted visits (not actual, not tolerance markers)
+            predicted = patient_visits[
+                (patient_visits.get('IsActual', False) == False) &
+                (~patient_visits['Visit'].isin(['-', '+']))
+            ]
+            
+            # If no predicted visits remaining, patient is finished
+            if predicted.empty:
+                return True, 'finished'
+    
+    return False, 'active'
+
+def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual_visits_df=None):
     """Build the basic calendar dataframe structure"""
     log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
     
@@ -100,6 +149,13 @@ def build_calendar_dataframe(visits_df, patients_df):
                 # Skip study event pseudo-patients
                 if patient_id.startswith(('SIV_', 'MONITOR_')):
                     continue
+                
+                # Filter inactive patients if hide_inactive is enabled
+                if hide_inactive:
+                    is_inactive, reason = is_patient_inactive(patient_id, study, visits_df, actual_visits_df)
+                    if is_inactive:
+                        log_activity(f"Filtering inactive patient {patient_id} ({study}) - reason: {reason}", level='info')
+                        continue
                 
                 patient_row = patients_df[
                     (patients_df['PatientID'] == patient_id) & 

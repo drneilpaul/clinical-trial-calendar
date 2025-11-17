@@ -12,7 +12,7 @@ from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
 
 PROCESSING_DEBUG = False
 
-def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
+def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_inactive=False):
     """Enhanced calendar builder with study events support - Main orchestrator function"""
     
     # Clean columns - ensure they are strings before using .str accessor
@@ -150,7 +150,7 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
         log_activity(f"Building calendar with {len(visits_df)} visits", level='info')
     
     # Build calendar dataframe
-    calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df)
+    calendar_df, site_column_mapping, unique_visit_sites = build_calendar_dataframe(visits_df, patients_df, hide_inactive, actual_visits_df)
     
     # Fill calendar with visits
     calendar_df = fill_calendar_with_visits(calendar_df, visits_df, trials_df)
@@ -187,16 +187,16 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None):
 
 
 @st.cache_data(show_spinner=False)
-def _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster):
+def _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster, hide_inactive):
     """Cached wrapper around the core calendar builder."""
-    return _build_calendar_impl(patients_df, trials_df, actual_visits_df)
+    return _build_calendar_impl(patients_df, trials_df, actual_visits_df, hide_inactive)
 
 
-def build_calendar(patients_df, trials_df, actual_visits_df=None, cache_buster=None):
+def build_calendar(patients_df, trials_df, actual_visits_df=None, cache_buster=None, hide_inactive=False):
     """Public calendar builder with caching support."""
     if cache_buster is None:
         cache_buster = st.session_state.get('calendar_cache_buster', 0)
-    return _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster)
+    return _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster, hide_inactive)
 
 
 def clear_build_calendar_cache():

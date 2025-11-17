@@ -365,7 +365,7 @@ def show_legend(actual_visits_df):
     
     st.info(legend_text)
 
-def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, excluded_visits=None):
+def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, excluded_visits=None, compact_mode=False):
     """Display the main visit calendar with three-level styling"""
     st.subheader("Generated Visit Calendar")
 
@@ -461,7 +461,10 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             log_activity(f"Styling applied successfully", level='info')
             
             # Generate HTML with month separators, frozen headers, and auto-scroll
-            html_table = _generate_calendar_html_with_frozen_headers(styled_df)
+            # Pass column names explicitly
+            html_table = _generate_calendar_html_with_frozen_headers(
+                styled_df, site_column_mapping, compact_mode, list(display_with_headers.columns)
+            )
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
             components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
@@ -494,8 +497,96 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             st.write(f"First few rows:")
             st.dataframe(calendar_df.head(), width="stretch")
 
-def _generate_calendar_html_with_frozen_headers(styled_df):
-    """Generate HTML calendar with frozen headers, month separators, and auto-scroll to today"""
+def _get_visit_tooltip(cell_content, col_name, site_column_mapping, date_str=None):
+    """Generate tooltip text for a visit cell"""
+    if not cell_content or str(cell_content).strip() in ['', '-', '+']:
+        return None
+    
+    # Find patient info for this column
+    patient_info = None
+    for site, site_data in site_column_mapping.items():
+        for p_info in site_data.get('patient_info', []):
+            if p_info['col_id'] == col_name:
+                patient_info = p_info
+                break
+        if patient_info:
+            break
+    
+    if not patient_info:
+        return None
+    
+    # Extract visit name from cell content
+    visit_name = str(cell_content)
+    # Remove emojis and status markers for cleaner tooltip
+    for marker in ['✅', '⚠️', '🔴', '📋', '📅', 'Screen Fail', 'Withdrawn', 'OUT OF PROTOCOL', '(Predicted)', '(Planned)']:
+        visit_name = visit_name.replace(marker, '').strip()
+    
+    # Determine status
+    status = "Predicted"
+    if '✅' in str(cell_content):
+        status = "Completed"
+    elif '⚠️ Screen Fail' in str(cell_content):
+        status = "Screen Failed"
+    elif '⚠️ Withdrawn' in str(cell_content):
+        status = "Withdrawn"
+    elif '🔴' in str(cell_content):
+        status = "Out of Protocol"
+    
+    tooltip_parts = [
+        f"Patient: {patient_info['patient_id']}",
+        f"Study: {patient_info['study']}",
+        f"Visit: {visit_name}" if visit_name else "Visit",
+        f"Status: {status}"
+    ]
+    
+    if date_str:
+        tooltip_parts.insert(2, f"Date: {date_str}")
+    
+    tooltip_parts.append(f"Origin: {patient_info.get('origin_site', 'Unknown')}")
+    
+    return " | ".join(tooltip_parts)
+
+def _get_header_tooltip(col_name, site_column_mapping):
+    """Generate tooltip text for header cells"""
+    # Find patient info for this column
+    patient_info = None
+    for site, site_data in site_column_mapping.items():
+        for p_info in site_data.get('patient_info', []):
+            if p_info['col_id'] == col_name:
+                patient_info = p_info
+                break
+        if patient_info:
+            break
+    
+    if patient_info:
+        return f"Patient: {patient_info['patient_id']} | Study: {patient_info['study']} | Origin: {patient_info.get('origin_site', 'Unknown')}"
+    return None
+
+def _convert_to_compact_icon(cell_content):
+    """Convert visit text to icon for compact mode"""
+    if not cell_content or str(cell_content).strip() in ['', '-', '+']:
+        return str(cell_content) if cell_content else ''
+    
+    content_str = str(cell_content)
+    
+    # Map to icons
+    if '✅' in content_str and 'Screen Fail' not in content_str and 'Withdrawn' not in content_str:
+        return '✅'
+    elif '⚠️ Screen Fail' in content_str:
+        return '⚠️'
+    elif '⚠️ Withdrawn' in content_str:
+        return '⚠️'
+    elif '🔴' in content_str:
+        return '🔴'
+    elif '📋' in content_str:
+        return '📋'
+    elif '📅' in content_str:
+        return '📅'
+    
+    return content_str
+
+def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None):
+    """Generate HTML calendar with frozen headers, month separators, auto-scroll, tooltips, and compact mode"""
     try:
         html_table_base = styled_df.to_html(escape=False)
         html_lines = html_table_base.split('\n')
@@ -504,20 +595,99 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
         prev_month = None
         row_index = 0
         
+        # Get column names from parameter or try to extract from styled_df
+        if column_names is None:
+            if hasattr(styled_df.data, 'columns'):
+                column_names = list(styled_df.data.columns)
+            elif hasattr(styled_df, 'columns'):
+                column_names = list(styled_df.columns)
+            else:
+                column_names = []
+        
         for line in html_lines:
             # Look for data rows with dates
             if '<tr>' in line and '<td>' in line:
                 # Track row index for header identification
                 row_index += 1
                 
-                # Skip header rows
-                if line.count('<th>') > 0:
+                # Skip header rows (first 3 rows are headers)
+                if line.count('<th>') > 0 or row_index <= 3:
+                    # Add tooltips to header cells
+                    if row_index <= 3 and column_names:
+                        td_matches = list(re.finditer(r'<td[^>]*>(.*?)</td>', line))
+                        th_matches = list(re.finditer(r'<th[^>]*>(.*?)</th>', line))
+                        matches = th_matches if th_matches else td_matches
+                        
+                        if matches:
+                            new_line = line
+                            for idx, match in enumerate(matches):
+                                if idx < len(column_names):
+                                    col_name = column_names[idx]
+                                    tooltip = _get_header_tooltip(col_name, site_column_mapping)
+                                    if tooltip:
+                                        # Add title attribute
+                                        tag_content = match.group(0)
+                                        if 'title=' not in tag_content:
+                                            new_line = new_line.replace(
+                                                tag_content,
+                                                tag_content.replace('>', f' title="{tooltip}">', 1),
+                                                1
+                                            )
+                            line = new_line
+                    
+                    if row_index <= 3:
+                        line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
+                    
                     modified_html_lines.append(line)
                     continue
                 
-                # Add class to first 3 data rows (header rows) for sticky positioning
-                if row_index <= 3:
-                    line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
+                # Process data rows - add tooltips and compact mode
+                if row_index > 3 and column_names:
+                    # Extract date from first cell
+                    date_match = re.search(r'<td[^>]*>(\d{4}-\d{2}-\d{2})</td>', line)
+                    date_str = date_match.group(1) if date_match else None
+                    
+                    # Process each cell - work backwards to avoid index shifting
+                    td_matches = list(re.finditer(r'<td[^>]*>(.*?)</td>', line))
+                    if td_matches and len(column_names) > 0:
+                        new_line = line
+                        # Process in reverse to avoid index issues when replacing
+                        for idx in range(len(td_matches) - 1, -1, -1):
+                            if idx < len(column_names):
+                                col_name = column_names[idx]
+                                match = td_matches[idx]
+                                cell_content = match.group(1)
+                                
+                                # Skip Date and Day columns
+                                if col_name in ['Date', 'Day']:
+                                    continue
+                                
+                                # Compact mode: convert to icon
+                                if compact_mode:
+                                    icon_content = _convert_to_compact_icon(cell_content)
+                                    if icon_content != cell_content:
+                                        # Replace the cell content
+                                        old_tag = match.group(0)
+                                        new_tag = old_tag.replace(cell_content, icon_content, 1)
+                                        new_line = new_line.replace(old_tag, new_tag, 1)
+                                        cell_content = icon_content
+                                
+                                # Add tooltip
+                                tooltip = _get_visit_tooltip(cell_content, col_name, site_column_mapping, date_str)
+                                if tooltip:
+                                    tag_content = match.group(0)
+                                    if 'title=' not in tag_content:
+                                        # Escape quotes in tooltip
+                                        tooltip_escaped = tooltip.replace('"', '&quot;')
+                                        # Find position to insert title attribute
+                                        if 'style=' in tag_content:
+                                            # Insert before style attribute
+                                            new_tag = tag_content.replace('style=', f'title="{tooltip_escaped}" style=', 1)
+                                        else:
+                                            # Insert before closing >
+                                            new_tag = tag_content.replace('>', f' title="{tooltip_escaped}">', 1)
+                                        new_line = new_line.replace(tag_content, new_tag, 1)
+                        line = new_line
                     
                 # Add month separators (skip for header rows)
                 if row_index > 3:
@@ -542,6 +712,55 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
         html_table_with_features = '\n'.join(modified_html_lines)
         
         from textwrap import dedent
+        compact_css = ""
+        if compact_mode:
+            compact_css = """
+                    .compact-header {
+                        writing-mode: vertical-rl;
+                        text-orientation: mixed;
+                        white-space: nowrap;
+                        width: 20px !important;
+                        min-width: 20px !important;
+                        max-width: 20px !important;
+                        padding: 2px !important;
+                        font-size: 10px;
+                    }
+                    .compact-cell {
+                        width: 20px !important;
+                        min-width: 20px !important;
+                        max-width: 20px !important;
+                        padding: 2px !important;
+                        text-align: center;
+                        font-size: 14px;
+                    }
+                    .header-row-1 th, .header-row-1 td,
+                    .header-row-2 th, .header-row-2 td,
+                    .header-row-3 th, .header-row-3 td {
+                        writing-mode: vertical-rl;
+                        text-orientation: mixed;
+                        white-space: nowrap;
+                        width: 20px !important;
+                        min-width: 20px !important;
+                        max-width: 20px !important;
+                        padding: 2px !important;
+                        font-size: 10px;
+                    }
+                    table {{
+                        table-layout: fixed;
+                        width: 100%;
+                    }}
+                    table td, table th {{
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }}
+                    table td:not(:first-child):not(:nth-child(2)) {{
+                        width: 20px !important;
+                        min-width: 20px !important;
+                        max-width: 20px !important;
+                        padding: 2px !important;
+                    }}
+            """
+        
         html_doc = f"""
         <!DOCTYPE html>
         <html>
@@ -554,6 +773,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df):
                         overflow-x: auto;
                         border: 1px solid #ddd;
                     }}
+                    {compact_css}
                 </style>
             </head>
             <body>

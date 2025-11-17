@@ -739,8 +739,9 @@ def main():
         show_download_sections()
 
         try:
+            hide_inactive = st.session_state.get('hide_inactive_patients', False)
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
-                patients_df, trials_df, actual_visits_df
+                patients_df, trials_df, actual_visits_df, cache_buster=None, hide_inactive=hide_inactive
             )
             
             screen_failures = extract_screen_failures(actual_visits_df)
@@ -814,10 +815,27 @@ def main():
                 else:
                     st.session_state.pop('calendar_site_study_filter', None)
 
-            filter_row = st.columns([1, 3])
-            with filter_row[0]:
+            # Calendar display options
+            col_options = st.columns([1, 1, 1, 3])
+            with col_options[0]:
+                hide_inactive = st.checkbox(
+                    "Hide inactive patients",
+                    value=st.session_state.get('hide_inactive_patients', False),
+                    help="Hide patients who have withdrawn, screen failed, or finished all visits",
+                    key="hide_inactive_checkbox"
+                )
+                st.session_state.hide_inactive_patients = hide_inactive
+            with col_options[1]:
+                compact_mode = st.checkbox(
+                    "Compact view",
+                    value=st.session_state.get('compact_calendar_mode', False),
+                    help="Narrow columns with vertical headers and icons",
+                    key="compact_mode_checkbox"
+                )
+                st.session_state.compact_calendar_mode = compact_mode
+            with col_options[2]:
                 st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
-            with filter_row[1]:
+            with col_options[3]:
                 combo_labels = list(combo_options.keys())
                 default_selection = combo_labels.copy()
                 selected_labels = st.multiselect(
@@ -898,7 +916,8 @@ def main():
                 st.caption("Showing all recorded visits.")
 
             # Public - Always show
-            display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites)
+            compact_mode = st.session_state.get('compact_calendar_mode', False)
+            display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
             show_legend(actual_visits_df)
             
