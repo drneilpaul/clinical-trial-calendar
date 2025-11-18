@@ -596,6 +596,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
         prev_month = None
         header_rows_assigned = 0
         data_row_counter = 0
+        in_thead = False
+        thead_processed = False
         
         # Get column names from parameter or try to extract from styled_df
         if column_names is None:
@@ -607,11 +609,31 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                 column_names = []
         
         for line in html_lines:
+            # Track if we're in thead section
+            if '<thead>' in line:
+                in_thead = True
+                modified_html_lines.append(line)
+                continue
+            if '</thead>' in line:
+                in_thead = False
+                thead_processed = True
+                modified_html_lines.append(line)
+                continue
+            if '<tbody>' in line:
+                modified_html_lines.append(line)
+                continue
+            if '</tbody>' in line:
+                modified_html_lines.append(line)
+                continue
+                
             if '<tr' in line:
                 is_data_row = '<td>' in line
                 is_header_row = '<th>' in line and not is_data_row
                 
-                if is_header_row:
+                if is_header_row and in_thead:
+                    # Remove index column from pandas-generated header row
+                    # Look for empty first <th> or <th></th> and remove it
+                    line = re.sub(r'<th[^>]*></th>\s*', '', line, count=1)
                     modified_html_lines.append(line)
                     continue
                 
@@ -780,29 +802,45 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         min-width: 120px;
                         width: 120px;
                     }
-                    .calendar-container table tr.header-row-1 th,
-                    .calendar-container table tr.header-row-1 td {
+                    .calendar-container table tbody tr.header-row-1 td {
                         position: sticky !important;
                         top: 0 !important;
                         z-index: 10 !important;
                         background: #ffffff !important;
                         box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
                     }
-                    .calendar-container table tr.header-row-2 th,
-                    .calendar-container table tr.header-row-2 td {
+                    .calendar-container table tbody tr.header-row-2 td {
                         position: sticky !important;
                         top: 32px !important;
                         z-index: 9 !important;
                         background: #f9fafc !important;
                         box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
                     }
-                    .calendar-container table tr.header-row-3 th,
-                    .calendar-container table tr.header-row-3 td {
+                    .calendar-container table tbody tr.header-row-3 td {
                         position: sticky !important;
                         top: 64px !important;
                         z-index: 8 !important;
                         background: #f1f5f9 !important;
                         box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+                    }
+                    /* Ensure sticky headers work with fixed columns */
+                    .calendar-container table tbody tr.header-row-1 td:first-child {
+                        z-index: 15 !important;
+                    }
+                    .calendar-container table tbody tr.header-row-1 td:nth-child(2) {
+                        z-index: 14 !important;
+                    }
+                    .calendar-container table tbody tr.header-row-2 td:first-child {
+                        z-index: 13 !important;
+                    }
+                    .calendar-container table tbody tr.header-row-2 td:nth-child(2) {
+                        z-index: 12 !important;
+                    }
+                    .calendar-container table tbody tr.header-row-3 td:first-child {
+                        z-index: 11 !important;
+                    }
+                    .calendar-container table tbody tr.header-row-3 td:nth-child(2) {
+                        z-index: 10 !important;
                     }
                     .calendar-container table th {
                         font-weight: 600;
