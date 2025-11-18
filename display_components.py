@@ -828,8 +828,10 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         padding: 6px;
                         background: #ffffff;
                     }
+                    /* Sticky Date and Day columns for all rows */
                     .calendar-container table td:first-child,
                     .calendar-container table th:first-child {
+                        position: -webkit-sticky;
                         position: sticky;
                         left: 0;
                         z-index: 5;
@@ -839,6 +841,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     }
                     .calendar-container table td:nth-child(2),
                     .calendar-container table th:nth-child(2) {
+                        position: -webkit-sticky;
                         position: sticky;
                         left: 140px;
                         z-index: 5;
@@ -846,7 +849,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         min-width: 120px;
                         width: 120px;
                     }
-                    /* Sticky headers - must be direct children of scrolling container */
+                    /* Sticky headers - must combine top and left for Date/Day columns */
                     .calendar-container table tbody tr.header-row-1 td {
                         position: -webkit-sticky !important;
                         position: sticky !important;
@@ -855,6 +858,24 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         background: #ffffff !important;
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         will-change: transform !important;
+                    }
+                    /* Date column in header row 1 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-1 td:first-child {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        z-index: 15 !important;
+                        background: #ffffff !important;
+                    }
+                    /* Day column in header row 1 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-1 td:nth-child(2) {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 0 !important;
+                        left: 140px !important;
+                        z-index: 14 !important;
+                        background: #ffffff !important;
                     }
                     .calendar-container table tbody tr.header-row-2 td {
                         position: -webkit-sticky !important;
@@ -865,6 +886,24 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         will-change: transform !important;
                     }
+                    /* Date column in header row 2 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-2 td:first-child {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 32px !important;
+                        left: 0 !important;
+                        z-index: 13 !important;
+                        background: #f9fafc !important;
+                    }
+                    /* Day column in header row 2 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-2 td:nth-child(2) {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 32px !important;
+                        left: 140px !important;
+                        z-index: 12 !important;
+                        background: #f9fafc !important;
+                    }
                     .calendar-container table tbody tr.header-row-3 td {
                         position: -webkit-sticky !important;
                         position: sticky !important;
@@ -874,29 +913,38 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         will-change: transform !important;
                     }
+                    /* Date column in header row 3 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-3 td:first-child {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 64px !important;
+                        left: 0 !important;
+                        z-index: 11 !important;
+                        background: #f1f5f9 !important;
+                    }
+                    /* Day column in header row 3 - needs both top and left */
+                    .calendar-container table tbody tr.header-row-3 td:nth-child(2) {
+                        position: -webkit-sticky !important;
+                        position: sticky !important;
+                        top: 64px !important;
+                        left: 140px !important;
+                        z-index: 10 !important;
+                        background: #f1f5f9 !important;
+                    }
                     /* In compact mode, adjust top position since we hide row 1 and 3 */
                     .calendar-container.compact-mode table tbody tr.header-row-2 td {
                         top: 0 !important;
                         z-index: 100 !important;
                     }
-                    /* Ensure sticky headers work with fixed columns */
-                    .calendar-container table tbody tr.header-row-1 td:first-child {
+                    .calendar-container.compact-mode table tbody tr.header-row-2 td:first-child {
+                        top: 0 !important;
+                        left: 0 !important;
                         z-index: 15 !important;
                     }
-                    .calendar-container table tbody tr.header-row-1 td:nth-child(2) {
+                    .calendar-container.compact-mode table tbody tr.header-row-2 td:nth-child(2) {
+                        top: 0 !important;
+                        left: 80px !important;
                         z-index: 14 !important;
-                    }
-                    .calendar-container table tbody tr.header-row-2 td:first-child {
-                        z-index: 13 !important;
-                    }
-                    .calendar-container table tbody tr.header-row-2 td:nth-child(2) {
-                        z-index: 12 !important;
-                    }
-                    .calendar-container table tbody tr.header-row-3 td:first-child {
-                        z-index: 11 !important;
-                    }
-                    .calendar-container table tbody tr.header-row-3 td:nth-child(2) {
-                        z-index: 10 !important;
                     }
                     .calendar-container table th {
                         font-weight: 600;
@@ -955,6 +1003,19 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                 return;
                             }}
                             
+                            // Verify container is scrollable
+                            const containerStyle = window.getComputedStyle(container);
+                            console.log('Container overflow-y:', containerStyle.overflowY);
+                            console.log('Container height:', containerStyle.height);
+                            console.log('Container scrollHeight:', container.scrollHeight);
+                            
+                            // Ensure table has border-collapse: separate for sticky to work
+                            const table = container.querySelector('table');
+                            if (table) {{
+                                table.style.setProperty('border-collapse', 'separate', 'important');
+                                table.style.setProperty('border-spacing', '0', 'important');
+                            }}
+                            
                             const isCompact = container.classList.contains('compact-mode');
                             
                             // Process all header rows
@@ -962,14 +1023,22 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                             const row2 = container.querySelector('tr.header-row-2');
                             const row3 = container.querySelector('tr.header-row-3');
                             
+                            console.log('Found header rows - row1:', !!row1, 'row2:', !!row2, 'row3:', !!row3);
+                            
                             // Row 1: top 0, z-index 100
                             if (row1 && !isCompact) {{
                                 const cells = row1.querySelectorAll('td, th');
-                                cells.forEach(cell => {{
+                                console.log('Applying sticky to row1, cells:', cells.length);
+                                cells.forEach((cell, idx) => {{
                                     cell.style.setProperty('position', 'sticky', 'important');
                                     cell.style.setProperty('top', '0px', 'important');
                                     cell.style.setProperty('z-index', '100', 'important');
                                     cell.style.setProperty('background', '#ffffff', 'important');
+                                    // Verify it was set
+                                    if (idx === 0) {{
+                                        const computed = window.getComputedStyle(cell);
+                                        console.log('Row1 cell0 position:', computed.position, 'top:', computed.top);
+                                    }}
                                 }});
                             }}
                             
@@ -978,22 +1047,34 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                 const cells = row2.querySelectorAll('td, th');
                                 const topValue = isCompact ? '0px' : '32px';
                                 const zIndex = isCompact ? '100' : '99';
-                                cells.forEach(cell => {{
+                                console.log('Applying sticky to row2, cells:', cells.length, 'top:', topValue);
+                                cells.forEach((cell, idx) => {{
                                     cell.style.setProperty('position', 'sticky', 'important');
                                     cell.style.setProperty('top', topValue, 'important');
                                     cell.style.setProperty('z-index', zIndex, 'important');
                                     cell.style.setProperty('background', '#f9fafc', 'important');
+                                    // Verify it was set
+                                    if (idx === 0) {{
+                                        const computed = window.getComputedStyle(cell);
+                                        console.log('Row2 cell0 position:', computed.position, 'top:', computed.top);
+                                    }}
                                 }});
                             }}
                             
                             // Row 3: top 64px, z-index 98 (only in normal mode)
                             if (row3 && !isCompact) {{
                                 const cells = row3.querySelectorAll('td, th');
-                                cells.forEach(cell => {{
+                                console.log('Applying sticky to row3, cells:', cells.length);
+                                cells.forEach((cell, idx) => {{
                                     cell.style.setProperty('position', 'sticky', 'important');
                                     cell.style.setProperty('top', '64px', 'important');
                                     cell.style.setProperty('z-index', '98', 'important');
                                     cell.style.setProperty('background', '#f1f5f9', 'important');
+                                    // Verify it was set
+                                    if (idx === 0) {{
+                                        const computed = window.getComputedStyle(cell);
+                                        console.log('Row3 cell0 position:', computed.position, 'top:', computed.top);
+                                    }}
                                 }});
                             }}
                             
