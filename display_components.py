@@ -711,90 +711,91 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
 
         html_table_with_features = '\n'.join(modified_html_lines)
         
-        # Ensure consistent table class for CSS targeting
-        html_table_with_features = html_table_with_features.replace(
-            '<table border="1" class="dataframe">',
-            '<table border="1" class="dataframe calendar-table">',
-            1
-        )
-        
         from textwrap import dedent
         compact_css = ""
         if compact_mode:
             compact_css = """
-                    .calendar-table {
+                    .calendar-container table {
                         table-layout: fixed;
                     }
-                    .calendar-table .header-row-1 th:nth-child(n+3),
-                    .calendar-table .header-row-2 th:nth-child(n+3),
-                    .calendar-table .header-row-3 th:nth-child(n+3) {
+                    .calendar-container table .header-row-1 th:nth-child(n+3),
+                    .calendar-container table .header-row-2 th:nth-child(n+3),
+                    .calendar-container table .header-row-3 th:nth-child(n+3) {
                         writing-mode: vertical-rl;
                         text-orientation: mixed;
                         white-space: nowrap;
-                        width: 26px !important;
-                        min-width: 26px !important;
-                        max-width: 26px !important;
-                        padding: 2px !important;
+                        width: 30px !important;
+                        min-width: 30px !important;
+                        max-width: 30px !important;
+                        padding: 4px 2px !important;
                         font-size: 11px;
                     }
-                    .calendar-table td:nth-child(n+3) {
-                        width: 28px !important;
-                        min-width: 28px !important;
-                        max-width: 28px !important;
-                        padding: 3px !important;
+                    .calendar-container table td:nth-child(n+3) {
+                        width: 32px !important;
+                        min-width: 32px !important;
+                        max-width: 32px !important;
+                        padding: 4px 2px !important;
                         text-align: center;
                         font-size: 14px;
                     }
             """
         
         sticky_css = """
-                    .calendar-table {
+                    .calendar-container table {
                         border-collapse: collapse;
                         width: 100%;
                     }
-                    .calendar-table th,
-                    .calendar-table td {
+                    .calendar-container table th,
+                    .calendar-container table td {
                         border: 1px solid #dee2e6;
                         padding: 6px;
                         background: #ffffff;
                     }
-                    .calendar-table td:first-child,
-                    .calendar-table th:first-child {
+                    .calendar-container table td:first-child,
+                    .calendar-container table th:first-child {
                         position: sticky;
                         left: 0;
-                        z-index: 4;
+                        z-index: 5;
                         background: #f0f4f8;
+                        min-width: 140px;
+                        width: 140px;
                     }
-                    .calendar-table td:nth-child(2),
-                    .calendar-table th:nth-child(2) {
+                    .calendar-container table td:nth-child(2),
+                    .calendar-container table th:nth-child(2) {
                         position: sticky;
-                        left: 120px;
-                        z-index: 4;
+                        left: 140px;
+                        z-index: 5;
                         background: #f6f8fb;
+                        min-width: 120px;
+                        width: 120px;
                     }
-                    .calendar-table .header-row-1 th,
-                    .calendar-table .header-row-1 td {
+                    .calendar-container table tr.header-row-1 th,
+                    .calendar-container table tr.header-row-1 td {
                         position: sticky;
                         top: 0;
-                        z-index: 6;
+                        z-index: 7;
                         background: #ffffff;
                     }
-                    .calendar-table .header-row-2 th,
-                    .calendar-table .header-row-2 td {
+                    .calendar-container table tr.header-row-2 th,
+                    .calendar-container table tr.header-row-2 td {
                         position: sticky;
-                        top: 34px;
-                        z-index: 6;
+                        top: 32px;
+                        z-index: 7;
                         background: #f9fafc;
                     }
-                    .calendar-table .header-row-3 th,
-                    .calendar-table .header-row-3 td {
+                    .calendar-container table tr.header-row-3 th,
+                    .calendar-container table tr.header-row-3 td {
                         position: sticky;
-                        top: 68px;
-                        z-index: 6;
+                        top: 64px;
+                        z-index: 7;
                         background: #f1f5f9;
                     }
-                    .calendar-table th {
+                    .calendar-container table th {
                         font-weight: 600;
+                    }
+                    .calendar-container table td,
+                    .calendar-container table th {
+                        white-space: nowrap;
                     }
         """
         
