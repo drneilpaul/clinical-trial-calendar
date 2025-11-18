@@ -813,13 +813,6 @@ def main():
                     else:
                         combo_options = cached_options
 
-            if 'calendar_site_study_filter' in st.session_state:
-                valid_selection = [label for label in st.session_state['calendar_site_study_filter'] if label in combo_options]
-                if valid_selection:
-                    st.session_state['calendar_site_study_filter'] = valid_selection
-                else:
-                    st.session_state.pop('calendar_site_study_filter', None)
-
             # Calendar display options
             col_options = st.columns([1, 1, 1, 3])
             with col_options[0]:
@@ -857,13 +850,19 @@ def main():
             with col_options[3]:
                 combo_labels = list(combo_options.keys())
                 default_selection = combo_labels.copy()
+                initial_selection = st.session_state.get('calendar_site_study_filter', default_selection)
+                if initial_selection:
+                    initial_selection = [label for label in initial_selection if label in combo_labels]
+                if not initial_selection:
+                    initial_selection = default_selection
                 selected_labels = st.multiselect(
                     "Sites & Studies",
                     options=combo_labels,
-                    default=default_selection,
-                    key="calendar_site_study_filter",
+                    default=initial_selection,
                     help="Filter calendar data by site/study combination."
                 ) if combo_labels else []
+                if combo_labels:
+                    st.session_state['calendar_site_study_filter'] = selected_labels
 
             if not selected_labels and combo_labels:
                 selected_labels = combo_labels
