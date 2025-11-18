@@ -451,24 +451,34 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             log_activity(f"Applying styling to DataFrame with shape: {display_with_headers.shape}", level='info')
             today = pd.to_datetime(date.today())
             
-            # Test styling on first few rows
-            log_activity(f"Testing styling on first row: {display_with_headers.iloc[0].to_dict()}", level='info')
+            # CRITICAL: Don't apply Pandas styling to header rows (first 3 rows)
+            # because Pandas inline styles override sticky positioning
             
-            styled_df = display_with_headers.style.apply(
-                lambda row: style_calendar_row(row, today), axis=1
-            )
-            styled_df = styled_df.hide(axis='index')
+            # Separate headers from data
+            header_rows = display_with_headers.iloc[:3].copy()
+            data_rows = display_with_headers.iloc[3:].copy() if len(display_with_headers) > 3 else pd.DataFrame()
             
-            log_activity(f"Styling applied successfully", level='info')
+            log_activity(f"Split into {len(header_rows)} header rows and {len(data_rows)} data rows", level='info')
             
-            # Generate HTML with month separators, frozen headers, and auto-scroll
-            # Pass column names explicitly
+            # Style ONLY the data rows (not headers)
+            if not data_rows.empty:
+                styled_data = data_rows.style.apply(
+                    lambda row: style_calendar_row(row, today), axis=1
+                )
+                styled_data = styled_data.hide(axis='index')
+                log_activity(f"Styling applied to data rows", level='info')
+            else:
+                styled_data = None
+            
+            # Generate HTML with frozen headers
             html_table = _generate_calendar_html_with_frozen_headers(
-                styled_df, site_column_mapping, compact_mode, list(display_with_headers.columns)
+                styled_data, site_column_mapping, compact_mode, 
+                list(display_with_headers.columns),
+                header_rows_df=header_rows  # Pass unstyled headers separately
             )
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
-            components.html(html_table, height=800, scrolling=True)  # Increased height for extra headers
+            components.html(html_table, height=800, scrolling=False)  # CRITICAL: scrolling=False for Safari sticky to work!
             
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
@@ -586,10 +596,26 @@ def _convert_to_compact_icon(cell_content):
     
     return content_str
 
-def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None):
+def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None, header_rows_df=None):
     """Generate HTML calendar with frozen headers, month separators, auto-scroll, tooltips, and compact mode"""
     try:
-        html_table_base = styled_df.to_html(escape=False, index=False)
+        # Generate HTML for data rows (if they exist)
+        if styled_df is not None:
+            html_table_base = styled_df.to_html(escape=False, index=False)
+        else:
+            # Only headers, no data
+            html_table_base = '<table><tbody></tbody></table>'
+        
+        # If we have separate header rows, prepend them to the HTML
+        if header_rows_df is not None:
+            # Convert header rows to HTML WITHOUT Pandas styling
+            header_html = header_rows_df.to_html(escape=False, index=False, header=False)
+            
+            # Insert header rows at the start of tbody
+            if '<tbody>' in html_table_base and '<tbody>' in header_html:
+                header_body_content = header_html.split('<tbody>')[1].split('</tbody>')[0]
+                html_table_base = html_table_base.replace('<tbody>', f'<tbody>\n{header_body_content}', 1)
+        
         html_lines = html_table_base.split('\n')
         modified_html_lines = []
 
@@ -994,10 +1020,13 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         max-height: 800px;
                         overflow-y: auto;
                         overflow-x: auto;
+                        -webkit-overflow-scrolling: touch;
                         border: 1px solid #ddd;
                         position: relative;
                         /* Ensure this is the scrolling container for sticky positioning */
                         display: block;
+                        /* Safari: Create stacking context for proper sticky positioning */
+                        isolation: isolate;
                     }}
                     
                     /* Ensure sticky works - parent must have defined height */
