@@ -663,7 +663,33 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                             )
                             line = new_line
                     
+                    # Add class to row
                     line = line.replace('<tr', f'<tr class="header-row-{header_rows_assigned}"', 1)
+                    
+                    # Add inline sticky style to each td in this header row
+                    top_value = (header_rows_assigned - 1) * 32
+                    z_index = 11 - header_rows_assigned
+                    bg_color = "#ffffff" if header_rows_assigned == 1 else "#f9fafc" if header_rows_assigned == 2 else "#f1f5f9"
+                    
+                    # Add sticky styles to each td, merging with existing styles if present
+                    def add_sticky_style(match):
+                        td_attrs = match.group(1)
+                        sticky_style = f'position: -webkit-sticky; position: sticky; top: {top_value}px; z-index: {z_index}; background: {bg_color} !important;'
+                        
+                        if 'style=' in td_attrs:
+                            # Merge with existing style
+                            td_attrs = re.sub(
+                                r'style="([^"]*)"',
+                                lambda m: f'style="{m.group(1)} {sticky_style}"',
+                                td_attrs
+                            )
+                        else:
+                            # Add new style attribute
+                            td_attrs = f'{td_attrs} style="{sticky_style}"'
+                        
+                        return f'<td{td_attrs}>'
+                    
+                    line = re.sub(r'<td([^>]*)>', add_sticky_style, line)
                     
                     modified_html_lines.append(line)
                     continue
@@ -748,38 +774,37 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     .calendar-container table {
                         table-layout: fixed;
                     }
-                    .calendar-container table .header-row-1 th:nth-child(n+3),
-                    .calendar-container table .header-row-1 td:nth-child(n+3),
-                    .calendar-container table .header-row-2 th:nth-child(n+3),
-                    .calendar-container table .header-row-2 td:nth-child(n+3),
-                    .calendar-container table .header-row-3 th:nth-child(n+3),
-                    .calendar-container table .header-row-3 td:nth-child(n+3) {
-                        writing-mode: vertical-rl;
-                        text-orientation: mixed;
-                        white-space: nowrap;
+                    .calendar-container table tbody tr.header-row-1 td:nth-child(n+3),
+                    .calendar-container table tbody tr.header-row-2 td:nth-child(n+3),
+                    .calendar-container table tbody tr.header-row-3 td:nth-child(n+3) {
+                        writing-mode: vertical-rl !important;
+                        text-orientation: mixed !important;
+                        white-space: nowrap !important;
                         width: 30px !important;
                         min-width: 30px !important;
                         max-width: 30px !important;
                         padding: 4px 2px !important;
-                        font-size: 11px;
+                        font-size: 11px !important;
+                        height: 80px !important;
                     }
-                    .calendar-container table td:nth-child(n+3) {
+                    .calendar-container table tbody td:nth-child(n+3) {
                         width: 32px !important;
                         min-width: 32px !important;
                         max-width: 32px !important;
                         padding: 4px 2px !important;
-                        text-align: center;
-                        font-size: 14px;
+                        text-align: center !important;
+                        font-size: 14px !important;
                     }
             """
         
         sticky_css = """
                     .calendar-container table {
-                        border-collapse: collapse;
+                        border-collapse: separate !important;
+                        border-spacing: 0 !important;
                         width: 100%;
                     }
                     .calendar-container table thead {
-                        display: none;
+                        display: none !important;
                     }
                     .calendar-container table th,
                     .calendar-container table td {
@@ -806,25 +831,28 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         width: 120px;
                     }
                     .calendar-container table tbody tr.header-row-1 td {
+                        position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 0 !important;
                         z-index: 10 !important;
                         background: #ffffff !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
                     }
                     .calendar-container table tbody tr.header-row-2 td {
+                        position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 32px !important;
                         z-index: 9 !important;
                         background: #f9fafc !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
                     }
                     .calendar-container table tbody tr.header-row-3 td {
+                        position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 64px !important;
                         z-index: 8 !important;
                         background: #f1f5f9 !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
                     }
                     /* Ensure sticky headers work with fixed columns */
                     .calendar-container table tbody tr.header-row-1 td:first-child {
