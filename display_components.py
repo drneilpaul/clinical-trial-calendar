@@ -711,55 +711,92 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
 
         html_table_with_features = '\n'.join(modified_html_lines)
         
+        # Ensure consistent table class for CSS targeting
+        html_table_with_features = html_table_with_features.replace(
+            '<table border="1" class="dataframe">',
+            '<table border="1" class="dataframe calendar-table">',
+            1
+        )
+        
         from textwrap import dedent
         compact_css = ""
         if compact_mode:
             compact_css = """
-                    .compact-header {
+                    .calendar-table {
+                        table-layout: fixed;
+                    }
+                    .calendar-table .header-row-1 th:nth-child(n+3),
+                    .calendar-table .header-row-2 th:nth-child(n+3),
+                    .calendar-table .header-row-3 th:nth-child(n+3) {
                         writing-mode: vertical-rl;
                         text-orientation: mixed;
                         white-space: nowrap;
-                        width: 20px !important;
-                        min-width: 20px !important;
-                        max-width: 20px !important;
+                        width: 26px !important;
+                        min-width: 26px !important;
+                        max-width: 26px !important;
                         padding: 2px !important;
-                        font-size: 10px;
+                        font-size: 11px;
                     }
-                    .compact-cell {
-                        width: 20px !important;
-                        min-width: 20px !important;
-                        max-width: 20px !important;
-                        padding: 2px !important;
+                    .calendar-table td:nth-child(n+3) {
+                        width: 28px !important;
+                        min-width: 28px !important;
+                        max-width: 28px !important;
+                        padding: 3px !important;
                         text-align: center;
                         font-size: 14px;
                     }
-                    .header-row-1 th, .header-row-1 td,
-                    .header-row-2 th, .header-row-2 td,
-                    .header-row-3 th, .header-row-3 td {
-                        writing-mode: vertical-rl;
-                        text-orientation: mixed;
-                        white-space: nowrap;
-                        width: 20px !important;
-                        min-width: 20px !important;
-                        max-width: 20px !important;
-                        padding: 2px !important;
-                        font-size: 10px;
-                    }
-                    table {{
-                        table-layout: fixed;
-                        width: 100%;
-                    }}
-                    table td, table th {{
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                    }}
-                    table td:not(:first-child):not(:nth-child(2)) {{
-                        width: 20px !important;
-                        min-width: 20px !important;
-                        max-width: 20px !important;
-                        padding: 2px !important;
-                    }}
             """
+        
+        sticky_css = """
+                    .calendar-table {
+                        border-collapse: collapse;
+                        width: 100%;
+                    }
+                    .calendar-table th,
+                    .calendar-table td {
+                        border: 1px solid #dee2e6;
+                        padding: 6px;
+                        background: #ffffff;
+                    }
+                    .calendar-table td:first-child,
+                    .calendar-table th:first-child {
+                        position: sticky;
+                        left: 0;
+                        z-index: 4;
+                        background: #f0f4f8;
+                    }
+                    .calendar-table td:nth-child(2),
+                    .calendar-table th:nth-child(2) {
+                        position: sticky;
+                        left: 120px;
+                        z-index: 4;
+                        background: #f6f8fb;
+                    }
+                    .calendar-table .header-row-1 th,
+                    .calendar-table .header-row-1 td {
+                        position: sticky;
+                        top: 0;
+                        z-index: 6;
+                        background: #ffffff;
+                    }
+                    .calendar-table .header-row-2 th,
+                    .calendar-table .header-row-2 td {
+                        position: sticky;
+                        top: 34px;
+                        z-index: 6;
+                        background: #f9fafc;
+                    }
+                    .calendar-table .header-row-3 th,
+                    .calendar-table .header-row-3 td {
+                        position: sticky;
+                        top: 68px;
+                        z-index: 6;
+                        background: #f1f5f9;
+                    }
+                    .calendar-table th {
+                        font-weight: 600;
+                    }
+        """
         
         html_doc = f"""
         <!DOCTYPE html>
@@ -773,6 +810,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         overflow-x: auto;
                         border: 1px solid #ddd;
                     }}
+                    {sticky_css}
                     {compact_css}
                 </style>
             </head>
