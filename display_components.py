@@ -588,7 +588,7 @@ def _convert_to_compact_icon(cell_content):
 def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None):
     """Generate HTML calendar with frozen headers, month separators, auto-scroll, tooltips, and compact mode"""
     try:
-        html_table_base = styled_df.to_html(escape=False)
+        html_table_base = styled_df.to_html(escape=False, index=False)
         html_lines = html_table_base.split('\n')
         modified_html_lines = []
 
@@ -605,15 +605,26 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                 column_names = []
         
         for line in html_lines:
-            # Look for data rows with dates
-            if '<tr>' in line and '<td>' in line:
-                # Track row index for header identification
-                row_index += 1
+            # Look for table rows
+            if '<tr' in line:
+                # Check if this is a header row (contains <th>) or data row
+                is_header_row = '<th>' in line
+                is_data_row = '<td>' in line
                 
-                # Skip header rows (first 3 rows are headers)
-                if line.count('<th>') > 0 or row_index <= 3:
+                # Track row index for data rows (first 3 data rows are actually header rows)
+                if is_data_row:
+                    row_index += 1
+                
+                # First 3 data rows are actually header rows (level 1, 2, 3)
+                # Skip actual HTML header rows (<th>) and process first 3 data rows as headers
+                if is_header_row:
+                    # Skip pandas-generated header row
+                    modified_html_lines.append(line)
+                    continue
+                elif row_index <= 3 and is_data_row:
+                    # This is one of our 3-level header rows
                     # Add tooltips to header cells
-                    if row_index <= 3 and column_names:
+                    if column_names:
                         td_matches = list(re.finditer(r'<td[^>]*>(.*?)</td>', line))
                         th_matches = list(re.finditer(r'<th[^>]*>(.*?)</th>', line))
                         matches = th_matches if th_matches else td_matches
@@ -635,8 +646,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                             )
                             line = new_line
                     
-                    if row_index <= 3:
-                        line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
+                    # Add header row class
+                    line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
                     
                     modified_html_lines.append(line)
                     continue
@@ -771,24 +782,27 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     }
                     .calendar-container table tr.header-row-1 th,
                     .calendar-container table tr.header-row-1 td {
-                        position: sticky;
-                        top: 0;
-                        z-index: 7;
-                        background: #ffffff;
+                        position: sticky !important;
+                        top: 0 !important;
+                        z-index: 10 !important;
+                        background: #ffffff !important;
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
                     }
                     .calendar-container table tr.header-row-2 th,
                     .calendar-container table tr.header-row-2 td {
-                        position: sticky;
-                        top: 32px;
-                        z-index: 7;
-                        background: #f9fafc;
+                        position: sticky !important;
+                        top: 32px !important;
+                        z-index: 9 !important;
+                        background: #f9fafc !important;
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
                     }
                     .calendar-container table tr.header-row-3 th,
                     .calendar-container table tr.header-row-3 td {
-                        position: sticky;
-                        top: 64px;
-                        z-index: 7;
-                        background: #f1f5f9;
+                        position: sticky !important;
+                        top: 64px !important;
+                        z-index: 8 !important;
+                        background: #f1f5f9 !important;
+                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1);
                     }
                     .calendar-container table th {
                         font-weight: 600;
