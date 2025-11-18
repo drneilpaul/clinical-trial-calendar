@@ -619,31 +619,32 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
             # Convert header rows to HTML WITHOUT Pandas styling
             header_html = header_rows_df.to_html(escape=False, index=False, header=False)
             
-            # Insert header rows at the start of tbody
-            if '<tbody>' in html_table_base and '<tbody>' in header_html:
-                header_body_content = header_html.split('<tbody>')[1].split('</tbody>')[0]
-                html_table_base = html_table_base.replace('<tbody>', f'<tbody>\n{header_body_content}', 1)
+            # Extract just the <tr> rows from header HTML
+            # Find all <tr>...</tr> blocks in the header HTML
+            header_tr_matches = re.findall(r'<tr[^>]*>.*?</tr>', header_html, re.DOTALL)
+            if header_tr_matches:
+                header_rows_html = '\n'.join(header_tr_matches)
+                # Insert header rows at the start of tbody
+                if '<tbody>' in html_table_base:
+                    html_table_base = html_table_base.replace('<tbody>', f'<tbody>\n{header_rows_html}', 1)
         
         # CRITICAL FIX: Join multi-line <tr> tags onto single lines
         # This ensures our header detection logic (which checks for '<td>' in same line as '<tr>') works
         # Join entire <tr>...</tr> blocks onto single lines by removing newlines and extra whitespace within rows
+        # Use a more careful approach that doesn't break HTML structure
+        def normalize_row(match):
+            """Normalize a single table row to be on one line"""
+            row_content = match.group(0)
+            # Remove newlines and extra whitespace, but preserve single spaces
+            normalized = re.sub(r'\s+', ' ', row_content)
+            # Remove spaces between tags
+            normalized = re.sub(r'>\s+<', '><', normalized)
+            return normalized
+        
+        # Match each <tr>...</tr> block individually to avoid cross-row matching
         html_table_base = re.sub(
-            r'<tr([^>]*)>\s+',
-            r'<tr\1>',
-            html_table_base,
-            flags=re.MULTILINE
-        )  # Remove whitespace/newlines immediately after <tr>
-        html_table_base = re.sub(
-            r'\s+</tr>',
-            r'</tr>',
-            html_table_base,
-            flags=re.MULTILINE
-        )  # Remove whitespace/newlines immediately before </tr>
-        # Also join any remaining multi-line content within table rows
-        # This handles cases where <td> tags are on separate lines
-        html_table_base = re.sub(
-            r'(<tr[^>]*>)(.*?)(</tr>)',
-            lambda m: m.group(1) + re.sub(r'\s+', ' ', m.group(2).strip()) + m.group(3),
+            r'<tr[^>]*>.*?</tr>',
+            normalize_row,
             html_table_base,
             flags=re.DOTALL
         )
