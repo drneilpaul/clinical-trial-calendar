@@ -42,7 +42,7 @@ def create_site_header_row(columns, site_column_mapping):
     }
     
     for col in columns:
-        if col in ["Date", "Day", "Label"]:
+        if col in ["Date", "Day"]:
             # System columns
             header_rows['level1_site'][col] = ""
             header_rows['level2_study_patient'][col] = ""

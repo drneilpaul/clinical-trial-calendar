@@ -402,17 +402,14 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%d/%m/%Y")  # UK format
 
-        # Add label column as first column (empty for data rows)
-        display_df_for_view.insert(0, "Label", "")
-
         # Create three-level header rows
         log_activity(f"Creating headers for {len(display_df_for_view.columns)} columns", level='info')
         header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
         
-        # Add labels to header rows
-        header_rows['level1_site']['Label'] = "Visit Site"
-        header_rows['level2_study_patient']['Label'] = "Study_Patient"
-        header_rows['level3_origin']['Label'] = "Origin Site"
+        # Add labels to Date column in header rows (positioned to the left of the date text)
+        header_rows['level1_site']['Date'] = "Visit Site"
+        header_rows['level2_study_patient']['Date'] = "Study_Patient"
+        header_rows['level3_origin']['Date'] = "Origin Site"
         
         # Debug header rows
         log_activity(f"Level 1 headers: {header_rows['level1_site']}", level='info')
@@ -882,13 +879,14 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         overflow: hidden !important;
                         text-overflow: ellipsis !important;
                     }
-                    /* Date and Day columns slightly wider but still compact */
+                    /* Date column slightly wider but still compact */
                     .calendar-container table tbody tr.header-row-2 td:first-child,
                     .calendar-container table tbody td:first-child {
                         width: 80px !important;
                         min-width: 80px !important;
                         max-width: 80px !important;
                     }
+                    /* Day column slightly wider but still compact */
                     .calendar-container table tbody tr.header-row-2 td:nth-child(2),
                     .calendar-container table tbody td:nth-child(2) {
                         width: 50px !important;
@@ -912,7 +910,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         padding: 6px;
                         background: #ffffff;
                     }
-                    /* Label column (first column) - sticky for all rows */
+                    /* Date column (first column) - sticky for all rows */
                     .calendar-container table td:first-child,
                     .calendar-container table th:first-child {
                         position: -webkit-sticky;
@@ -920,30 +918,17 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         left: 0;
                         z-index: 5;
                         background: #f0f4f8;
-                        min-width: 100px;
-                        width: 100px;
-                        -webkit-transform: translateZ(0);
-                        transform: translateZ(0);
-                    }
-                    /* Date column (second column) - sticky for all rows */
-                    .calendar-container table td:nth-child(2),
-                    .calendar-container table th:nth-child(2) {
-                        position: -webkit-sticky;
-                        position: sticky;
-                        left: 100px;
-                        z-index: 5;
-                        background: #f0f4f8;
                         min-width: 140px;
                         width: 140px;
                         -webkit-transform: translateZ(0);
                         transform: translateZ(0);
                     }
-                    /* Day column (third column) - sticky for all rows */
-                    .calendar-container table td:nth-child(3),
-                    .calendar-container table th:nth-child(3) {
+                    /* Day column (second column) - sticky for all rows */
+                    .calendar-container table td:nth-child(2),
+                    .calendar-container table th:nth-child(2) {
                         position: -webkit-sticky;
                         position: sticky;
-                        left: 240px;
+                        left: 140px;
                         z-index: 5;
                         background: #f6f8fb;
                         min-width: 120px;
@@ -966,24 +951,12 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
-                    /* Label column in header row 1 - needs both top and left */
+                    /* Date column in header row 1 - needs both top and left */
                     .calendar-container table tbody tr.header-row-1 td:first-child {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 0 !important;
                         left: 0 !important;
-                        z-index: 16 !important;
-                        background: #1e40af !important;
-                        color: #ffffff !important;
-                        -webkit-transform: translateZ(0) !important;
-                        transform: translateZ(0) !important;
-                    }
-                    /* Date column in header row 1 - needs both top and left */
-                    .calendar-container table tbody tr.header-row-1 td:nth-child(2) {
-                        position: -webkit-sticky !important;
-                        position: sticky !important;
-                        top: 0 !important;
-                        left: 100px !important;
                         z-index: 15 !important;
                         background: #1e40af !important;
                         color: #ffffff !important;
@@ -991,11 +964,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         transform: translateZ(0) !important;
                     }
                     /* Day column in header row 1 - needs both top and left */
-                    .calendar-container table tbody tr.header-row-1 td:nth-child(3) {
+                    .calendar-container table tbody tr.header-row-1 td:nth-child(2) {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 0 !important;
-                        left: 240px !important;
+                        left: 140px !important;
                         z-index: 14 !important;
                         background: #1e40af !important;
                         color: #ffffff !important;
@@ -1016,7 +989,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
-                    /* Label column in header row 2 - needs both top and left */
+                    /* Date column in header row 2 - needs both top and left */
                     .calendar-container table tbody tr.header-row-2 td:first-child {
                         position: -webkit-sticky !important;
                         position: sticky !important;
@@ -1028,25 +1001,13 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
-                    /* Date column in header row 2 - needs both top and left */
+                    /* Day column in header row 2 - needs both top and left */
                     .calendar-container table tbody tr.header-row-2 td:nth-child(2) {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 32px !important;
-                        left: 100px !important;
+                        left: 140px !important;
                         z-index: 12 !important;
-                        background: #3b82f6 !important;
-                        color: #ffffff !important;
-                        -webkit-transform: translateZ(0) !important;
-                        transform: translateZ(0) !important;
-                    }
-                    /* Day column in header row 2 - needs both top and left */
-                    .calendar-container table tbody tr.header-row-2 td:nth-child(3) {
-                        position: -webkit-sticky !important;
-                        position: sticky !important;
-                        top: 32px !important;
-                        left: 240px !important;
-                        z-index: 11 !important;
                         background: #3b82f6 !important;
                         color: #ffffff !important;
                         -webkit-transform: translateZ(0) !important;
@@ -1066,7 +1027,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
-                    /* Label column in header row 3 - needs both top and left */
+                    /* Date column in header row 3 - needs both top and left */
                     .calendar-container table tbody tr.header-row-3 td:first-child {
                         position: -webkit-sticky !important;
                         position: sticky !important;
@@ -1078,25 +1039,13 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
-                    /* Date column in header row 3 - needs both top and left */
+                    /* Day column in header row 3 - needs both top and left */
                     .calendar-container table tbody tr.header-row-3 td:nth-child(2) {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 64px !important;
-                        left: 100px !important;
+                        left: 140px !important;
                         z-index: 10 !important;
-                        background: #93c5fd !important;
-                        color: #1e40af !important;
-                        -webkit-transform: translateZ(0) !important;
-                        transform: translateZ(0) !important;
-                    }
-                    /* Day column in header row 3 - needs both top and left */
-                    .calendar-container table tbody tr.header-row-3 td:nth-child(3) {
-                        position: -webkit-sticky !important;
-                        position: sticky !important;
-                        top: 64px !important;
-                        left: 240px !important;
-                        z-index: 9 !important;
                         background: #93c5fd !important;
                         color: #1e40af !important;
                         -webkit-transform: translateZ(0) !important;
@@ -1273,12 +1222,12 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                 }});
                             }}
                             
-                            // Also ensure Label, Date and Day columns are sticky on the left
+                            // Also ensure Date and Day columns are sticky on the left
                             const allRows = container.querySelectorAll('tr');
                             allRows.forEach(row => {{
                                 const cells = row.querySelectorAll('td, th');
-                                if (cells.length >= 3) {{
-                                    // First column (Label) - sticky left at 0
+                                if (cells.length >= 2) {{
+                                    // First column (Date) - sticky left at 0
                                     cells[0].style.setProperty('position', '-webkit-sticky', 'important');
                                     cells[0].style.setProperty('position', 'sticky', 'important');
                                     cells[0].style.setProperty('left', '0px', 'important');
@@ -1286,34 +1235,23 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                     cells[0].style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
                                     cells[0].style.setProperty('transform', 'translateZ(0)', 'important');
                                     
-                                    // Second column (Date) - sticky left at 100px
+                                    // Second column (Day) - sticky left at 140px
+                                    const dayLeft = isCompact ? '80px' : '140px';
                                     cells[1].style.setProperty('position', '-webkit-sticky', 'important');
                                     cells[1].style.setProperty('position', 'sticky', 'important');
-                                    cells[1].style.setProperty('left', '100px', 'important');
+                                    cells[1].style.setProperty('left', dayLeft, 'important');
                                     cells[1].style.setProperty('z-index', '10', 'important');
                                     cells[1].style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
                                     cells[1].style.setProperty('transform', 'translateZ(0)', 'important');
                                     
-                                    // Third column (Day) - sticky left at 240px
-                                    const dayLeft = isCompact ? '180px' : '240px';  // 100px label + 80px date in compact, or 100px + 140px in normal
-                                    cells[2].style.setProperty('position', '-webkit-sticky', 'important');
-                                    cells[2].style.setProperty('position', 'sticky', 'important');
-                                    cells[2].style.setProperty('left', dayLeft, 'important');
-                                    cells[2].style.setProperty('z-index', '10', 'important');
-                                    cells[2].style.setProperty('-webkit-transform', 'translateZ(0)', 'important');
-                                    cells[2].style.setProperty('transform', 'translateZ(0)', 'important');
-                                    
                                     // For header rows, increase z-index for intersection and apply header colors
                                     if (row.classList.contains('header-row-1')) {{
-                                        cells[0].style.setProperty('z-index', '16', 'important');
+                                        cells[0].style.setProperty('z-index', '15', 'important');
                                         cells[0].style.setProperty('background', '#1e40af', 'important');
                                         cells[0].style.setProperty('color', '#ffffff', 'important');
-                                        cells[1].style.setProperty('z-index', '15', 'important');
+                                        cells[1].style.setProperty('z-index', '14', 'important');
                                         cells[1].style.setProperty('background', '#1e40af', 'important');
                                         cells[1].style.setProperty('color', '#ffffff', 'important');
-                                        cells[2].style.setProperty('z-index', '14', 'important');
-                                        cells[2].style.setProperty('background', '#1e40af', 'important');
-                                        cells[2].style.setProperty('color', '#ffffff', 'important');
                                     }} else if (row.classList.contains('header-row-2')) {{
                                         cells[0].style.setProperty('z-index', '13', 'important');
                                         cells[0].style.setProperty('background', '#3b82f6', 'important');
@@ -1321,9 +1259,6 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                         cells[1].style.setProperty('z-index', '12', 'important');
                                         cells[1].style.setProperty('background', '#3b82f6', 'important');
                                         cells[1].style.setProperty('color', '#ffffff', 'important');
-                                        cells[2].style.setProperty('z-index', '11', 'important');
-                                        cells[2].style.setProperty('background', '#3b82f6', 'important');
-                                        cells[2].style.setProperty('color', '#ffffff', 'important');
                                     }} else if (row.classList.contains('header-row-3')) {{
                                         cells[0].style.setProperty('z-index', '11', 'important');
                                         cells[0].style.setProperty('background', '#93c5fd', 'important');
@@ -1331,9 +1266,6 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                         cells[1].style.setProperty('z-index', '10', 'important');
                                         cells[1].style.setProperty('background', '#93c5fd', 'important');
                                         cells[1].style.setProperty('color', '#1e40af', 'important');
-                                        cells[2].style.setProperty('z-index', '9', 'important');
-                                        cells[2].style.setProperty('background', '#93c5fd', 'important');
-                                        cells[2].style.setProperty('color', '#1e40af', 'important');
                                     }}
                                 }}
                             }});
@@ -1368,9 +1300,9 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                             for (let i = 0; i < rows.length; i++) {{
                                 const cells = rows[i].getElementsByTagName('td');
                                 
-                                // Date column is now cells[1] (second column, after Label)
-                                if (cells.length > 1) {{
-                                    const cellText = cells[1].textContent || cells[1].innerText;
+                                // Date column is now cells[0] (first column)
+                                if (cells.length > 0) {{
+                                    const cellText = cells[0].textContent || cells[0].innerText;
                                     
                                     if (cellText.trim() === todayUK) {{
                                         console.log('Found today at row:', i);
