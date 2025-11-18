@@ -60,10 +60,20 @@ def create_site_header_row(columns, site_column_mapping):
                     # Find patient info for this column
                     for patient_info in site_data['patient_info']:
                         if patient_info['col_id'] == col:
-                            study_patient = f"{patient_info['study']}_{patient_info['patient_id']}"
+                            study_code = str(patient_info['study'])
+                            patient_code = str(patient_info['patient_id'])
+                            study_patient = f"{study_code}_{patient_code}"
+                            if len(study_code) > 6:
+                                study_code = study_code[:5] + "…"
+                            if len(patient_code) > 6:
+                                patient_code = "…" + patient_code[-5:]
+                            study_patient = f"{study_code}_{patient_code}"
                             origin_site_value = patient_info.get('origin_site', '')
                             if origin_site_value and origin_site_value != 'Unknown Origin':
-                                origin_site = f"({origin_site_value})"
+                                short_origin = origin_site_value
+                                if len(short_origin) > 8:
+                                    short_origin = short_origin[:7] + "…"
+                                origin_site = f"({short_origin})"
                             else:
                                 origin_site = ""
                             break

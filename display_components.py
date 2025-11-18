@@ -457,6 +457,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             styled_df = display_with_headers.style.apply(
                 lambda row: style_calendar_row(row, today), axis=1
             )
+            styled_df = styled_df.hide(axis='index')
             
             log_activity(f"Styling applied successfully", level='info')
             
@@ -593,7 +594,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
         modified_html_lines = []
 
         prev_month = None
-        row_index = 0
+        header_rows_assigned = 0
+        data_row_counter = 0
         
         # Get column names from parameter or try to extract from styled_df
         if column_names is None:
@@ -605,24 +607,17 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                 column_names = []
         
         for line in html_lines:
-            # Look for table rows
             if '<tr' in line:
-                # Check if this is a header row (contains <th>) or data row
-                is_header_row = '<th>' in line
                 is_data_row = '<td>' in line
+                is_header_row = '<th>' in line and not is_data_row
                 
-                # Track row index for data rows (first 3 data rows are actually header rows)
-                if is_data_row:
-                    row_index += 1
-                
-                # First 3 data rows are actually header rows (level 1, 2, 3)
-                # Skip actual HTML header rows (<th>) and process first 3 data rows as headers
                 if is_header_row:
-                    # Skip pandas-generated header row
                     modified_html_lines.append(line)
                     continue
-                elif row_index <= 3 and is_data_row:
-                    # This is one of our 3-level header rows
+                
+                if is_data_row and header_rows_assigned < 3:
+                    data_row_counter += 1
+                    header_rows_assigned += 1
                     # Add tooltips to header cells
                     if column_names:
                         td_matches = list(re.finditer(r'<td[^>]*>(.*?)</td>', line))
@@ -646,14 +641,16 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                             )
                             line = new_line
                     
-                    # Add header row class
-                    line = line.replace('<tr', f'<tr class="header-row-{row_index}"', 1)
+                    line = line.replace('<tr', f'<tr class="header-row-{header_rows_assigned}"', 1)
                     
                     modified_html_lines.append(line)
                     continue
                 
                 # Process data rows - add tooltips and compact mode
-                if row_index > 3 and column_names:
+                if is_data_row:
+                    data_row_counter += 1
+                
+                if column_names:
                     # Extract date from first cell
                     date_match = re.search(r'<td[^>]*>(\d{4}-\d{2}-\d{2})</td>', line)
                     date_str = date_match.group(1) if date_match else None
@@ -701,7 +698,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         line = new_line
                     
                 # Add month separators (skip for header rows)
-                if row_index > 3:
+                if data_row_counter > 3:
                     date_pattern = r'<td>(\d{4}-\d{2}-\d{2})</td>'
                     match = re.search(date_pattern, line)
                     if match:
@@ -730,8 +727,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         table-layout: fixed;
                     }
                     .calendar-container table .header-row-1 th:nth-child(n+3),
+                    .calendar-container table .header-row-1 td:nth-child(n+3),
                     .calendar-container table .header-row-2 th:nth-child(n+3),
-                    .calendar-container table .header-row-3 th:nth-child(n+3) {
+                    .calendar-container table .header-row-2 td:nth-child(n+3),
+                    .calendar-container table .header-row-3 th:nth-child(n+3),
+                    .calendar-container table .header-row-3 td:nth-child(n+3) {
                         writing-mode: vertical-rl;
                         text-orientation: mixed;
                         white-space: nowrap;
