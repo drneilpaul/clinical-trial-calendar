@@ -616,6 +616,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                 header_body_content = header_html.split('<tbody>')[1].split('</tbody>')[0]
                 html_table_base = html_table_base.replace('<tbody>', f'<tbody>\n{header_body_content}', 1)
         
+        # CRITICAL FIX: Join multi-line <tr> tags onto single lines
+        # This ensures our header detection logic (which checks for '<td>' in same line as '<tr>') works
+        html_table_base = re.sub(r'<tr([^>]*)>\s+', r'<tr\1>', html_table_base)  # Remove whitespace after <tr>
+        html_table_base = re.sub(r'\s+</tr>', r'</tr>', html_table_base)  # Remove whitespace before </tr>
+        
         html_lines = html_table_base.split('\n')
         modified_html_lines = []
 
