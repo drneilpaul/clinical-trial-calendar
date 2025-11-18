@@ -610,7 +610,7 @@ def _convert_to_compact_icon(cell_content):
     
     return content_str
 
-def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None, header_rows_df=None):
+def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None, header_rows_df=None, scroll_to_today=False):
     """Generate HTML calendar with frozen headers, month separators, auto-scroll, tooltips, and compact mode"""
     try:
         # Generate HTML for data rows (if they exist)
@@ -1397,8 +1397,16 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     setTimeout(applyStickyStyles, 200);
                     setTimeout(function() {{
                         applyStickyStyles();
-                        autoScrollToToday();
+                        // Only auto-scroll on initial load, not when button is clicked
+                        // Button click will trigger scroll via scroll_to_today flag
                     }}, 100);
+                    
+                    // If scroll_to_today flag is set, trigger scroll after a delay
+                    {f"""
+                    setTimeout(function() {{
+                        autoScrollToToday();
+                    }}, 500);
+                    """ if scroll_to_today else "// scroll_to_today not requested"}
                 </script>
             </body>
         </html>
