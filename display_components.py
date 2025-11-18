@@ -666,30 +666,37 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     # Add class to row
                     line = line.replace('<tr', f'<tr class="header-row-{header_rows_assigned}"', 1)
                     
-                    # Add inline sticky style to each td in this header row
+                    # Add inline sticky style to each td/th in this header row
                     top_value = (header_rows_assigned - 1) * 32
-                    z_index = 11 - header_rows_assigned
+                    if compact_mode and header_rows_assigned == 2:
+                        top_value = 0  # In compact mode, row 2 is at top
+                    z_index = 100 if header_rows_assigned == 1 else (99 if header_rows_assigned == 2 else 98)
                     bg_color = "#ffffff" if header_rows_assigned == 1 else "#f9fafc" if header_rows_assigned == 2 else "#f1f5f9"
                     
-                    # Add sticky styles to each td, merging with existing styles if present
+                    # Add sticky styles to each td/th - handle both tags
                     def add_sticky_style(match):
-                        td_attrs = match.group(1)
-                        sticky_style = f'position: -webkit-sticky; position: sticky; top: {top_value}px; z-index: {z_index}; background: {bg_color} !important;'
+                        tag_name = match.group(1)  # 'td' or 'th'
+                        tag_attrs = match.group(2)
                         
-                        if 'style=' in td_attrs:
-                            # Merge with existing style
-                            td_attrs = re.sub(
-                                r'style="([^"]*)"',
-                                lambda m: f'style="{m.group(1)} {sticky_style}"',
-                                td_attrs
+                        # Build sticky style string - use !important to override any existing styles
+                        sticky_style = f'position: -webkit-sticky !important; position: sticky !important; top: {top_value}px !important; z-index: {z_index} !important; background: {bg_color} !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;'
+                        
+                        # Always inject style attribute - replace if exists, add if not
+                        if 'style=' in tag_attrs:
+                            # Replace existing style attribute completely with our sticky style
+                            tag_attrs = re.sub(
+                                r'style="[^"]*"',
+                                f'style="{sticky_style}"',
+                                tag_attrs
                             )
                         else:
                             # Add new style attribute
-                            td_attrs = f'{td_attrs} style="{sticky_style}"'
+                            tag_attrs = f'{tag_attrs} style="{sticky_style}"'
                         
-                        return f'<td{td_attrs}>'
+                        return f'<{tag_name}{tag_attrs}>'
                     
-                    line = re.sub(r'<td([^>]*)>', add_sticky_style, line)
+                    # Match both <td> and <th> tags
+                    line = re.sub(r'<(td|th)([^>]*)>', add_sticky_style, line)
                     
                     modified_html_lines.append(line)
                     continue
@@ -906,13 +913,26 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
             <head>
                 <meta charset="utf-8">
                 <style>
+                    /* Prevent iframe body/html from scrolling - only .calendar-container should scroll */
+                    html, body {{
+                        margin: 0;
+                        padding: 0;
+                        overflow: hidden !important;
+                        height: 100%;
+                        width: 100%;
+                    }}
+                    
                     .calendar-container {{
+                        height: 800px;
                         max-height: 800px;
                         overflow-y: auto;
                         overflow-x: auto;
                         border: 1px solid #ddd;
                         position: relative;
+                        /* Ensure this is the scrolling container for sticky positioning */
+                        display: block;
                     }}
+                    
                     /* Ensure sticky works - parent must have defined height */
                     .calendar-container table {{
                         position: relative;
@@ -921,42 +941,106 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     {compact_css}
                 </style>
             </head>
-            <body>
+            <body style="margin: 0; padding: 0; overflow: hidden;">
                 <div class="calendar-container{' compact-mode' if compact_mode else ''}" id="calendar-scroll-container">
                     {html_table_with_features}
                 </div>
                 <script>
-                    // Force sticky headers to work - verify CSS is applied
-                    setTimeout(function() {{
-                        const container = document.getElementById('calendar-scroll-container');
-                        if (container) {{
-                            // Verify header rows exist and have correct classes
-                            const headerRows = container.querySelectorAll('tr.header-row-1, tr.header-row-2, tr.header-row-3');
-                            console.log('Found header rows:', headerRows.length);
-                            
-                            // Force reflow to ensure CSS is applied
-                            container.offsetHeight;
-                            
-                            // In compact mode, ensure row 2 is at top
-                            const isCompact = container.classList.contains('compact-mode');
-                            if (isCompact) {{
-                                const row2 = container.querySelector('tr.header-row-2');
-                                if (row2) {{
-                                    const cells = row2.querySelectorAll('td');
-                                    cells.forEach(cell => {{
-                                        cell.style.setProperty('top', '0px', 'important');
-                                        cell.style.setProperty('z-index', '100', 'important');
-                                    }});
-                                }}
+                    // Force sticky headers to work - apply styles directly via JavaScript
+                    function applyStickyStyles() {{
+                        try {{
+                            const container = document.getElementById('calendar-scroll-container');
+                            if (!container) {{
+                                console.warn('Calendar container not found');
+                                return;
                             }}
+                            
+                            const isCompact = container.classList.contains('compact-mode');
+                            
+                            // Process all header rows
+                            const row1 = container.querySelector('tr.header-row-1');
+                            const row2 = container.querySelector('tr.header-row-2');
+                            const row3 = container.querySelector('tr.header-row-3');
+                            
+                            // Row 1: top 0, z-index 100
+                            if (row1 && !isCompact) {{
+                                const cells = row1.querySelectorAll('td, th');
+                                cells.forEach(cell => {{
+                                    cell.style.setProperty('position', 'sticky', 'important');
+                                    cell.style.setProperty('top', '0px', 'important');
+                                    cell.style.setProperty('z-index', '100', 'important');
+                                    cell.style.setProperty('background', '#ffffff', 'important');
+                                }});
+                            }}
+                            
+                            // Row 2: top 0 (compact) or 32px (normal), z-index 99/100
+                            if (row2) {{
+                                const cells = row2.querySelectorAll('td, th');
+                                const topValue = isCompact ? '0px' : '32px';
+                                const zIndex = isCompact ? '100' : '99';
+                                cells.forEach(cell => {{
+                                    cell.style.setProperty('position', 'sticky', 'important');
+                                    cell.style.setProperty('top', topValue, 'important');
+                                    cell.style.setProperty('z-index', zIndex, 'important');
+                                    cell.style.setProperty('background', '#f9fafc', 'important');
+                                }});
+                            }}
+                            
+                            // Row 3: top 64px, z-index 98 (only in normal mode)
+                            if (row3 && !isCompact) {{
+                                const cells = row3.querySelectorAll('td, th');
+                                cells.forEach(cell => {{
+                                    cell.style.setProperty('position', 'sticky', 'important');
+                                    cell.style.setProperty('top', '64px', 'important');
+                                    cell.style.setProperty('z-index', '98', 'important');
+                                    cell.style.setProperty('background', '#f1f5f9', 'important');
+                                }});
+                            }}
+                            
+                            // Also ensure Date and Day columns are sticky on the left
+                            const allRows = container.querySelectorAll('tr');
+                            allRows.forEach(row => {{
+                                const cells = row.querySelectorAll('td, th');
+                                if (cells.length >= 2) {{
+                                    // First column (Date) - sticky left at 0
+                                    cells[0].style.setProperty('position', 'sticky', 'important');
+                                    cells[0].style.setProperty('left', '0px', 'important');
+                                    cells[0].style.setProperty('z-index', '10', 'important');
+                                    
+                                    // Second column (Day) - sticky left at 140px (or 80px in compact)
+                                    const dayLeft = isCompact ? '80px' : '140px';
+                                    cells[1].style.setProperty('position', 'sticky', 'important');
+                                    cells[1].style.setProperty('left', dayLeft, 'important');
+                                    cells[1].style.setProperty('z-index', '10', 'important');
+                                    
+                                    // For header rows, increase z-index for intersection
+                                    if (row.classList.contains('header-row-1')) {{
+                                        cells[0].style.setProperty('z-index', '15', 'important');
+                                        cells[1].style.setProperty('z-index', '14', 'important');
+                                    }} else if (row.classList.contains('header-row-2')) {{
+                                        cells[0].style.setProperty('z-index', '13', 'important');
+                                        cells[1].style.setProperty('z-index', '12', 'important');
+                                    }} else if (row.classList.contains('header-row-3')) {{
+                                        cells[0].style.setProperty('z-index', '11', 'important');
+                                        cells[1].style.setProperty('z-index', '10', 'important');
+                                    }}
+                                }}
+                            }});
+                            
+                            console.log('Applied sticky styles to header rows and fixed columns');
+                        }} catch (error) {{
+                            console.error('Error applying sticky styles:', error);
                         }}
-                        
-                        // Auto-scroll to position today's date approximately 1/3 down the visible area
-                        const today = new Date().toISOString().split('T')[0];
-                        const container = document.getElementById('calendar-scroll-container');
-                        
-                        if (container) {{
-                            const rows = container.getElementsByTagName('tr');
+                    }}
+                    
+                    // Auto-scroll function
+                    function autoScrollToToday() {{
+                        try {{
+                            const scrollContainer = document.getElementById('calendar-scroll-container');
+                            if (!scrollContainer) return;
+                            
+                            const today = new Date().toISOString().split('T')[0];
+                            const rows = scrollContainer.getElementsByTagName('tr');
                             
                             for (let i = 0; i < rows.length; i++) {{
                                 const cells = rows[i].getElementsByTagName('td');
@@ -966,14 +1050,25 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                     
                                     if (cellText.includes(today)) {{
                                         const rowTop = rows[i].offsetTop;
-                                        const containerHeight = container.clientHeight;
+                                        const containerHeight = scrollContainer.clientHeight;
                                         const scrollPosition = rowTop - (containerHeight / 3);
-                                        container.scrollTop = Math.max(0, scrollPosition);
+                                        scrollContainer.scrollTop = Math.max(0, scrollPosition);
                                         break;
                                     }}
                                 }}
                             }}
+                        }} catch (error) {{
+                            console.error('Error in auto-scroll:', error);
                         }}
+                    }}
+                    
+                    // Apply immediately and after delays to catch timing issues
+                    applyStickyStyles();
+                    setTimeout(applyStickyStyles, 50);
+                    setTimeout(applyStickyStyles, 200);
+                    setTimeout(function() {{
+                        applyStickyStyles();
+                        autoScrollToToday();
                     }}, 100);
                 </script>
             </body>
