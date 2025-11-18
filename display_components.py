@@ -478,11 +478,17 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             else:
                 styled_data = None
             
+            # Check if scroll to today was requested
+            scroll_to_today = st.session_state.get('scroll_to_today', False)
+            if scroll_to_today:
+                st.session_state.scroll_to_today = False  # Reset flag after use
+            
             # Generate HTML with frozen headers
             html_table = _generate_calendar_html_with_frozen_headers(
                 styled_data, site_column_mapping, compact_mode, 
                 list(display_with_headers.columns),
-                header_rows_df=header_rows  # Pass unstyled headers separately
+                header_rows_df=header_rows,  # Pass unstyled headers separately
+                scroll_to_today=scroll_to_today  # Pass scroll flag
             )
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
@@ -1338,26 +1344,41 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         }}
                     }}
                     
-                    // Auto-scroll function
+                    // Auto-scroll function - now uses UK date format and checks Date column (cells[1])
                     function autoScrollToToday() {{
                         try {{
                             const scrollContainer = document.getElementById('calendar-scroll-container');
-                            if (!scrollContainer) return;
+                            if (!scrollContainer) {{
+                                console.log('Scroll container not found');
+                                return;
+                            }}
                             
-                            const today = new Date().toISOString().split('T')[0];
+                            // Get today's date in UK format (DD/MM/YYYY)
+                            const today = new Date();
+                            const day = String(today.getDate()).padStart(2, '0');
+                            const month = String(today.getMonth() + 1).padStart(2, '0');
+                            const year = today.getFullYear();
+                            const todayUK = `${{day}}/${{month}}/${{year}}`;
+                            
+                            console.log('Looking for date:', todayUK);
+                            
                             const rows = scrollContainer.getElementsByTagName('tr');
+                            console.log('Total rows:', rows.length);
                             
                             for (let i = 0; i < rows.length; i++) {{
                                 const cells = rows[i].getElementsByTagName('td');
                                 
-                                if (cells.length > 0) {{
-                                    const cellText = cells[0].textContent || cells[0].innerText;
+                                // Date column is now cells[1] (second column, after Label)
+                                if (cells.length > 1) {{
+                                    const cellText = cells[1].textContent || cells[1].innerText;
                                     
-                                    if (cellText.includes(today)) {{
+                                    if (cellText.trim() === todayUK) {{
+                                        console.log('Found today at row:', i);
                                         const rowTop = rows[i].offsetTop;
                                         const containerHeight = scrollContainer.clientHeight;
                                         const scrollPosition = rowTop - (containerHeight / 3);
                                         scrollContainer.scrollTop = Math.max(0, scrollPosition);
+                                        console.log('Scrolled to position:', scrollPosition);
                                         break;
                                     }}
                                 }}
@@ -1366,6 +1387,9 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                             console.error('Error in auto-scroll:', error);
                         }}
                     }}
+                    
+                    // Make function globally accessible for button click
+                    window.autoScrollToToday = autoScrollToToday;
                     
                     // Apply immediately and after delays to catch timing issues
                     applyStickyStyles();

@@ -846,7 +846,9 @@ def main():
                 else:
                     st.session_state.compact_calendar_mode = compact_mode
             with col_options[2]:
-                st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
+                if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
+                    st.session_state.scroll_to_today = True
+                    st.rerun()
             with col_options[3]:
                 combo_labels = list(combo_options.keys())
                 default_selection = combo_labels.copy()
