@@ -400,11 +400,19 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
 
         display_df = calendar_df[final_ordered_columns].copy()
         display_df_for_view = display_df.copy()
-        display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%Y-%m-%d")
+        display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%d/%m/%Y")  # UK format
+
+        # Add label column as first column (empty for data rows)
+        display_df_for_view.insert(0, "Label", "")
 
         # Create three-level header rows
         log_activity(f"Creating headers for {len(display_df_for_view.columns)} columns", level='info')
         header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
+        
+        # Add labels to header rows
+        header_rows['level1_site']['Label'] = "Visit Site"
+        header_rows['level2_study_patient']['Label'] = "Study_Patient"
+        header_rows['level3_origin']['Label'] = "Origin Site"
         
         # Debug header rows
         log_activity(f"Level 1 headers: {header_rows['level1_site']}", level='info')
@@ -721,7 +729,26 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     if compact_mode and header_rows_assigned == 2:
                         top_value = 0  # In compact mode, row 2 is at top
                     z_index = 100 if header_rows_assigned == 1 else (99 if header_rows_assigned == 2 else 98)
-                    bg_color = "#ffffff" if header_rows_assigned == 1 else "#f9fafc" if header_rows_assigned == 2 else "#f1f5f9"
+                    
+                    # Set header row colors based on level
+                    if header_rows_assigned == 1:
+                        # Level 1: Visit sites - Dark blue background, white text
+                        bg_color = "#1e40af"
+                        text_color = "#ffffff"
+                        font_weight = "bold"
+                        font_size = "14px"
+                    elif header_rows_assigned == 2:
+                        # Level 2: Study_Patient - Medium blue background, white text
+                        bg_color = "#3b82f6"
+                        text_color = "#ffffff"
+                        font_weight = "bold"
+                        font_size = "12px"
+                    else:
+                        # Level 3: Origin sites - Light blue background, dark blue text
+                        bg_color = "#93c5fd"
+                        text_color = "#1e40af"
+                        font_weight = "normal"
+                        font_size = "10px"
                     
                     # Add sticky styles to each td/th - handle both tags
                     def add_sticky_style(match):
@@ -729,7 +756,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         tag_attrs = match.group(2)
                         
                         # Build sticky style string - use !important to override any existing styles
-                        sticky_style = f'position: -webkit-sticky !important; position: sticky !important; top: {top_value}px !important; z-index: {z_index} !important; background: {bg_color} !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;'
+                        sticky_style = f'position: -webkit-sticky !important; position: sticky !important; top: {top_value}px !important; z-index: {z_index} !important; background: {bg_color} !important; color: {text_color} !important; font-weight: {font_weight} !important; font-size: {font_size} !important; text-align: center !important; border: 1px solid #ccc !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;'
                         
                         # Always inject style attribute - replace if exists, add if not
                         if 'style=' in tag_attrs:
@@ -756,8 +783,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     data_row_counter += 1
                 
                 if column_names:
-                    # Extract date from first cell
-                    date_match = re.search(r'<td[^>]*>(\d{4}-\d{2}-\d{2})</td>', line)
+                    # Extract date from first cell (UK format: DD/MM/YYYY)
+                    date_match = re.search(r'<td[^>]*>(\d{2}/\d{2}/\d{4})</td>', line)
                     date_str = date_match.group(1) if date_match else None
                     
                     # Process each cell - work backwards to avoid index shifting
@@ -909,7 +936,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         position: sticky !important;
                         top: 0 !important;
                         z-index: 100 !important;
-                        background: #ffffff !important;
+                        background: #1e40af !important;
+                        color: #ffffff !important;
+                        font-weight: bold !important;
+                        font-size: 14px !important;
+                        text-align: center !important;
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
@@ -921,7 +952,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 0 !important;
                         left: 0 !important;
                         z-index: 15 !important;
-                        background: #ffffff !important;
+                        background: #1e40af !important;
+                        color: #ffffff !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
@@ -932,7 +964,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 0 !important;
                         left: 140px !important;
                         z-index: 14 !important;
-                        background: #ffffff !important;
+                        background: #1e40af !important;
+                        color: #ffffff !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
@@ -941,7 +974,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         position: sticky !important;
                         top: 32px !important;
                         z-index: 99 !important;
-                        background: #f9fafc !important;
+                        background: #3b82f6 !important;
+                        color: #ffffff !important;
+                        font-weight: bold !important;
+                        font-size: 12px !important;
+                        text-align: center !important;
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
@@ -953,7 +990,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 32px !important;
                         left: 0 !important;
                         z-index: 13 !important;
-                        background: #f9fafc !important;
+                        background: #3b82f6 !important;
+                        color: #ffffff !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
@@ -964,7 +1002,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 32px !important;
                         left: 140px !important;
                         z-index: 12 !important;
-                        background: #f9fafc !important;
+                        background: #3b82f6 !important;
+                        color: #ffffff !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
@@ -973,7 +1012,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         position: sticky !important;
                         top: 64px !important;
                         z-index: 98 !important;
-                        background: #f1f5f9 !important;
+                        background: #93c5fd !important;
+                        color: #1e40af !important;
+                        font-weight: normal !important;
+                        font-size: 10px !important;
+                        text-align: center !important;
                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
@@ -985,7 +1028,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 64px !important;
                         left: 0 !important;
                         z-index: 11 !important;
-                        background: #f1f5f9 !important;
+                        background: #93c5fd !important;
+                        color: #1e40af !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }
@@ -996,7 +1040,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         top: 64px !important;
                         left: 140px !important;
                         z-index: 10 !important;
-                        background: #f1f5f9 !important;
+                        background: #93c5fd !important;
+                        color: #1e40af !important;
                         -webkit-transform: translateZ(0) !important;
                         transform: translateZ(0) !important;
                     }

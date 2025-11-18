@@ -42,7 +42,7 @@ def create_site_header_row(columns, site_column_mapping):
     }
     
     for col in columns:
-        if col in ["Date", "Day"]:
+        if col in ["Date", "Day", "Label"]:
             # System columns
             header_rows['level1_site'][col] = ""
             header_rows['level2_study_patient'][col] = ""
@@ -70,10 +70,7 @@ def create_site_header_row(columns, site_column_mapping):
                             study_patient = f"{study_code}_{patient_code}"
                             origin_site_value = patient_info.get('origin_site', '')
                             if origin_site_value and origin_site_value != 'Unknown Origin':
-                                short_origin = origin_site_value
-                                if len(short_origin) > 8:
-                                    short_origin = short_origin[:7] + "…"
-                                origin_site = f"({short_origin})"
+                                origin_site = origin_site_value  # Show full name, no truncation
                             else:
                                 origin_site = ""
                             break
