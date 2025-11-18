@@ -778,6 +778,9 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         border-collapse: collapse;
                         width: 100%;
                     }
+                    .calendar-container table thead {
+                        display: none;
+                    }
                     .calendar-container table th,
                     .calendar-container table td {
                         border: 1px solid #dee2e6;
