@@ -839,13 +839,19 @@ def main():
                 else:
                     st.session_state.hide_inactive_patients = hide_inactive
             with col_options[1]:
+                prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
                 compact_mode = st.checkbox(
                     "Compact view",
-                    value=st.session_state.get('compact_calendar_mode', False),
+                    value=prev_compact_mode,
                     help="Narrow columns with vertical headers and icons",
                     key="compact_mode_checkbox"
                 )
-                st.session_state.compact_calendar_mode = compact_mode
+                # Check if value changed and trigger rerun
+                if compact_mode != prev_compact_mode:
+                    st.session_state.compact_calendar_mode = compact_mode
+                    st.rerun()
+                else:
+                    st.session_state.compact_calendar_mode = compact_mode
             with col_options[2]:
                 st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date.")
             with col_options[3]:
