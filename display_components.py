@@ -774,26 +774,35 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     .calendar-container table {
                         table-layout: fixed;
                     }
-                    .calendar-container table tbody tr.header-row-1 td:nth-child(n+3),
-                    .calendar-container table tbody tr.header-row-2 td:nth-child(n+3),
-                    .calendar-container table tbody tr.header-row-3 td:nth-child(n+3) {
-                        writing-mode: vertical-rl !important;
-                        text-orientation: mixed !important;
-                        white-space: nowrap !important;
-                        width: 30px !important;
-                        min-width: 30px !important;
-                        max-width: 30px !important;
-                        padding: 4px 2px !important;
-                        font-size: 11px !important;
-                        height: 80px !important;
+                    /* Hide level 1 and level 3 headers in compact mode, show only patient IDs */
+                    .calendar-container table tbody tr.header-row-1,
+                    .calendar-container table tbody tr.header-row-3 {
+                        display: none !important;
                     }
-                    .calendar-container table tbody td:nth-child(n+3) {
-                        width: 32px !important;
-                        min-width: 32px !important;
-                        max-width: 32px !important;
-                        padding: 4px 2px !important;
+                    /* Make all columns narrow in compact mode */
+                    .calendar-container table tbody tr.header-row-2 td,
+                    .calendar-container table tbody td {
+                        width: 40px !important;
+                        min-width: 40px !important;
+                        max-width: 40px !important;
+                        padding: 2px !important;
+                        font-size: 10px !important;
                         text-align: center !important;
-                        font-size: 14px !important;
+                        overflow: hidden !important;
+                        text-overflow: ellipsis !important;
+                    }
+                    /* Date and Day columns slightly wider but still compact */
+                    .calendar-container table tbody tr.header-row-2 td:first-child,
+                    .calendar-container table tbody td:first-child {
+                        width: 80px !important;
+                        min-width: 80px !important;
+                        max-width: 80px !important;
+                    }
+                    .calendar-container table tbody tr.header-row-2 td:nth-child(2),
+                    .calendar-container table tbody td:nth-child(2) {
+                        width: 50px !important;
+                        min-width: 50px !important;
+                        max-width: 50px !important;
                     }
             """
         
@@ -830,29 +839,38 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         min-width: 120px;
                         width: 120px;
                     }
+                    /* Sticky headers - must be direct children of scrolling container */
                     .calendar-container table tbody tr.header-row-1 td {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 0 !important;
-                        z-index: 10 !important;
+                        z-index: 100 !important;
                         background: #ffffff !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+                        will-change: transform !important;
                     }
                     .calendar-container table tbody tr.header-row-2 td {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 32px !important;
-                        z-index: 9 !important;
+                        z-index: 99 !important;
                         background: #f9fafc !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+                        will-change: transform !important;
                     }
                     .calendar-container table tbody tr.header-row-3 td {
                         position: -webkit-sticky !important;
                         position: sticky !important;
                         top: 64px !important;
-                        z-index: 8 !important;
+                        z-index: 98 !important;
                         background: #f1f5f9 !important;
-                        box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.1) !important;
+                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+                        will-change: transform !important;
+                    }
+                    /* In compact mode, adjust top position since we hide row 1 and 3 */
+                    .calendar-container.compact-mode table tbody tr.header-row-2 td {
+                        top: 0 !important;
+                        z-index: 100 !important;
                     }
                     /* Ensure sticky headers work with fixed columns */
                     .calendar-container table tbody tr.header-row-1 td:first-child {
@@ -893,18 +911,47 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         overflow-y: auto;
                         overflow-x: auto;
                         border: 1px solid #ddd;
+                        position: relative;
+                    }}
+                    /* Ensure sticky works - parent must have defined height */
+                    .calendar-container table {{
+                        position: relative;
                     }}
                     {sticky_css}
                     {compact_css}
                 </style>
             </head>
             <body>
-                <div class="calendar-container" id="calendar-scroll-container">
+                <div class="calendar-container{' compact-mode' if compact_mode else ''}" id="calendar-scroll-container">
                     {html_table_with_features}
                 </div>
                 <script>
-                    // Auto-scroll to position today's date approximately 1/3 down the visible area
+                    // Force sticky headers to work - verify CSS is applied
                     setTimeout(function() {{
+                        const container = document.getElementById('calendar-scroll-container');
+                        if (container) {{
+                            // Verify header rows exist and have correct classes
+                            const headerRows = container.querySelectorAll('tr.header-row-1, tr.header-row-2, tr.header-row-3');
+                            console.log('Found header rows:', headerRows.length);
+                            
+                            // Force reflow to ensure CSS is applied
+                            container.offsetHeight;
+                            
+                            // In compact mode, ensure row 2 is at top
+                            const isCompact = container.classList.contains('compact-mode');
+                            if (isCompact) {{
+                                const row2 = container.querySelector('tr.header-row-2');
+                                if (row2) {{
+                                    const cells = row2.querySelectorAll('td');
+                                    cells.forEach(cell => {{
+                                        cell.style.setProperty('top', '0px', 'important');
+                                        cell.style.setProperty('z-index', '100', 'important');
+                                    }});
+                                }}
+                            }}
+                        }}
+                        
+                        // Auto-scroll to position today's date approximately 1/3 down the visible area
                         const today = new Date().toISOString().split('T')[0];
                         const container = document.getElementById('calendar-scroll-container');
                         
