@@ -618,8 +618,27 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
         
         # CRITICAL FIX: Join multi-line <tr> tags onto single lines
         # This ensures our header detection logic (which checks for '<td>' in same line as '<tr>') works
-        html_table_base = re.sub(r'<tr([^>]*)>\s+', r'<tr\1>', html_table_base)  # Remove whitespace after <tr>
-        html_table_base = re.sub(r'\s+</tr>', r'</tr>', html_table_base)  # Remove whitespace before </tr>
+        # Join entire <tr>...</tr> blocks onto single lines by removing newlines and extra whitespace within rows
+        html_table_base = re.sub(
+            r'<tr([^>]*)>\s+',
+            r'<tr\1>',
+            html_table_base,
+            flags=re.MULTILINE
+        )  # Remove whitespace/newlines immediately after <tr>
+        html_table_base = re.sub(
+            r'\s+</tr>',
+            r'</tr>',
+            html_table_base,
+            flags=re.MULTILINE
+        )  # Remove whitespace/newlines immediately before </tr>
+        # Also join any remaining multi-line content within table rows
+        # This handles cases where <td> tags are on separate lines
+        html_table_base = re.sub(
+            r'(<tr[^>]*>)(.*?)(</tr>)',
+            lambda m: m.group(1) + re.sub(r'\s+', ' ', m.group(2).strip()) + m.group(3),
+            html_table_base,
+            flags=re.DOTALL
+        )
         
         html_lines = html_table_base.split('\n')
         modified_html_lines = []
