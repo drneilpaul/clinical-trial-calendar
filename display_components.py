@@ -57,6 +57,19 @@ def apply_calendar_start_filter(df, start_date):
     return filtered_df
 
 
+def rerun_app():
+    """
+    Trigger a rerun using the supported Streamlit API.
+    Streamlit deprecated experimental_rerun in favor of rerun, so fall back if needed.
+    """
+    for fn_name in ("rerun", "experimental_rerun"):
+        fn = getattr(st, fn_name, None)
+        if callable(fn):
+            fn()
+            return
+    st.info("Please refresh the page to see the latest data.")
+
+
 # Import only from modules that don't import back to us
 from calculations import (
     prepare_financial_data, build_profit_sharing_analysis, 
@@ -1835,7 +1848,7 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                                     if success:
                                         st.success(message)
                                         trigger_data_refresh()
-                                        st.experimental_rerun()
+                                        rerun_app()
                                     else:
                                         st.error(message)
                                 except Exception as e:
