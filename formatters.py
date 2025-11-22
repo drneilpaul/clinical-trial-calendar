@@ -129,7 +129,8 @@ def create_data_row_styles(row, today_date):
     date_obj = None
     try:
         if date_str and str(date_str) != "":
-            date_obj = pd.to_datetime(date_str)
+            # Use dayfirst=True for UK date format (DD/MM/YYYY)
+            date_obj = pd.to_datetime(date_str, dayfirst=True)
     except:
         pass
 
