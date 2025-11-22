@@ -5,6 +5,7 @@ from datetime import date
 import re
 import streamlit.components.v1 as components
 from helpers import log_activity, generate_financial_year_options, trigger_data_refresh
+from calendar_builder import is_patient_inactive
 
 def render_calendar_start_selector(years_back: int = 4):
     """
@@ -68,6 +69,81 @@ def rerun_app():
             fn()
             return
     st.info("Please refresh the page to see the latest data.")
+
+
+def build_active_calendar_export(calendar_df, site_column_mapping, patients_df, visits_df, actual_visits_df):
+    """
+    Build filtered data structures containing only active patients using the same logic as the calendar flag.
+    Returns (data_dict, error_message). data_dict is None when filtering is unavailable.
+    """
+    if calendar_df is None or calendar_df.empty:
+        return None, "Calendar data unavailable."
+    if not site_column_mapping:
+        return None, "Site column mapping unavailable."
+    if visits_df is None or visits_df.empty:
+        return None, "Visit data unavailable to determine active patients."
+
+    inactive_columns = set()
+    inactive_keys = set()
+
+    for site_data in site_column_mapping.values():
+        patient_entries = site_data.get('patient_info', [])
+        for info in patient_entries:
+            patient_id = str(info.get('patient_id', '')).strip()
+            study = str(info.get('study', '')).strip()
+            col_id = info.get('col_id')
+
+            if not patient_id or not study or not col_id:
+                continue
+
+            try:
+                inactive, _ = is_patient_inactive(patient_id, study, visits_df, actual_visits_df)
+            except Exception as err:
+                log_activity(f"Failed to evaluate activity for {patient_id} ({study}): {err}", level='error')
+                continue
+
+            if inactive:
+                inactive_columns.add(col_id)
+                inactive_keys.add(f"{patient_id}||{study}")
+
+    active_calendar_df = calendar_df.copy()
+    if inactive_columns:
+        drop_columns = [col for col in inactive_columns if col in active_calendar_df.columns]
+        if drop_columns:
+            active_calendar_df = active_calendar_df.drop(columns=drop_columns, errors='ignore')
+
+    def filter_dataframe(df):
+        if df is None or df.empty:
+            return df
+        if 'PatientID' not in df.columns or 'Study' not in df.columns:
+            return df.copy()
+        if not inactive_keys:
+            return df.copy()
+        keys = df['PatientID'].astype(str).str.strip() + "||" + df['Study'].astype(str).str.strip()
+        return df[~keys.isin(inactive_keys)].copy()
+
+    active_patients_df = filter_dataframe(patients_df)
+    active_visits_df = filter_dataframe(visits_df)
+
+    filtered_site_column_mapping = {}
+    for site, site_data in site_column_mapping.items():
+        filtered_columns = [col for col in site_data.get('columns', []) if col not in inactive_columns]
+        filtered_patient_info = [
+            info for info in site_data.get('patient_info', [])
+            if info.get('col_id') not in inactive_columns
+        ]
+        filtered_site_column_mapping[site] = {
+            'columns': filtered_columns,
+            'patient_info': filtered_patient_info,
+            'events_column': site_data.get('events_column')
+        }
+
+    return {
+        "calendar_df": active_calendar_df,
+        "patients_df": active_patients_df,
+        "visits_df": active_visits_df,
+        "site_column_mapping": filtered_site_column_mapping
+    }, None
 
 
 # Import only from modules that don't import back to us
@@ -1634,7 +1710,7 @@ def _display_site_screen_failures(site_patients, screen_failures, withdrawals=No
     except Exception as e:
         st.error(f"Error displaying screen failures and withdrawals: {e}")
 
-def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df=None, visits_df=None, trials_df=None):
+def display_download_buttons(calendar_df, site_column_mapping, unique_visit_sites, patients_df=None, visits_df=None, trials_df=None, actual_visits_df=None):
     """Display comprehensive download options with Excel formatting"""
     st.subheader("💾 Download Options")
 
@@ -1716,6 +1792,38 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                     )
                 else:
                     st.info("Calendar export generation failed")
+
+                active_export_inputs, active_error = build_active_calendar_export(
+                    calendar_only_df,
+                    site_column_mapping,
+                    patients_data,
+                    visits_data,
+                    actual_visits_df
+                )
+
+                if active_export_inputs:
+                    active_calendar = create_enhanced_excel_export(
+                        active_export_inputs["calendar_df"],
+                        active_export_inputs["patients_df"],
+                        active_export_inputs["visits_df"],
+                        active_export_inputs["site_column_mapping"],
+                        unique_visit_sites,
+                        include_financial=False
+                    )
+                    if active_calendar:
+                        st.download_button(
+                            "📅 Calendar Only – Active Patients",
+                            data=active_calendar.getvalue(),
+                            file_name="VisitCalendar_CalendarOnly_Active.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Calendar export limited to patients still marked as active",
+                            width="stretch",
+                            key="calendar_only_active_download"
+                        )
+                    else:
+                        st.info("Active-only calendar export generation failed")
+                elif active_error:
+                    st.caption(f"Active-only calendar unavailable: {active_error}")
             except Exception as e:
                 st.warning(f"Calendar export unavailable: {e}")
             
@@ -1855,10 +1963,12 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                                     st.error(f"Failed to append visits: {e}")
                         else:
                             csv_update = records_df_display.to_csv(index=False)
+                            date_suffix = date.today().strftime('%d-%m-%Y')
+                            csv_filename = f"actual_visits_updates_{date_suffix}.csv"
                             st.download_button(
                                 "⬇️ Download Actual Visits CSV (append to actual_visits file)",
                                 data=csv_update,
-                                file_name="actual_visits_updates.csv",
+                                file_name=csv_filename,
                                 mime="text/csv",
                                 help="Download the prepared actual visits for manual merging.",
                                 width="stretch",

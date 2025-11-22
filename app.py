@@ -973,7 +973,15 @@ def main():
             else:
                 st.info("🔒 Login as admin to view financial reports and income analysis")
 
-            display_download_buttons(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, patients_df, visits_df_filtered, trials_df)
+            display_download_buttons(
+                calendar_df_filtered,
+                filtered_site_column_mapping,
+                filtered_unique_visit_sites,
+                patients_df,
+                visits_df_filtered,
+                trials_df,
+                actual_visits_df
+            )
 
             display_error_log_section()
 
