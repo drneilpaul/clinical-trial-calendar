@@ -63,7 +63,9 @@ def prepare_financial_data(visits_df):
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in financial_df.columns:
-        financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
+        # OPTIMIZED: Use vectorized financial year calculation
+        from helpers import get_financial_year_for_series
+        financial_df['FinancialYear'] = get_financial_year_for_series(financial_df['Date'])
     
     return financial_df
 
@@ -109,7 +111,7 @@ def display_site_wise_statistics(visits_df, patients_df, unique_visit_sites, scr
     
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in visits_df_enhanced.columns:
-        visits_df_enhanced['FinancialYear'] = visits_df_enhanced['Date'].apply(get_financial_year)
+        visits_df_enhanced['FinancialYear'] = get_financial_year_for_series(visits_df_enhanced['Date'])
     
     # Always create tabs for all visit sites, even if they have no visits
     # This ensures sites like Kiltearn are visible even when they only have patient recruitment income
@@ -312,7 +314,7 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
             site_patients_enhanced['Quarter'].fillna(0).astype(int).astype(str)
         )
         # FIXED: Use centralized FY calculation from helpers
-        site_patients_enhanced['FinancialYear'] = site_patients_enhanced['StartDate'].apply(get_financial_year)
+        site_patients_enhanced['FinancialYear'] = get_financial_year_for_series(site_patients_enhanced['StartDate'])
         
         # Quarterly patient recruitment
         quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()

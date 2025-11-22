@@ -259,13 +259,38 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     
     calendar_df["Daily Total"] = 0.0
 
+    # OPTIMIZED: Pre-filter visits to calendar date range and group by date for fast lookup
+    if visits_df.empty:
+        log_activity("No visits to process", level='info')
+        return calendar_df
+    
+    # Normalize dates to date-only for consistent comparison
+    calendar_min_date = calendar_df["Date"].min()
+    calendar_max_date = calendar_df["Date"].max()
+    
+    # Filter visits to only those in calendar range (much faster than filtering in loop)
+    visits_in_range = visits_df[
+        (visits_df["Date"] >= calendar_min_date) & 
+        (visits_df["Date"] <= calendar_max_date)
+    ].copy()
+    
+    # Normalize visit dates to date-only Timestamps for matching
+    visits_in_range["Date"] = pd.to_datetime(visits_in_range["Date"]).dt.normalize()
+    
+    # Group visits by date for O(1) lookup instead of O(n) filtering in loop
+    visits_by_date = {}
+    for date, group in visits_in_range.groupby("Date"):
+        visits_by_date[date] = group
+    
     # Fill calendar with visits
     for i, row in calendar_df.iterrows():
         date = row["Date"]
         
         # FIX: Ensure consistent Timestamp comparison
         calendar_date = pd.Timestamp(date.date())  # Normalize to date-only Timestamp
-        visits_today = visits_df[visits_df["Date"] == calendar_date]
+        
+        # OPTIMIZED: Use dictionary lookup instead of filtering DataFrame
+        visits_today = visits_by_date.get(calendar_date, pd.DataFrame())
         
         
         daily_total = 0.0

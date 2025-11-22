@@ -60,7 +60,9 @@ def _build_historical_actuals_sheet(df: pd.DataFrame) -> pd.DataFrame:
             'SIVs (Actual)', 'Monitor Visits (Actual)'
         ])
 
-    actual_df['FinancialYear'] = actual_df['Date'].apply(get_financial_year)
+    # OPTIMIZED: Use vectorized financial year calculation
+    from helpers import get_financial_year_for_series
+    actual_df['FinancialYear'] = get_financial_year_for_series(actual_df['Date'])
     actual_df = actual_df.dropna(subset=['FinancialYear'])
 
     pivot = actual_df.pivot_table(

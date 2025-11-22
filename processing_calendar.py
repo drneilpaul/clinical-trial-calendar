@@ -510,7 +510,9 @@ def calculate_financial_totals(calendar_df):
         calendar_df.loc[month_mask, "Monthly Total"] = month_data["Monthly Total"].values
 
     # Calculate financial year totals - cumulative within each financial year
-    calendar_df["FYStart"] = calendar_df["Date"].apply(get_financial_year_start_year)
+    # OPTIMIZED: Use vectorized financial year start calculation
+    from helpers import get_financial_year_start_year_for_series
+    calendar_df["FYStart"] = get_financial_year_start_year_for_series(calendar_df["Date"])
     calendar_df["FY Total"] = 0.0
     
     for fy_year in calendar_df["FYStart"].unique():

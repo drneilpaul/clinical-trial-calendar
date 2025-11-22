@@ -30,7 +30,8 @@ def prepare_financial_data(visits_df):
     # Include: actual visits (with ✅, 🔴, ⚠  ), scheduled visits (plain visit names), but exclude tolerance periods
     mask = ~financial_df['Visit'].isin(['-', '+'])
     
-    financial_df = financial_df[mask].copy()
+    # OPTIMIZED: No need for .copy() here since we're just filtering, not modifying the filtered result
+    financial_df = financial_df[mask]
     
     # Debug: Log after filtering
     log_activity(f"After filtering shape: {financial_df.shape}", level='info')
@@ -68,8 +69,8 @@ def prepare_financial_data(visits_df):
         financial_df['Quarter'].fillna(0).astype(int).astype(str)
     )
     
-    # FIXED: Use consistent FY calculation from helpers
-    financial_df['FinancialYear'] = financial_df['Date'].apply(get_financial_year)
+    # OPTIMIZED: Use vectorized financial year calculation (much faster than apply)
+    financial_df['FinancialYear'] = get_financial_year_for_series(financial_df['Date'])
     
     # Debug: Log final result
     log_activity(f"Final financial_df shape: {financial_df.shape}", level='info')
@@ -163,7 +164,7 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
             period_patients = patients_df[patients_quarter == str(period_value)].copy()
         elif period_column == 'FinancialYear':
             # FIXED: Use centralized FY calculation from helpers
-            patient_fy = patients_df['StartDate'].apply(get_financial_year)
+            patient_fy = get_financial_year_for_series(patients_df['StartDate'])
             period_patients = patients_df[patient_fy == str(period_value)].copy()
         else:
             return {
@@ -410,12 +411,12 @@ def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     # Get current financial year boundaries using centralized function
     fy_start, fy_end = get_current_financial_year_boundaries()
 
-    # Filter visits for current financial year only
-    fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
+    # OPTIMIZED: Filter visits for current financial year only (no copy needed for filtering)
+    fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)]
     
-    # Separate completed vs scheduled work
-    completed_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
-    all_visits = fy_visits.copy()  # Both completed and scheduled
+    # Separate completed vs scheduled work (no copy needed - just filtering/reading)
+    completed_visits = fy_visits[fy_visits.get('IsActual', False) == True]
+    all_visits = fy_visits  # Both completed and scheduled - no copy needed since we're just reading
     
     # Use existing Payment column directly - already has correct values
     # (No need to recalculate from trial schedule as this causes double-counting)
@@ -455,17 +456,17 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         today = pd.to_datetime(date.today())
         fy_start, fy_end = get_current_financial_year_boundaries()
         
-        # Filter visits for current financial year
+        # OPTIMIZED: Filter visits for current financial year (no copy needed for filtering)
         fy_visits = visits_df[
             (visits_df['Date'] >= fy_start) & 
             (visits_df['Date'] <= fy_end)
-        ].copy()
+        ]
         
         if fy_visits.empty:
             return pd.DataFrame()
         
-        # Exclude tolerance markers
-        fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])].copy()
+        # Exclude tolerance markers (no copy needed - just filtering)
+        fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]
         
         if fy_visits.empty:
             return pd.DataFrame()
@@ -476,9 +477,9 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         # Use existing Payment column directly - already has correct values
         # (No need to recalculate from trial schedule as this causes double-counting)
         
-        # Separate actual and predicted visits
-        actual_visits = fy_visits[fy_visits.get('IsActual', False) == True].copy()
-        predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False].copy()
+        # OPTIMIZED: Separate actual and predicted visits (no copy needed - just filtering)
+        actual_visits = fy_visits[fy_visits.get('IsActual', False) == True]
+        predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False]
         
         # Calculate actual income by site - handle NaN values safely
         actual_income = actual_visits.groupby('SiteofVisit').agg({
@@ -528,19 +529,19 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         # Get current financial year boundaries using centralized function
         fy_start, fy_end = get_current_financial_year_boundaries()
         
-        # Filter for current financial year
+        # OPTIMIZED: Filter for current financial year (copy needed since we modify below)
         fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
         
         if fy_visits.empty:
             return []
         
-        # Add month-year column
+        # Add month-year column (modifies DataFrame, so copy was needed)
         fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
         
         # Use existing Payment column directly - already has correct values
         # (No need to recalculate from trial schedule as this causes double-counting)
         
-        # Remove tolerance periods
+        # Remove tolerance periods (no copy needed - just filtering)
         fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]
         
         # Calculate monthly breakdown
@@ -615,7 +616,8 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
         # Get current financial year boundaries using centralized function
         fy_start, fy_end = get_current_financial_year_boundaries()
         
-        fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
+        # OPTIMIZED: Filter visits (no copy needed - just filtering/reading)
+        fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)]
         fy_visits = fy_visits[~fy_visits['Visit'].isin(['-', '+'])]  # Remove tolerance periods
         
         if fy_visits.empty:
@@ -675,13 +677,14 @@ def calculate_study_realization_by_study(visits_df, period: str = 'current_fy'):
                 'Pipeline Income', 'Remaining Visits', 'Realization Rate'
             ])
 
-        df = visits_df.copy()
+        # OPTIMIZED: Only copy if we need to modify, otherwise use views
+        df = visits_df.copy()  # Keep copy here since we modify Payment column below
 
-        # Filter by period
+        # Filter by period (no copy needed - just filtering)
         if period == 'current_fy':
             from helpers import get_current_financial_year_boundaries
             fy_start, fy_end = get_current_financial_year_boundaries()
-            df = df[(df['Date'] >= fy_start) & (df['Date'] <= fy_end)].copy()
+            df = df[(df['Date'] >= fy_start) & (df['Date'] <= fy_end)]
 
         if df.empty:
             return pd.DataFrame(columns=[
@@ -690,8 +693,8 @@ def calculate_study_realization_by_study(visits_df, period: str = 'current_fy'):
                 'Pipeline Income', 'Remaining Visits', 'Realization Rate'
             ])
 
-        # Exclude tolerance markers
-        df = df[~df['Visit'].isin(['-', '+'])].copy()
+        # Exclude tolerance markers (no copy needed - just filtering)
+        df = df[~df['Visit'].isin(['-', '+'])]
 
         if df.empty:
             return pd.DataFrame(columns=[

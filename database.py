@@ -18,6 +18,12 @@ def get_supabase_client() -> Optional[Client]:
         st.session_state.database_status = f"Connection failed: {e}"
         return None
 
+def clear_database_cache():
+    """Clear all database query caches"""
+    _fetch_all_patients_cached.clear()
+    _fetch_all_trial_schedules_cached.clear()
+    _fetch_all_actual_visits_cached.clear()
+
 def test_database_connection() -> bool:
     """Test if database is accessible and tables exist"""
     try:
@@ -35,8 +41,9 @@ def test_database_connection() -> bool:
         st.session_state.database_status = f"Tables not configured: {e}"
         return False
 
-def fetch_all_patients() -> Optional[pd.DataFrame]:
-    """Fetch all patients from database"""
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
+    """Internal cached function to fetch all patients from database"""
     try:
         client = get_supabase_client()
         if client is None:
@@ -56,16 +63,23 @@ def fetch_all_patients() -> Optional[pd.DataFrame]:
             if 'StartDate' in df.columns:
                 df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
             
-            log_activity(f"Fetched {len(df)} patients from database", level='info')
             return df
-        log_activity("No patients found in database", level='info')
         return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
     except Exception as e:
-        st.error(f"Error fetching patients: {e}")
         return None
 
-def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
-    """Fetch all trial schedules from database"""
+def fetch_all_patients() -> Optional[pd.DataFrame]:
+    """Fetch all patients from database (with caching)"""
+    df = _fetch_all_patients_cached()
+    if df is not None:
+        log_activity(f"Fetched {len(df)} patients from database", level='info')
+    else:
+        log_activity("No patients found in database", level='info')
+    return df
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
+    """Internal cached function to fetch all trial schedules from database"""
     try:
         client = get_supabase_client()
         if client is None:
@@ -90,11 +104,15 @@ def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
             return df
         return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue'])
     except Exception as e:
-        st.error(f"Error fetching trial schedules: {e}")
         return None
 
-def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
-    """Fetch all actual visits from database"""
+def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
+    """Fetch all trial schedules from database (with caching)"""
+    return _fetch_all_trial_schedules_cached()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_all_actual_visits_cached() -> Optional[pd.DataFrame]:
+    """Internal cached function to fetch all actual visits from database"""
     try:
         client = get_supabase_client()
         if client is None:
@@ -118,10 +136,6 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
             
             if 'ActualDate' in df.columns:
                 df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
-                
-                nat_count = df['ActualDate'].isna().sum()
-                if nat_count > 0:
-                    log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
             
             # FIXED: Auto-detect study events IMMEDIATELY after loading from database
             # This fixes SIV/Monitor visits that were saved with wrong VisitType
@@ -132,7 +146,6 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 )
                 if siv_mask.any():
                     df.loc[siv_mask, 'VisitType'] = 'siv'
-                    log_activity(f"🔧 CORRECTED {siv_mask.sum()} SIV event(s) in database (were marked as patient visits)", level='warning')
                 
                 monitor_mask = (
                     df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False) &
@@ -140,25 +153,44 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
                 )
                 if monitor_mask.any():
                     df.loc[monitor_mask, 'VisitType'] = 'monitor'
-                    log_activity(f"🔧 CORRECTED {monitor_mask.sum()} Monitor event(s) in database (were marked as patient visits)", level='warning')
-            
-            # Log what was loaded
-            log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
-            if not df.empty:
-                # Show breakdown by visit type
-                if 'VisitType' in df.columns:
-                    visit_types = df['VisitType'].value_counts().to_dict()
-                    log_activity(f"   Visit types: {visit_types}", level='info')
-                # Show some sample visits for debugging
-                for idx, row in df.head(3).iterrows():
-                    log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} (Type: {row.get('VisitType', 'unknown')}) ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
             
             return df
-        log_activity("📥 No actual visits found in database", level='info')
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
     except Exception as e:
-        st.error(f"Error fetching actual visits: {e}")
         return None
+
+def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
+    """Fetch all actual visits from database (with caching)"""
+    df = _fetch_all_actual_visits_cached()
+    if df is not None:
+        nat_count = df['ActualDate'].isna().sum() if 'ActualDate' in df.columns else 0
+        if nat_count > 0:
+            log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
+        
+        # Check for corrected visit types
+        if 'VisitType' in df.columns:
+            siv_corrected = ((df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') & 
+                           (df['VisitType'].astype(str).str.lower() == 'siv')).sum()
+            monitor_corrected = ((df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)) & 
+                               (df['VisitType'].astype(str).str.lower() == 'monitor')).sum()
+            if siv_corrected > 0:
+                log_activity(f"🔧 CORRECTED {siv_corrected} SIV event(s) in database (were marked as patient visits)", level='warning')
+            if monitor_corrected > 0:
+                log_activity(f"🔧 CORRECTED {monitor_corrected} Monitor event(s) in database (were marked as patient visits)", level='warning')
+        
+        # Log what was loaded
+        log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
+        if not df.empty:
+            # Show breakdown by visit type
+            if 'VisitType' in df.columns:
+                visit_types = df['VisitType'].value_counts().to_dict()
+                log_activity(f"   Visit types: {visit_types}", level='info')
+            # Show some sample visits for debugging
+            for idx, row in df.head(3).iterrows():
+                log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} (Type: {row.get('VisitType', 'unknown')}) ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
+    else:
+        log_activity("📥 No actual visits found in database", level='info')
+    return df
 
 def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
     """Save patients DataFrame to database"""

@@ -217,6 +217,28 @@ def get_financial_year_start_year(date_obj):
     else:
         return date_obj.year - 1
 
+def get_financial_year_start_year_for_series(date_series):
+    """Get financial year start year for an entire pandas Series efficiently (vectorized)"""
+    if date_series.empty:
+        return pd.Series(dtype='object', index=date_series.index)
+    
+    # Vectorized version
+    result = pd.Series(index=date_series.index, dtype='Int64')  # Nullable integer type
+    
+    mask_apr_or_later = date_series.dt.month >= 4
+    mask_valid = date_series.notna()
+    
+    # For dates April onwards: start year is current year
+    result.loc[mask_apr_or_later & mask_valid] = date_series.loc[mask_apr_or_later & mask_valid].dt.year
+    
+    # For dates before April: start year is previous year
+    result.loc[~mask_apr_or_later & mask_valid] = date_series.loc[~mask_apr_or_later & mask_valid].dt.year - 1
+    
+    # Set NaN for invalid dates
+    result.loc[~mask_valid] = pd.NA
+    
+    return result
+
 def is_financial_year_end(date_obj):
     """Check if date is financial year end (31 March)"""
     if pd.isna(date_obj) or date_obj is None:
@@ -224,8 +246,34 @@ def is_financial_year_end(date_obj):
     return date_obj.month == 3 and date_obj.day == 31
 
 def get_financial_year_for_series(date_series):
-    """Apply financial year calculation to an entire pandas Series efficiently"""
-    return date_series.apply(get_financial_year)
+    """Apply financial year calculation to an entire pandas Series efficiently (vectorized)"""
+    # Vectorized version - much faster than apply()
+    if date_series.empty:
+        return pd.Series(dtype='object', index=date_series.index)
+    
+    # Create a Series with the same index
+    result = pd.Series(index=date_series.index, dtype='object')
+    
+    # Vectorized operations
+    mask_apr_or_later = date_series.dt.month >= 4
+    mask_valid = date_series.notna()
+    
+    # For dates April onwards: FY is year-year+1
+    result.loc[mask_apr_or_later & mask_valid] = (
+        date_series.loc[mask_apr_or_later & mask_valid].dt.year.astype(str) + '-' +
+        (date_series.loc[mask_apr_or_later & mask_valid].dt.year + 1).astype(str)
+    )
+    
+    # For dates before April: FY is year-1-year
+    result.loc[~mask_apr_or_later & mask_valid] = (
+        (date_series.loc[~mask_apr_or_later & mask_valid].dt.year - 1).astype(str) + '-' +
+        date_series.loc[~mask_apr_or_later & mask_valid].dt.year.astype(str)
+    )
+    
+    # Set NaN for invalid dates
+    result.loc[~mask_valid] = None
+    
+    return result
 
 def safe_numeric_conversion(value, default=0):
     """Safely convert value to numeric with fallback"""

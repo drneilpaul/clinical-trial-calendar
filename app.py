@@ -10,6 +10,7 @@ from helpers import (
 from file_validation import validate_file_upload, get_validation_summary, FileValidationError
 import database as db
 from processing_calendar import build_calendar, clear_build_calendar_cache
+from database import clear_database_cache
 from display_components import (
     show_legend, display_calendar, display_site_statistics,
     display_download_buttons, display_monthly_income_tables,
@@ -68,6 +69,7 @@ def check_and_refresh_data():
                 log_activity("Data refreshed from database", level='success')
 
             clear_build_calendar_cache()
+            clear_database_cache()
             st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
             st.session_state.data_refresh_needed = False
         except Exception as e:
