@@ -3,12 +3,13 @@ import streamlit as st
 from datetime import date
 from helpers import get_financial_year, get_current_financial_year_boundaries, create_trial_payment_lookup, get_trial_payment_for_visit, log_activity
 
-def prepare_financial_data(visits_df):
-    """Prepare visits data with financial period columns"""
+@st.cache_data(ttl=60, show_spinner=False)
+def _prepare_financial_data_impl(visits_df):
+    """Internal cached implementation of financial data preparation"""
     if visits_df.empty:
         return pd.DataFrame()
     
-    # Create copy first
+    # Create copy first (needed since we modify the DataFrame)
     financial_df = visits_df.copy()
     
     # Debug: Log input data
@@ -78,6 +79,10 @@ def prepare_financial_data(visits_df):
     log_activity(f"Payment sum: {financial_df['Payment'].sum()}", level='info')
     
     return financial_df
+
+def prepare_financial_data(visits_df):
+    """Prepare visits data with financial period columns (with caching)"""
+    return _prepare_financial_data_impl(visits_df)
 
 def calculate_work_ratios(data_df, period_column, period_value):
     """Calculate work done ratios for a specific period"""

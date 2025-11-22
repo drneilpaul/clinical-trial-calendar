@@ -27,20 +27,37 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     if len(patient_actuals) > 0:
         log_activity(f"  Found {len(patient_actuals)} actual patient visits for {patient_id}", level='info')
     
-    for _, actual_visit in patient_actuals.iterrows():
-        visit_name = str(actual_visit["VisitName"]).strip()
+    # OPTIMIZED: Pre-create lookup dictionaries for faster matching (O(1) instead of O(n))
+    # Create exact match lookup
+    study_visits_stripped = study_visits["VisitName"].str.strip()
+    exact_match_lookup = {}
+    for idx, visit_name in study_visits_stripped.items():
+        if visit_name not in exact_match_lookup:
+            exact_match_lookup[visit_name] = study_visits.loc[idx]
+    
+    # Create case-insensitive lookup (lowercase key -> original row)
+    case_insensitive_lookup = {}
+    for idx, visit_name in study_visits_stripped.items():
+        key = visit_name.lower()
+        if key not in case_insensitive_lookup:
+            case_insensitive_lookup[key] = study_visits.loc[idx]
+    
+    # OPTIMIZED: Use itertuples for faster iteration
+    for actual_visit_tuple in patient_actuals.itertuples():
+        visit_name = str(actual_visit_tuple.VisitName).strip()
         log_activity(f"    Matching actual visit '{visit_name}' for patient {patient_id}", level='info')
         
-        # Try exact match first
-        matching_trial = study_visits[study_visits["VisitName"].str.strip() == visit_name]
+        # Convert tuple back to Series for compatibility with existing code
+        actual_visit = patient_actuals.loc[actual_visit_tuple.Index]
         
-        # If no exact match, try case-insensitive match
-        if len(matching_trial) == 0:
-            matching_trial = study_visits[
-                study_visits["VisitName"].str.strip().str.lower() == visit_name.lower()
-            ]
+        # Try exact match first (O(1) lookup)
+        matching_trial = exact_match_lookup.get(visit_name)
         
-        if len(matching_trial) == 0:
+        # If no exact match, try case-insensitive match (O(1) lookup)
+        if matching_trial is None:
+            matching_trial = case_insensitive_lookup.get(visit_name.lower())
+        
+        if matching_trial is None:
             # Check if this might be a Day 0 visit (optional visit not in scheduled trials)
             # For now, we'll still add it but mark it as unmatched for reporting
             # In the future, we could add special handling for Day 0 visits
@@ -52,7 +69,7 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
             continue
         
         # Found a match!
-        matched_day = matching_trial.iloc[0]["Day"]
+        matched_day = matching_trial["Day"]
         log_activity(f"      ✅ Matched to trial visit (Day {matched_day})", level='info')
         patient_actual_visits[visit_name] = actual_visit
         actual_visits_used += 1
@@ -290,10 +307,22 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             baseline_date = actual_baseline_date
             patient_needs_recalc = True
     
-    # Process each visit for this patient
-    for _, visit in study_visits.iterrows():
-        visit_name = str(visit["VisitName"])
-        visit_day = int(visit["Day"])
+    # OPTIMIZED: Process each visit using itertuples (faster than iterrows)
+    for visit_tuple in study_visits.itertuples():
+        visit_name = str(visit_tuple.VisitName)
+        visit_day = int(visit_tuple.Day)
+        # Convert tuple to dict-like for compatibility
+        visit = {
+            "Day": visit_tuple.Day,
+            "VisitName": visit_tuple.VisitName,
+            "Payment": getattr(visit_tuple, 'Payment', 0),
+            "SiteforVisit": getattr(visit_tuple, 'SiteforVisit', ''),
+            "ToleranceBefore": getattr(visit_tuple, 'ToleranceBefore', 0),
+            "ToleranceAfter": getattr(visit_tuple, 'ToleranceAfter', 0),
+            "IntervalUnit": getattr(visit_tuple, 'IntervalUnit', None),
+            "IntervalValue": getattr(visit_tuple, 'IntervalValue', None),
+            "VisitType": getattr(visit_tuple, 'VisitType', 'patient')
+        }
         actual_visit_data = patient_actual_visits.get(visit_name)
         
         if actual_visit_data is not None:
@@ -332,9 +361,11 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 screen_fail_exclusions += exclusions
             # else: Skip Day 0 visits only - they're optional and only appear when actual
     
-    # Handle unmatched actual visits (including Day 0 optional visits)
+    # OPTIMIZED: Handle unmatched actual visits (including Day 0 optional visits)
+    # Pre-compute study visit names set for O(1) lookup
+    study_visit_names = set(study_visits["VisitName"].astype(str))
     for visit_name, actual_visit_data in patient_actual_visits.items():
-        if visit_name not in [str(v["VisitName"]) for _, v in study_visits.iterrows()]:
+        if visit_name not in study_visit_names:
             # This is an unmatched actual visit (likely Day 0 optional visit)
             from helpers import log_activity
             # Unmatched visit - may be Day 0 or unscheduled

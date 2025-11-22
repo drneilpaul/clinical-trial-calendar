@@ -420,11 +420,20 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
     recalculated_patients = []
     patients_with_no_visits = []
     
-    # Process patients and generate visits
+    # OPTIMIZED: Process patients and generate visits using itertuples (faster than iterrows)
+    # itertuples() is 2-3x faster than iterrows() because it returns namedtuples instead of Series
     
-    for _, patient in patients_df.iterrows():
-        patient_id = str(patient["PatientID"])
-        study = str(patient["Study"])
+    for patient_tuple in patients_df.itertuples():
+        patient_id = str(patient_tuple.PatientID)
+        study = str(patient_tuple.Study)
+        
+        # Convert tuple to dict-like object for process_single_patient compatibility
+        patient = {
+            "PatientID": patient_tuple.PatientID,
+            "Study": patient_tuple.Study,
+            "StartDate": patient_tuple.StartDate,
+            "PatientPractice": getattr(patient_tuple, 'PatientPractice', '')
+        }
         
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(
             patient, patient_visits, screen_failures, actual_visits_df
