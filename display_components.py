@@ -1365,7 +1365,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         }}
                     }}
                     
-                    // Auto-scroll function - now uses UK date format and checks Date column (cells[1])
+                    // Auto-scroll function - now uses UK date format and checks Date column (cells[0])
                     function autoScrollToToday() {{
                         try {{
                             const scrollContainer = document.getElementById('calendar-scroll-container');
@@ -1400,6 +1400,11 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                                         const scrollPosition = rowTop - (containerHeight / 3);
                                         scrollContainer.scrollTop = Math.max(0, scrollPosition);
                                         console.log('Scrolled to position:', scrollPosition);
+                                        
+                                        // Save the scroll position to localStorage
+                                        setTimeout(function() {{
+                                            localStorage.setItem('calendar_scroll_position', scrollContainer.scrollTop.toString());
+                                        }}, 100);
                                         break;
                                     }}
                                 }}
@@ -1409,8 +1414,73 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         }}
                     }}
                     
-                    // Make function globally accessible for button click
+                    // Restore saved scroll position or scroll to today
+                    function restoreScrollPosition() {{
+                        try {{
+                            const scrollContainer = document.getElementById('calendar-scroll-container');
+                            if (!scrollContainer) {{
+                                console.log('Scroll container not found');
+                                return;
+                            }}
+                            
+                            // Check for saved scroll position in localStorage
+                            const savedPosition = localStorage.getItem('calendar_scroll_position');
+                            
+                            if (savedPosition !== null && savedPosition !== '') {{
+                                const position = parseInt(savedPosition, 10);
+                                
+                                // Validate position is reasonable (not negative, not too large)
+                                if (!isNaN(position) && position >= 0 && position < scrollContainer.scrollHeight) {{
+                                    console.log('Restoring saved scroll position:', position);
+                                    scrollContainer.scrollTop = position;
+                                    return true; // Position restored
+                                }} else {{
+                                    console.log('Invalid saved position, clearing:', position);
+                                    localStorage.removeItem('calendar_scroll_position');
+                                }}
+                            }}
+                            
+                            // No valid saved position - default to scrolling to today
+                            console.log('No saved position, scrolling to today');
+                            autoScrollToToday();
+                            return false; // Used default
+                        }} catch (error) {{
+                            console.error('Error restoring scroll position:', error);
+                            // Fallback to today
+                            autoScrollToToday();
+                            return false;
+                        }}
+                    }}
+                    
+                    // Track user scroll and save position (with debouncing)
+                    function setupScrollTracking() {{
+                        try {{
+                            const scrollContainer = document.getElementById('calendar-scroll-container');
+                            if (!scrollContainer) {{
+                                return;
+                            }}
+                            
+                            let scrollTimeout;
+                            scrollContainer.addEventListener('scroll', function() {{
+                                clearTimeout(scrollTimeout);
+                                
+                                // Debounce: save position 500ms after user stops scrolling
+                                scrollTimeout = setTimeout(function() {{
+                                    const position = scrollContainer.scrollTop;
+                                    localStorage.setItem('calendar_scroll_position', position.toString());
+                                    console.log('Saved scroll position:', position);
+                                }}, 500);
+                            }}, {{ passive: true }});
+                            
+                            console.log('Scroll tracking enabled');
+                        }} catch (error) {{
+                            console.error('Error setting up scroll tracking:', error);
+                        }}
+                    }}
+                    
+                    // Make functions globally accessible
                     window.autoScrollToToday = autoScrollToToday;
+                    window.restoreScrollPosition = restoreScrollPosition;
                     
                     // Apply immediately and after delays to catch timing issues
                     applyStickyStyles();
@@ -1418,16 +1488,24 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     setTimeout(applyStickyStyles, 200);
                     setTimeout(function() {{
                         applyStickyStyles();
-                        // Only auto-scroll on initial load, not when button is clicked
-                        // Button click will trigger scroll via scroll_to_today flag
                     }}, 100);
                     
-                    // If scroll_to_today flag is set, trigger scroll after a delay
+                    // Setup scroll tracking for sticky position
+                    setTimeout(setupScrollTracking, 100);
+                    
+                    // Handle scroll positioning
                     {f"""
+                    // Button click: reset to today and clear saved position
                     setTimeout(function() {{
+                        localStorage.removeItem('calendar_scroll_position');
                         autoScrollToToday();
                     }}, 500);
-                    """ if scroll_to_today else "// scroll_to_today not requested"}
+                    """ if scroll_to_today else """
+                    // Initial load: restore saved position or default to today
+                    setTimeout(function() {
+                        restoreScrollPosition();
+                    }, 600);
+                    """}
                 </script>
             </body>
         </html>
