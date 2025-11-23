@@ -751,6 +751,21 @@ def main():
                 hide_inactive=hide_inactive
             )
             
+            # ====================================================================
+            # PHASE 1 VALIDATION - Can be removed after testing is complete
+            # ====================================================================
+            # Validates that the optimized calculate_financial_totals() function
+            # produces correct results. Remove this section once Phase 1 is validated.
+            try:
+                from validate_phase1 import validate_financial_totals
+                validate_financial_totals(calendar_df, "Phase 1", show_in_ui=True)
+            except Exception as e:
+                # Silently fail if validation script has issues - don't break the app
+                log_activity(f"Phase 1 validation error: {e}", level='warning')
+            # ====================================================================
+            # END PHASE 1 VALIDATION
+            # ====================================================================
+            
             screen_failures = extract_screen_failures(actual_visits_df)
             withdrawals = extract_withdrawals(actual_visits_df)
 
