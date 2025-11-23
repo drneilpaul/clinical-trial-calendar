@@ -124,28 +124,14 @@ def create_data_row_styles(row, today_date):
     """Create styles for data rows"""
     styles = []
     
-    # Get date for this row with robust parsing
+    # Get date for this row
     date_str = row.get("Date", "")
     date_obj = None
     try:
         if date_str and str(date_str) != "":
-            # Handle if already a Timestamp
-            if isinstance(date_str, pd.Timestamp):
-                date_obj = date_str
-            else:
-                # Try UK format explicitly first (DD/MM/YYYY)
-                try:
-                    date_obj = pd.to_datetime(date_str, format='%d/%m/%Y', errors='raise')
-                except (ValueError, TypeError):
-                    # Fallback: Let pandas infer with UK preference
-                    date_obj = pd.to_datetime(date_str, dayfirst=True, errors='coerce')
-                
-                # If still failed, log it
-                if pd.isna(date_obj):
-                    from helpers import log_activity
-                    log_activity(f"Date parsing failed for: {date_str}", level='warning')
-    except Exception as e:
-        # Silent fallback - styling will just skip this row
+            # Use dayfirst=True for UK date format (DD/MM/YYYY)
+            date_obj = pd.to_datetime(date_str, dayfirst=True)
+    except:
         pass
 
     for col_name, cell_value in row.items():
@@ -159,7 +145,7 @@ def create_data_row_styles(row, today_date):
             # Apply visit-specific styling if no date styling
             if style == "" and col_name not in ["Date", "Day"] and str(cell_value) != "":
                 style = get_visit_based_style(str(cell_value))
-        except Exception:
+        except Exception as e:
             # If there's any error with styling, just use empty style
             style = ""
         

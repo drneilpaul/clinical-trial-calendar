@@ -56,7 +56,7 @@ def process_study_events(event_templates, actual_visits_df):
         # Skip this event if no valid site found
         if site is None:
             from helpers import log_activity
-            log_activity(f"WARNING: Skipping study event {visit_name} for {study} - no valid SiteforVisit found in trial schedule", level='warning')
+            log_activity(f"⚠️ Skipping study event {visit_name} for {study} - no valid SiteforVisit found in trial schedule", level='warning')
             continue
         
         # All study events in actual_visits are completed
@@ -84,7 +84,7 @@ def process_study_events(event_templates, actual_visits_df):
     # After the main loop, add summary logging
     if event_records:
         from helpers import log_activity
-        log_activity(f"INFO: Processed {len(event_records)} study events with valid sites", level='info')
+        log_activity(f"✅ Processed {len(event_records)} study events with valid sites", level='info')
     
     return event_records
 
