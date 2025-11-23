@@ -510,37 +510,31 @@ def build_processing_messages(processing_stats, unmatched_visits):
     return processing_messages
 
 def calculate_financial_totals(calendar_df):
-    """
-    Calculate monthly and financial year totals using vectorized operations.
-    
-    OPTIMIZATION: Uses groupby().cumsum() instead of loops (2-3x faster)
-    CRITICAL: Must sort by Date before cumsum to ensure correct cumulative totals
-    """
-    # Add period columns
+    """Calculate monthly and financial year totals"""
+    # Calculate monthly totals - cumulative within each month
     calendar_df["MonthPeriod"] = calendar_df["Date"].dt.to_period("M")
+    calendar_df["Monthly Total"] = 0.0
     
-    # CRITICAL: Sort by date BEFORE cumsum operations
-    # Without this, cumulative totals will be incorrect
-    calendar_df = calendar_df.sort_values("Date").reset_index(drop=True)
-    
-    # Calculate monthly cumulative totals using vectorized groupby
-    # This replaces the month loop (2-3x faster)
-    calendar_df["Monthly Total"] = (
-        calendar_df.groupby("MonthPeriod", observed=True)["Daily Total"]
-        .cumsum()
-        .fillna(0.0)
-    )
-    
+    for month in calendar_df["MonthPeriod"].unique():
+        month_mask = calendar_df["MonthPeriod"] == month
+        month_data = calendar_df[month_mask].copy()
+        month_data = month_data.sort_values("Date")
+        month_data["Monthly Total"] = month_data["Daily Total"].cumsum()
+        calendar_df.loc[month_mask, "Monthly Total"] = month_data["Monthly Total"].values
+
     # Calculate financial year totals - cumulative within each financial year
+    # OPTIMIZED: Use vectorized financial year start calculation
     from helpers import get_financial_year_start_year_for_series
     calendar_df["FYStart"] = get_financial_year_start_year_for_series(calendar_df["Date"])
+    calendar_df["FY Total"] = 0.0
     
-    # Calculate FY cumulative totals using vectorized groupby
-    # This replaces the FY loop (2-3x faster)
-    calendar_df["FY Total"] = (
-        calendar_df.groupby("FYStart", observed=True)["Daily Total"]
-        .cumsum()
-        .fillna(0.0)
-    )
+    for fy_year in calendar_df["FYStart"].unique():
+        if pd.isna(fy_year):
+            continue
+        fy_mask = calendar_df["FYStart"] == fy_year
+        fy_data = calendar_df[fy_mask].copy()
+        fy_data = fy_data.sort_values("Date")
+        fy_data["FY Total"] = fy_data["Daily Total"].cumsum()
+        calendar_df.loc[fy_mask, "FY Total"] = fy_data["FY Total"].values
     
     return calendar_df
