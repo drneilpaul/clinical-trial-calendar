@@ -755,26 +755,6 @@ def main():
             )
             
             # ====================================================================
-            # BASELINE CALENDAR SAVE (Temporary - for Phase 3 validation)
-            # ====================================================================
-            if st.session_state.get('debug_mode', False):
-                if st.sidebar.button("💾 Save Baseline Calendar", help="Save current calendar for Phase 3 validation"):
-                    baseline_path = "baseline_calendar.pkl"
-                    calendar_df.to_pickle(baseline_path)
-                    st.sidebar.success(f"Baseline saved to {baseline_path}")
-                    
-                    # Also save performance metrics
-                    import json
-                    if 'performance_timings' in st.session_state:
-                        with open('baseline_performance.json', 'w') as f:
-                            json.dump(st.session_state.performance_timings, f, indent=2)
-                        st.sidebar.success("Performance metrics saved")
-                    log_activity("Baseline calendar saved for Phase 3 validation", level='info')
-            # ====================================================================
-            # END BASELINE SAVE
-            # ====================================================================
-            
-            # ====================================================================
             # PHASE 1 VALIDATION - Only runs in debug mode
             # ====================================================================
             # Validates that the optimized calculate_financial_totals() function
@@ -788,41 +768,6 @@ def main():
                     log_activity(f"Phase 1 validation error: {e}", level='warning')
             # ====================================================================
             # END PHASE 1 VALIDATION
-            # ====================================================================
-            
-            # ====================================================================
-            # PHASE 3 VALIDATION - Only runs in debug mode
-            # ====================================================================
-            if st.session_state.get('debug_mode', False):
-                try:
-                    from validate_phase3 import validate_phase3_optimization
-                    import os
-                    
-                    baseline_path = "baseline_calendar.pkl"
-                    if os.path.exists(baseline_path):
-                        baseline_calendar = pd.read_pickle(baseline_path)
-                        
-                        # Run comprehensive validation
-                        validation_results = validate_phase3_optimization(
-                            baseline_calendar,
-                            calendar_df,
-                            test_name="Phase 3 Live Validation",
-                            show_in_ui=True
-                        )
-                        
-                        if not validation_results.get('passed', False):
-                            st.error("⚠️ Phase 3 validation failed! See details above.")
-                        else:
-                            st.success("✅ Phase 3 validation passed!")
-                    else:
-                        st.info("ℹ️ Baseline calendar not found. Generate calendar with original implementation first, then click 'Save Baseline Calendar'.")
-                except ImportError:
-                    st.warning("⚠️ validate_phase3 module not found. Skipping Phase 3 validation.")
-                except Exception as e:
-                    st.error(f"Phase 3 validation error: {str(e)}")
-                    log_activity(f"Phase 3 validation error: {str(e)}", level='error')
-            # ====================================================================
-            # END PHASE 3 VALIDATION
             # ====================================================================
             
             screen_failures = extract_screen_failures(actual_visits_df)

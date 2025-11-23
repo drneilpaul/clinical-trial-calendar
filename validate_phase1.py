@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Validation script for Phase 1 financial calculations
 Run this after implementing the optimized calculate_financial_totals()

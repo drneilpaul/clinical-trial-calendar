@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 from datetime import timedelta
 from helpers import safe_string_conversion

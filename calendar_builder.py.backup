@@ -297,22 +297,17 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             col_id_mapping[base_col_id] = []
                         col_id_mapping[base_col_id].append(col)
     
-    # PHASE 3 OPTIMIZATION: Create date-to-index mapping for O(1) lookup
-    # This eliminates the need to iterate through calendar_df
-    calendar_dates = pd.to_datetime(calendar_df['Date']).dt.normalize()
-    date_to_idx = {date: idx for idx, date in enumerate(calendar_dates)}
-    
-    # Initialize Daily Total for all dates (dates without visits will remain 0.0)
-    # Income columns are already initialized above
-    
-    # OPTIMIZED: Process visits by date (only iterate through dates that have visits)
-    # This reduces iterations from 365 (all dates) to ~100-200 (dates with visits)
-    for visit_date, visits_group in visits_by_date.items():
-        if visit_date not in date_to_idx:
-            continue
-            
-        i = date_to_idx[visit_date]
-        visits_today = visits_group
+    # OPTIMIZED: Use itertuples for calendar iteration (2-3x faster than iterrows)
+    # Fill calendar with visits
+    for calendar_row in calendar_df.itertuples(index=True):
+        i = calendar_row.Index
+        date = calendar_row.Date
+        
+        # FIX: Ensure consistent Timestamp comparison
+        calendar_date = pd.Timestamp(date.date())  # Normalize to date-only Timestamp
+        
+        # OPTIMIZED: Use dictionary lookup instead of filtering DataFrame
+        visits_today = visits_by_date.get(calendar_date, pd.DataFrame())
         
         
         daily_total = 0.0

@@ -591,9 +591,10 @@ def log_activity(message: str, level: str = 'info', details: str = None):
     
     st.session_state.activity_log.append(log_entry)
     
-    # Keep only last 100 entries to prevent memory issues
-    if len(st.session_state.activity_log) > 100:
-        st.session_state.activity_log = st.session_state.activity_log[-100:]
+    # Keep only last 500 entries to prevent memory issues (increased from 100 for longer sessions)
+    MAX_LOG_ENTRIES = 500
+    if len(st.session_state.activity_log) > MAX_LOG_ENTRIES:
+        st.session_state.activity_log = st.session_state.activity_log[-MAX_LOG_ENTRIES:]
 
 def display_activity_log_sidebar():
     """Display activity log in sidebar expander"""
