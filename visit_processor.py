@@ -13,22 +13,24 @@ def process_study_events(event_templates, actual_visits_df):
         actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
     ]
     
-    for _, event_visit in study_events.iterrows():
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+    for event_tuple in study_events.itertuples(index=False):
         # Validate required fields and skip if missing/invalid
-        study = safe_string_conversion(event_visit.get('Study', ''))
-        visit_name = safe_string_conversion(event_visit.get('VisitName', ''))
-        visit_type = safe_string_conversion(event_visit.get('VisitType', 'siv')).lower()
+        study = safe_string_conversion(getattr(event_tuple, 'Study', ''))
+        visit_name = safe_string_conversion(getattr(event_tuple, 'VisitName', ''))
+        visit_type = safe_string_conversion(getattr(event_tuple, 'VisitType', 'siv')).lower()
         
         # Skip if essential fields are missing or invalid
-        if not study or study.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('Study')):
+        if not study or study.lower() in ['nan', 'none', ''] or pd.isna(getattr(event_tuple, 'Study', None)):
             continue
-        if not visit_name or visit_name.lower() in ['nan', 'none', ''] or pd.isna(event_visit.get('VisitName')):
+        if not visit_name or visit_name.lower() in ['nan', 'none', ''] or pd.isna(getattr(event_tuple, 'VisitName', None)):
             continue
         if not visit_type or visit_type not in ['siv', 'monitor']:
             continue
             
         # Validate date
-        if pd.isna(event_visit.get('ActualDate')):
+        actual_date = getattr(event_tuple, 'ActualDate', None)
+        if pd.isna(actual_date):
             continue
         
         # Study events MUST have a valid template with site information
@@ -63,7 +65,7 @@ def process_study_events(event_templates, actual_visits_df):
         # payment already set from template (line 48)
         
         event_records.append({
-            "Date": event_visit['ActualDate'],
+            "Date": actual_date,
             "PatientID": f"{visit_type.upper()}_{study}",
             "Visit": visit_status,
             "Study": study,
@@ -98,18 +100,19 @@ def detect_screen_failures(actual_visits_df, trials_df):
         actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
     ]
     
-    for _, visit in screen_fail_visits.iterrows():
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+    for visit_tuple in screen_fail_visits.itertuples(index=False):
         # Create patient-specific key
-        patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-        screen_fail_date = visit['ActualDate']
+        patient_study_key = f"{visit_tuple.PatientID}_{visit_tuple.Study}"
+        screen_fail_date = visit_tuple.ActualDate
         
         study_visits = trials_df[
-            (trials_df["Study"] == visit["Study"]) & 
-            (trials_df["VisitName"] == visit["VisitName"])
+            (trials_df["Study"] == visit_tuple.Study) & 
+            (trials_df["VisitName"] == visit_tuple.VisitName)
         ]
         
         if len(study_visits) == 0:
-            unmatched_visits.append(f"Screen failure visit '{visit['VisitName']}' not found in study {visit['Study']}")
+            unmatched_visits.append(f"Screen failure visit '{visit_tuple.VisitName}' not found in study {visit_tuple.Study}")
             continue
         
         # Store earliest screen failure date for this specific patient
@@ -130,18 +133,19 @@ def detect_withdrawals(actual_visits_df, trials_df):
         actual_visits_df["Notes"].str.contains("Withdrawn", case=False, na=False)
     ]
     
-    for _, visit in withdrawal_visits.iterrows():
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+    for visit_tuple in withdrawal_visits.itertuples(index=False):
         # Create patient-specific key
-        patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-        withdrawal_date = visit['ActualDate']
+        patient_study_key = f"{visit_tuple.PatientID}_{visit_tuple.Study}"
+        withdrawal_date = visit_tuple.ActualDate
         
         study_visits = trials_df[
-            (trials_df["Study"] == visit["Study"]) & 
-            (trials_df["VisitName"] == visit["VisitName"])
+            (trials_df["Study"] == visit_tuple.Study) & 
+            (trials_df["VisitName"] == visit_tuple.VisitName)
         ]
         
         if len(study_visits) == 0:
-            unmatched_visits.append(f"Withdrawal visit '{visit['VisitName']}' not found in study {visit['Study']}")
+            unmatched_visits.append(f"Withdrawal visit '{visit_tuple.VisitName}' not found in study {visit_tuple.Study}")
             continue
         
         # Store earliest withdrawal date for this specific patient

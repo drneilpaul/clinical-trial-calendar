@@ -219,24 +219,25 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
         # END NEW VALIDATION
         
         records = []
-        for _, row in patients_df.iterrows():
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in patients_df.itertuples(index=False):
             start_date = None
-            if pd.notna(row['StartDate']):
+            if pd.notna(row_tuple.StartDate):
                 try:
-                    if isinstance(row['StartDate'], str):
+                    if isinstance(row_tuple.StartDate, str):
                         from datetime import datetime
-                        start_date = datetime.strptime(row['StartDate'], '%d/%m/%Y').date()
+                        start_date = datetime.strptime(row_tuple.StartDate, '%d/%m/%Y').date()
                     else:
-                        start_date = row['StartDate'].date() if hasattr(row['StartDate'], 'date') else row['StartDate']
+                        start_date = row_tuple.StartDate.date() if hasattr(row_tuple.StartDate, 'date') else row_tuple.StartDate
                 except Exception as date_error:
-                    log_activity(f"Date parsing error for patient {row['PatientID']}: {date_error}", level='warning')
+                    log_activity(f"Date parsing error for patient {row_tuple.PatientID}: {date_error}", level='warning')
                     start_date = None
             
             record = {
-                'patient_id': str(row['PatientID']),
-                'study': str(row['Study']),
+                'patient_id': str(row_tuple.PatientID),
+                'study': str(row_tuple.Study),
                 'start_date': str(start_date) if start_date else None,
-                'patient_practice': str(row.get('PatientPractice', ''))
+                'patient_practice': str(getattr(row_tuple, 'PatientPractice', ''))
             }
             records.append(record)
         
@@ -291,18 +292,19 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             trials_df_clean['ToleranceAfter'] = pd.to_numeric(trials_df_clean['ToleranceAfter'], errors='coerce').fillna(0)
         
         records = []
-        for _, row in trials_df_clean.iterrows():
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in trials_df_clean.itertuples(index=False):
             record = {
-                'study': str(row['Study']),
-                'day': int(row['Day']),
-                'visit_name': str(row['VisitName']),
-                'site_for_visit': str(row.get('SiteforVisit', '')),
-                'payment': float(row.get('Payment', 0)),
-                'tolerance_before': int(row.get('ToleranceBefore', 0)),
-                'tolerance_after': int(row.get('ToleranceAfter', 0)),
+                'study': str(row_tuple.Study),
+                'day': int(row_tuple.Day),
+                'visit_name': str(row_tuple.VisitName),
+                'site_for_visit': str(getattr(row_tuple, 'SiteforVisit', '')),
+                'payment': float(getattr(row_tuple, 'Payment', 0)),
+                'tolerance_before': int(getattr(row_tuple, 'ToleranceBefore', 0)),
+                'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
-                'interval_unit': (str(row.get('IntervalUnit')).lower().strip() if pd.notna(row.get('IntervalUnit')) else None),
-                'interval_value': (int(row.get('IntervalValue')) if pd.notna(row.get('IntervalValue')) else None)
+                'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
+                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None)
             }
             records.append(record)
         
@@ -330,8 +332,10 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
         visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
         
         records = []
-        for idx, row in actual_visits_df.iterrows():
-            actual_date = row['ActualDate']
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in actual_visits_df.itertuples(index=True):
+            idx = row_tuple.Index
+            actual_date = row_tuple.ActualDate
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
                     actual_date = pd.to_datetime(actual_date, dayfirst=True)
@@ -342,11 +346,11 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
             visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
                 
             record = {
-                'patient_id': str(row['PatientID']),
-                'study': str(row['Study']),
-                'visit_name': str(row['VisitName']),
+                'patient_id': str(row_tuple.PatientID),
+                'study': str(row_tuple.Study),
+                'visit_name': str(row_tuple.VisitName),
                 'actual_date': actual_date_str,
-                'notes': str(row.get('Notes', '')),
+                'notes': str(getattr(row_tuple, 'Notes', '')),
                 'VisitType': str(visit_type_value)
             }
             records.append(record)
@@ -386,23 +390,25 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
         # END NEW VALIDATION
         
         records = []
-        for _, row in patient_df.iterrows():
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in patient_df.itertuples(index=False):
             start_date = None
-            if pd.notna(row.get('StartDate')):
+            if pd.notna(getattr(row_tuple, 'StartDate', None)):
                 try:
-                    if isinstance(row['StartDate'], str):
-                        start_date = datetime.strptime(row['StartDate'], '%d/%m/%Y').date()
+                    start_date_val = getattr(row_tuple, 'StartDate', None)
+                    if isinstance(start_date_val, str):
+                        start_date = datetime.strptime(start_date_val, '%d/%m/%Y').date()
                     else:
-                        start_date = row['StartDate'].date() if hasattr(row['StartDate'], 'date') else row['StartDate']
+                        start_date = start_date_val.date() if hasattr(start_date_val, 'date') else start_date_val
                 except Exception as date_error:
                     log_activity(f"Date parsing error: {date_error}", level='warning')
                     start_date = None
             
             record = {
-                'patient_id': str(row['PatientID']),
-                'study': str(row['Study']),
+                'patient_id': str(row_tuple.PatientID),
+                'study': str(row_tuple.Study),
                 'start_date': str(start_date) if start_date else None,
-                'patient_practice': str(row.get('PatientPractice', ''))
+                'patient_practice': str(getattr(row_tuple, 'PatientPractice', ''))
             }
             records.append(record)
         
@@ -451,8 +457,10 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
         visit_type_series = get_visit_type_series(visit_df, default='patient')
         
         records = []
-        for _, row in visit_df.iterrows():
-            actual_date = row.get('ActualDate')
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in visit_df.itertuples(index=True):
+            idx = row_tuple.Index
+            actual_date = getattr(row_tuple, 'ActualDate', None)
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
                     actual_date = pd.to_datetime(actual_date, dayfirst=True)
@@ -460,14 +468,14 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
             else:
                 actual_date_str = None
             
-            visit_type_value = visit_type_series.loc[row.name] if row.name in visit_type_series.index else 'patient'
+            visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
             
             record = {
-                'patient_id': str(row['PatientID']),
-                'study': str(row['Study']),
-                'visit_name': str(row['VisitName']),
+                'patient_id': str(row_tuple.PatientID),
+                'study': str(row_tuple.Study),
+                'visit_name': str(row_tuple.VisitName),
                 'actual_date': actual_date_str,
-                'notes': str(row.get('Notes', '')),
+                'notes': str(getattr(row_tuple, 'Notes', '')),
                 'VisitType': str(visit_type_value)
             }
             records.append(record)
@@ -594,18 +602,19 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
         schedule_df_clean = normalize_payment_column(schedule_df, 'Payment')
         
         records = []
-        for _, row in schedule_df_clean.iterrows():
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for row_tuple in schedule_df_clean.itertuples(index=False):
             record = {
-                'study': str(row['Study']),
-                'day': int(row.get('Day', 0)),
-                'visit_name': str(row['VisitName']),
-                'site_for_visit': str(row.get('SiteforVisit', '')),
-                'payment': float(row.get('Payment', 0)),
-                'tolerance_before': int(row.get('ToleranceBefore', 0)),
-                'tolerance_after': int(row.get('ToleranceAfter', 0)),
+                'study': str(row_tuple.Study),
+                'day': int(getattr(row_tuple, 'Day', 0)),
+                'visit_name': str(row_tuple.VisitName),
+                'site_for_visit': str(getattr(row_tuple, 'SiteforVisit', '')),
+                'payment': float(getattr(row_tuple, 'Payment', 0)),
+                'tolerance_before': int(getattr(row_tuple, 'ToleranceBefore', 0)),
+                'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
-                'interval_unit': (str(row.get('IntervalUnit')).lower().strip() if pd.notna(row.get('IntervalUnit')) else None),
-                'interval_value': (int(row.get('IntervalValue')) if pd.notna(row.get('IntervalValue')) else None)
+                'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
+                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None)
             }
             records.append(record)
         
