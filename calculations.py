@@ -157,8 +157,9 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
         }
     
     try:
+        # OPTIMIZED: Use views instead of copies where we're just filtering/reading
         if period_column == 'MonthYear':
-            period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)].copy()
+            period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)]
         elif period_column == 'QuarterYear':
             # Convert both to strings for comparison
             # Handle NaN values before converting to int
@@ -166,11 +167,11 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
                 patients_df['StartDate'].dt.year.fillna(0).astype(int).astype(str) + '-Q' + 
                 patients_df['StartDate'].dt.quarter.fillna(0).astype(int).astype(str)
             )
-            period_patients = patients_df[patients_quarter == str(period_value)].copy()
+            period_patients = patients_df[patients_quarter == str(period_value)]
         elif period_column == 'FinancialYear':
             # FIXED: Use centralized FY calculation from helpers
             patient_fy = get_financial_year_for_series(patients_df['StartDate'])
-            period_patients = patients_df[patient_fy == str(period_value)].copy()
+            period_patients = patients_df[patient_fy == str(period_value)]
         else:
             return {
                 'ashfields_recruitment_ratio': 0,
@@ -534,13 +535,14 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         # Get current financial year boundaries using centralized function
         fy_start, fy_end = get_current_financial_year_boundaries()
         
-        # OPTIMIZED: Filter for current financial year (copy needed since we modify below)
-        fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)].copy()
+        # OPTIMIZED: Filter for current financial year (use view first, copy only when modifying)
+        fy_visits_view = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)]
         
-        if fy_visits.empty:
+        if fy_visits_view.empty:
             return []
         
-        # Add month-year column (modifies DataFrame, so copy was needed)
+        # OPTIMIZED: Only copy when we need to modify (add MonthYear column)
+        fy_visits = fy_visits_view.copy()
         fy_visits['MonthYear'] = fy_visits['Date'].dt.to_period('M')
         
         # Use existing Payment column directly - already has correct values
@@ -583,14 +585,14 @@ def calculate_study_pipeline_breakdown(visits_df, trials_df):
     try:
         today = pd.to_datetime(date.today())
         
-        # Get remaining visits (future scheduled visits)
-        remaining_visits = visits_df[
+        # OPTIMIZED: Get remaining visits (use view first, copy only if needed)
+        remaining_visits_view = visits_df[
             (visits_df['Date'] >= today) & 
             (visits_df.get('IsActual', False) == False)
-        ].copy()
+        ]
         
-        # Remove tolerance periods
-        remaining_visits = remaining_visits[~remaining_visits['Visit'].isin(['-', '+'])]
+        # Remove tolerance periods (filtering doesn't require copy)
+        remaining_visits = remaining_visits_view[~remaining_visits_view['Visit'].isin(['-', '+'])]
         
         if remaining_visits.empty:
             return pd.DataFrame(columns=['Study', 'Pipeline_Value', 'Remaining_Visits'])

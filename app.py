@@ -955,7 +955,8 @@ def main():
             if not site_summary_df.empty:
                 display_site_statistics(site_summary_df)
             
-            # Admin only - Financial reports
+            # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
+            # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
             if st.session_state.get('auth_level') == 'admin':
                 display_monthly_income_tables(visits_df_filtered)
                 

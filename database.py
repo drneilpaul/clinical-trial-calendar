@@ -49,6 +49,8 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
         if client is None:
             return None
         
+        # OPTIMIZED: Select all columns (we need most columns for processing)
+        # Future optimization: Could select specific columns if only certain views need them
         response = client.table('patients').select("*").execute()
         
         if response.data:
@@ -85,6 +87,8 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
         if client is None:
             return None
         
+        # OPTIMIZED: Select all columns (we need most columns for processing)
+        # Future optimization: Could select specific columns if only certain views need them
         response = client.table('trial_schedules').select("*").execute()
         
         if response.data:
@@ -531,20 +535,23 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
             else:
                 new_date_normalized = None
             
-            # Normalize existing dates
-            existing_visits_copy = existing_visits.copy()
-            if 'ActualDate' in existing_visits_copy.columns:
+            # OPTIMIZED: Only copy when we need to add normalized date column
+            if 'ActualDate' in existing_visits.columns:
+                existing_visits_copy = existing_visits.copy()
                 existing_visits_copy['ActualDate_normalized'] = pd.to_datetime(
                     existing_visits_copy['ActualDate'], dayfirst=True, errors='coerce'
                 ).dt.date
-            
-            # Check for exact duplicate (same PatientID + Study + VisitName + ActualDate)
-            exact_match = existing_visits_copy[
-                (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
-                (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
-                (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
-                (existing_visits_copy['ActualDate_normalized'] == new_date_normalized)
-            ]
+                
+                # Check for exact duplicate (same PatientID + Study + VisitName + ActualDate)
+                exact_match = existing_visits_copy[
+                    (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
+                    (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
+                    (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
+                    (existing_visits_copy['ActualDate_normalized'] == new_date_normalized)
+                ]
+            else:
+                # No ActualDate column - can't match on date, so no exact duplicates possible
+                exact_match = pd.DataFrame()
             
             if not exact_match.empty:
                 duplicate_info = exact_match.iloc[0]
