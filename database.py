@@ -73,10 +73,9 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
 def fetch_all_patients() -> Optional[pd.DataFrame]:
     """Fetch all patients from database (with caching)"""
     df = _fetch_all_patients_cached()
-    if df is not None:
-        log_activity(f"Fetched {len(df)} patients from database", level='info')
-    else:
-        log_activity("No patients found in database", level='info')
+    # Reduced logging - only log errors, not successful fetches (handled by app.py)
+    if df is None:
+        log_activity("No patients found in database", level='warning')
     return df
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -182,16 +181,9 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
             if monitor_corrected > 0:
                 log_activity(f"🔧 CORRECTED {monitor_corrected} Monitor event(s) in database (were marked as patient visits)", level='warning')
         
-        # Log what was loaded
+        # Log what was loaded (reduced verbosity)
         log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
-        if not df.empty:
-            # Show breakdown by visit type
-            if 'VisitType' in df.columns:
-                visit_types = df['VisitType'].value_counts().to_dict()
-                log_activity(f"   Visit types: {visit_types}", level='info')
-            # Show some sample visits for debugging
-            for idx, row in df.head(3).iterrows():
-                log_activity(f"   Sample: {row['PatientID']} - {row['VisitName']} (Type: {row.get('VisitType', 'unknown')}) ({row['ActualDate'].strftime('%Y-%m-%d') if pd.notna(row['ActualDate']) else 'No date'})", level='info')
+        # Removed verbose sample visit logging - only log if there are issues
     else:
         log_activity("📥 No actual visits found in database", level='info')
     return df

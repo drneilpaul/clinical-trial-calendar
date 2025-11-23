@@ -459,16 +459,9 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
     st.subheader("Generated Visit Calendar")
 
     try:
-        # Debug: Log calendar DataFrame info
-        log_activity(f"Calendar DataFrame shape: {calendar_df.shape}", level='info')
-        log_activity(f"Calendar columns: {list(calendar_df.columns)}", level='info')
-        log_activity(f"Calendar has unique columns: {calendar_df.columns.is_unique}", level='info')
-        log_activity(f"Site column mapping keys: {list(site_column_mapping.keys())}", level='info')
-        log_activity(f"Unique visit sites: {unique_visit_sites}", level='info')
         # Prepare display columns (avoid duplicates)
         final_ordered_columns = ["Date", "Day"]
         seen_columns = {"Date", "Day"}
-        log_activity(f"Building display columns for {len(unique_visit_sites)} sites", level='info')
         
         for visit_site in unique_visit_sites:
             site_data = site_column_mapping.get(visit_site, {})
@@ -500,8 +493,6 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         level2_df = pd.DataFrame([header_rows['level2_study_patient']])  # Study_Patient
         level3_df = pd.DataFrame([header_rows['level3_origin']])  # Origin sites
         
-        log_activity(f"Header DataFrames created - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}", level='info')
-        
         # Check for duplicate indices before concatenation
         if not display_df_for_view.index.is_unique:
             st.warning(f"Found duplicate indices in calendar data. Resetting index...")
@@ -509,11 +500,10 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         
         # Combine all headers with data
         try:
-            log_activity(f"Concatenating DataFrames - Level1: {level1_df.shape}, Level2: {level2_df.shape}, Level3: {level3_df.shape}, Data: {display_df_for_view.shape}", level='info')
-            
-            # Check for column alignment
+            # Check for column alignment (only log if mismatch)
             all_columns = set(level1_df.columns) | set(level2_df.columns) | set(level3_df.columns) | set(display_df_for_view.columns)
-            log_activity(f"All columns in concatenation: {sorted(all_columns)}", level='info')
+            if len(all_columns) != len(display_df_for_view.columns):
+                log_activity(f"Warning: Column mismatch in concatenation. Expected {len(display_df_for_view.columns)}, found {len(all_columns)}", level='warning')
             
             display_with_headers = pd.concat([
                 level1_df,      # Level 1: Visit sites (ASHFIELDS, KILTEARN)

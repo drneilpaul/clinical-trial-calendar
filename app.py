@@ -617,11 +617,10 @@ def main():
 
         # Load data based on mode
         if use_database:
+            # Only log if actually refreshing (not on cache hits)
             if st.session_state.get('data_refresh_needed', False):
                 log_activity("Refreshing data from database...", level='info')
                 st.session_state.data_refresh_needed = False
-            else:
-                log_activity("Loading data from database...", level='info')
             
             patients_df = db.fetch_all_patients()
             trials_df = db.fetch_all_trial_schedules()
@@ -632,7 +631,10 @@ def main():
                 st.session_state.use_database = False
                 st.stop()
             
-            log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
+            # Only log summary if data was actually loaded (not cached)
+            if st.session_state.get('data_refresh_needed', False) or not hasattr(st.session_state, '_last_data_summary'):
+                log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
+                st.session_state._last_data_summary = f"{len(patients_df)}_{len(trials_df)}"
             
             if st.session_state.get('show_debug_info', False):
                 st.write("**Data Summary:**")
