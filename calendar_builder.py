@@ -118,16 +118,10 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
     # Get unique visit sites from actual visit data only
     # This ensures only sites that perform work get calendar sections
     
-    # DEBUG: Print to console to ensure we see this
-    print(f"🔍 DEBUG: visits_df SiteofVisit values: {list(visits_df['SiteofVisit'].dropna().unique())}")
-    print(f"🔍 DEBUG: visits_df shape: {visits_df.shape}")
-    
     unique_visit_sites = sorted([
         site for site in visits_df["SiteofVisit"].dropna().unique()
         if site and str(site) not in ['nan', 'Unknown Site', 'None', '', 'null', 'unknown site', 'UNKNOWN SITE', 'Default Site']
     ])
-    
-    print(f"🔍 DEBUG: unique_visit_sites: {unique_visit_sites}")
     
     # Create enhanced column structure with site events
     ordered_columns = ["Date", "Day"]
@@ -142,7 +136,9 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
         if not site_visits.empty:
             # Site has visits - get patients from visits
             unique_patient_studies = site_visits[['PatientID', 'Study']].drop_duplicates()
-            log_activity(f"Processing {len(unique_patient_studies)} unique patient-study combinations for site {visit_site}", level='info')
+            # Reduced logging - only log if CALENDAR_DEBUG is enabled
+            if CALENDAR_DEBUG:
+                log_activity(f"Processing {len(unique_patient_studies)} unique patient-study combinations for site {visit_site}", level='info')
             
             for patient_study in unique_patient_studies.itertuples():
                 patient_id = patient_study.PatientID

@@ -28,6 +28,40 @@ def validate_financial_totals(calendar_df, test_name="Phase 1", show_in_ui=True)
         with st.expander(f"🔍 Phase 1 Validation: {test_name} - Financial Totals", expanded=False):
             st.markdown("**Validating optimized financial calculations...**")
             
+            # Display performance timings if available
+            try:
+                if 'performance_timings' in st.session_state and st.session_state.performance_timings:
+                    st.divider()
+                    st.markdown("**⏱️ Performance Metrics:**")
+                    
+                    # Key functions to show
+                    key_functions = [
+                        'calculate_financial_totals',
+                        'process_all_patients',
+                        'build_calendar_dataframe',
+                        'fill_calendar_with_visits',
+                        '_build_calendar_impl'
+                    ]
+                    
+                    for func_name in key_functions:
+                        if func_name in st.session_state.performance_timings:
+                            timing = st.session_state.performance_timings[func_name]
+                            emoji = timing['emoji']
+                            elapsed = timing['elapsed']
+                            st.write(f"{emoji} `{func_name}`: **{elapsed:.2f}s**")
+                    
+                    # Show Phase 1 improvement if we have calculate_financial_totals timing
+                    if 'calculate_financial_totals' in st.session_state.performance_timings:
+                        elapsed = st.session_state.performance_timings['calculate_financial_totals']['elapsed']
+                        if elapsed < 0.5:
+                            st.success(f"✅ Phase 1 optimization working! Financial calculations: {elapsed:.2f}s (expected: 0.25-0.5s)")
+                        else:
+                            st.info(f"ℹ️ Financial calculations: {elapsed:.2f}s")
+                    
+                    st.divider()
+            except Exception:
+                pass  # Silently fail if session state not available
+            
             # Check 1: Monthly totals reset at month boundaries
             st.write("✓ Checking monthly total resets...")
             calendar_df['Month'] = calendar_df['Date'].dt.to_period('M')

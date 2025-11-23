@@ -473,37 +473,27 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         for visit_site in unique_visit_sites:
             site_data = site_column_mapping.get(visit_site, {})
             site_columns = site_data.get('columns', [])
-            log_activity(f"Site {visit_site}: {len(site_columns)} columns - {site_columns}", level='info')
-            
+            # Reduced logging - only log if there are issues
             for col in site_columns:
                 if col in calendar_df.columns and col not in seen_columns:
                     final_ordered_columns.append(col)
                     seen_columns.add(col)
-                    log_activity(f"Added column: {col}", level='info')
                 elif col not in calendar_df.columns:
                     log_activity(f"Warning: Column {col} not found in calendar DataFrame", level='warning')
                 elif col in seen_columns:
                     log_activity(f"Warning: Duplicate column {col} skipped", level='warning')
-        
-        log_activity(f"Final ordered columns ({len(final_ordered_columns)}): {final_ordered_columns}", level='info')
 
         display_df = calendar_df[final_ordered_columns].copy()
         display_df_for_view = display_df.copy()
         display_df_for_view["Date"] = display_df_for_view["Date"].dt.strftime("%d/%m/%Y")  # UK format
 
         # Create three-level header rows
-        log_activity(f"Creating headers for {len(display_df_for_view.columns)} columns", level='info')
         header_rows = create_site_header_row(display_df_for_view.columns, site_column_mapping)
         
         # Add labels to Date column in header rows (positioned to the left of the date text)
         header_rows['level1_site']['Date'] = "Visit Site"
         header_rows['level2_study_patient']['Date'] = "Study_Patient"
         header_rows['level3_origin']['Date'] = "Origin Site"
-        
-        # Debug header rows
-        log_activity(f"Level 1 headers: {header_rows['level1_site']}", level='info')
-        log_activity(f"Level 2 headers: {header_rows['level2_study_patient']}", level='info')
-        log_activity(f"Level 3 headers: {header_rows['level3_origin']}", level='info')
         
         # Create header dataframes
         level1_df = pd.DataFrame([header_rows['level1_site']])  # Visit sites

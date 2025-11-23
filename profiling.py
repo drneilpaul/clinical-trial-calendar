@@ -37,6 +37,19 @@ def timeit(func):
         
         message = f"{emoji} PERFORMANCE: {func.__name__} took {elapsed:.2f}s"
         
+        # Store timing in session state for Phase 1 validation to read
+        try:
+            import streamlit as st
+            if 'performance_timings' not in st.session_state:
+                st.session_state.performance_timings = {}
+            st.session_state.performance_timings[func.__name__] = {
+                'elapsed': elapsed,
+                'emoji': emoji,
+                'level': level
+            }
+        except (ImportError, AttributeError):
+            pass
+        
         # Try to use log_activity if available (Streamlit context)
         try:
             from helpers import log_activity
