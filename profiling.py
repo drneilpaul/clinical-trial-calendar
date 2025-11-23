@@ -35,15 +35,19 @@ def timeit(func):
             emoji = '⚡'
             level = 'info'
         
-        message = f"{emoji} {func.__name__} took {elapsed:.2f}s"
+        message = f"{emoji} PERFORMANCE: {func.__name__} took {elapsed:.2f}s"
         
         # Try to use log_activity if available (Streamlit context)
         try:
             from helpers import log_activity
+            # Use 'warning' level for slow functions to make them more visible
+            # Use 'info' for fast functions
             log_activity(message, level=level)
+            # Also print to console for visibility
+            print(f"[PERF] {message}")
         except (ImportError, AttributeError):
             # Fallback for non-Streamlit contexts (testing, debugging)
-            print(message)
+            print(f"[PERF] {message}")
         
         return result
     
