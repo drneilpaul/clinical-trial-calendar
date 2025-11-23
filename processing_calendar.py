@@ -9,9 +9,11 @@ from payment_handler import normalize_payment_column, validate_payment_data
 from visit_processor import process_study_events, detect_screen_failures, detect_withdrawals, detect_patient_stoppages
 from patient_processor import process_single_patient
 from calendar_builder import build_calendar_dataframe, fill_calendar_with_visits
+from profiling import timeit
 
 PROCESSING_DEBUG = False
 
+@timeit
 def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_inactive=False):
     """Enhanced calendar builder with study events support - Main orchestrator function"""
     
@@ -413,6 +415,7 @@ def separate_visit_types(trials_df):
     
     return patient_visits, study_event_templates
 
+@timeit
 def process_all_patients(patients_df, patient_visits, screen_failures, actual_visits_df):
     """Process visits for all patients"""
     all_visit_records = []
@@ -509,6 +512,7 @@ def build_processing_messages(processing_stats, unmatched_visits):
     
     return processing_messages
 
+@timeit
 def calculate_financial_totals(calendar_df):
     """
     Calculate monthly and financial year totals using vectorized operations.

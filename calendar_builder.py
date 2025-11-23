@@ -1,6 +1,7 @@
 import pandas as pd
 from datetime import timedelta
 from helpers import safe_string_conversion, format_site_events, log_activity
+from profiling import timeit
 
 CALENDAR_DEBUG = False
 
@@ -53,6 +54,7 @@ def is_patient_inactive(patient_id, study, visits_df, actual_visits_df=None):
     
     return False, 'active'
 
+@timeit
 def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual_visits_df=None):
     """Build the basic calendar dataframe structure"""
     log_activity(f"Building calendar - visits_df empty: {visits_df.empty}, len: {len(visits_df)}", level='info')
@@ -242,6 +244,7 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
 
     return calendar_df, site_column_mapping, unique_visit_sites
 
+@timeit
 def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     """Fill the calendar with visit information"""
     
