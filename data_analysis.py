@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from helpers import get_financial_year, log_activity
+from helpers import get_financial_year, get_financial_year_for_series, log_activity
 
 def extract_screen_failures(actual_visits_df):
     """Extract screen failure information from actual visits"""
@@ -64,7 +64,6 @@ def prepare_financial_data(visits_df):
     # FIXED: Use centralized FY calculation from helpers
     if 'FinancialYear' not in financial_df.columns:
         # OPTIMIZED: Use vectorized financial year calculation
-        from helpers import get_financial_year_for_series
         financial_df['FinancialYear'] = get_financial_year_for_series(financial_df['Date'])
     
     return financial_df
