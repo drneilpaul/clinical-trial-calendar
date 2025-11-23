@@ -447,10 +447,10 @@ def visit_entry_modal():
             st.rerun()
         return
     
-    # Create patient selection options
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
     patient_options = [
-        f"{row['PatientID']} ({row['Study']})"
-        for _, row in patients_df.iterrows()
+        f"{row.PatientID} ({row.Study})"
+        for row in patients_df.itertuples(index=False)
     ]
     
     if not patient_options:
@@ -542,9 +542,10 @@ def visit_entry_modal():
             return
         
         visit_choice_records = []
-        for _, visit_row in selection_visits_df.iterrows():
-            visit_name = str(visit_row['VisitName'])
-            visit_day = visit_row.get('Day', '')
+        # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+        for visit_row in selection_visits_df.itertuples(index=False):
+            visit_name = str(visit_row.VisitName)
+            visit_day = getattr(visit_row, 'Day', '')
             label = f"{visit_name} (Day {visit_day})"
             if visit_name.strip().lower() in completed_visit_names:
                 label += " – already recorded"
@@ -583,9 +584,10 @@ def visit_entry_modal():
             else:
                 extra_options = list(available_extras_df['VisitName'])
                 extra_label_map = {}
-                for _, extra_row in available_extras_df.iterrows():
-                    extra_name = str(extra_row['VisitName'])
-                    payment = extra_row.get('Payment', 0)
+                # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+                for extra_row in available_extras_df.itertuples(index=False):
+                    extra_name = str(extra_row.VisitName)
+                    payment = getattr(extra_row, 'Payment', 0)
                     try:
                         payment_value = float(payment)
                         payment_text = f"+£{payment_value:,.2f}" if payment_value else "+£0.00"

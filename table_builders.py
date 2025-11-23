@@ -191,8 +191,9 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
         cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
     
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
     # Data rows - handle values carefully with UK accounting format + date-based styling
-    for row_idx, (_, row) in enumerate(enhanced_df.iterrows()):
+    for row_idx, row_tuple in enumerate(enhanced_df.itertuples(index=True)):
         # Get the date for this row (for styling)
         row_date = None
         if 'Date' in enhanced_df.columns:
@@ -222,7 +223,9 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
                 row_fill = PatternFill(start_color="E5E7EB", end_color="E5E7EB", fill_type="solid")
         
         # Process each cell in the row
-        for col_idx, value in enumerate(row, 1):
+        # OPTIMIZED: itertuples returns (Index, col1, col2, ...), so we skip Index (position 0) and start at 1
+        row_values = list(row_tuple)[1:]  # Skip Index, get column values
+        for col_idx, value in enumerate(row_values, 1):
             # Safely convert value for Excel
             excel_value = value
             if pd.isna(value) or value is None:

@@ -787,16 +787,17 @@ def main():
                 temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
                 temp_df = temp_df.drop_duplicates()
 
-                signature = tuple(sorted((row[site_field], row['Study']) for _, row in temp_df.iterrows()))
+                # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+                signature = tuple(sorted((getattr(row, site_field, site_label_fallback), row.Study) for row in temp_df.itertuples(index=False)))
                 cached_signature = st.session_state.get('calendar_combo_signature')
                 if signature != cached_signature:
                     combo_options = {}
-                    for _, row in temp_df.iterrows():
-                        site_value = row[site_field] if site_field in row else site_label_fallback
-                        label = f"{site_value} • {row['Study']}"
+                    for row in temp_df.itertuples(index=False):
+                        site_value = getattr(row, site_field, site_label_fallback)
+                        label = f"{site_value} • {row.Study}"
                         combo_options[label] = {
                             'site': site_value,
-                            'study': row['Study']
+                            'study': row.Study
                         }
                     st.session_state['calendar_combo_options'] = combo_options
                     st.session_state['calendar_combo_signature'] = signature
@@ -804,12 +805,12 @@ def main():
                     cached_options = st.session_state.get('calendar_combo_options')
                     if cached_options is None:
                         combo_options = {}
-                        for _, row in temp_df.iterrows():
-                            site_value = row[site_field] if site_field in row else site_label_fallback
-                            label = f"{site_value} • {row['Study']}"
+                        for row in temp_df.itertuples(index=False):
+                            site_value = getattr(row, site_field, site_label_fallback)
+                            label = f"{site_value} • {row.Study}"
                             combo_options[label] = {
                                 'site': site_value,
-                                'study': row['Study']
+                                'study': row.Study
                             }
                         st.session_state['calendar_combo_options'] = combo_options
                     else:
