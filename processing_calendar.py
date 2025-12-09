@@ -188,8 +188,8 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
     return visits_df, calendar_df, stats, processing_messages, site_column_mapping, unique_visit_sites, patients_df
 
 
-@timeit
 @st.cache_data(show_spinner=False)
+@timeit
 def _build_calendar_cached(patients_df, trials_df, actual_visits_df, cache_buster, hide_inactive):
     """Cached wrapper around the core calendar builder."""
     return _build_calendar_impl(patients_df, trials_df, actual_visits_df, hide_inactive)

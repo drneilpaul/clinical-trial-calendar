@@ -1884,10 +1884,11 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                 if export_workbook is None:
                     st.info(message or "No overdue predicted visits found for the selected date range.")
                 else:
+                    date_suffix = date.today().strftime('%d-%m-%Y')
                     st.download_button(
                         "📄 Export Overdue Predicted Visits (Excel)",
                         data=export_workbook.getvalue(),
-                        file_name="Overdue_Predicted_Visits.xlsx",
+                        file_name=f"Overdue_Predicted_Visits_{date_suffix}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         help="Download Excel with overdue predicted visits, including dropdowns for extras.",
                         width="stretch"
