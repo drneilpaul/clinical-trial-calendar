@@ -204,7 +204,20 @@ def build_calendar(patients_df, trials_df, actual_visits_df=None, cache_buster=N
 
 def clear_build_calendar_cache():
     """Clear cached calendar data."""
-    _build_calendar_cached.clear()
+    clear_fn = getattr(_build_calendar_cached, "clear", None)
+    if callable(clear_fn):
+        clear_fn()
+        return
+    cache_clear_fn = getattr(_build_calendar_cached, "cache_clear", None)
+    if callable(cache_clear_fn):
+        cache_clear_fn()
+        return
+    # Fallback: clear all data caches if per-function clear is unavailable
+    try:
+        if hasattr(st.cache_data, "clear"):
+            st.cache_data.clear()
+    except Exception:
+        pass
 
 def prepare_actual_visits_data(actual_visits_df):
     """Prepare actual visits data with proper data types"""
