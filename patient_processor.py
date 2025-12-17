@@ -104,8 +104,16 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
     # Check if this is a proposed visit (future date)
+    # Ensure both dates are properly normalized for comparison
     today = pd.Timestamp(date.today()).normalize()
+    # visit_date is already normalized above, ensure it's date-only
+    visit_date = pd.Timestamp(visit_date.date()).normalize() if hasattr(visit_date, 'date') else pd.Timestamp(visit_date).normalize()
     is_proposed = visit_date > today
+    
+    # Debug logging for proposed visit detection
+    if is_proposed:
+        from helpers import log_activity
+        log_activity(f"  Proposed visit detected: {visit_name} on {visit_date.strftime('%Y-%m-%d')} (today: {today.strftime('%Y-%m-%d')})", level='info')
     
     # Get payment amount
     trial_payment = visit.get("Payment", 0)
@@ -131,12 +139,14 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         
         if is_proposed:
             # Proposed visit - format differently
+            from helpers import log_activity
             if is_screen_fail:
                 visit_status = f"⚠️ Screen Fail {visit_name}"  # Shouldn't happen, but handle gracefully
             elif is_withdrawn:
                 visit_status = f"⚠️ Withdrawn {visit_name}"  # Shouldn't happen, but handle gracefully
             else:
                 visit_status = f"❓ {visit_name} (Proposed)"
+                log_activity(f"  Formatting as proposed: {visit_status}", level='info')
         elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
         elif is_withdrawn:
@@ -339,9 +349,14 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             proposed_visit_dates.append(visit_date)
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
     
-    # Sort proposed dates to find earliest one for suppression logic
+    # Sort proposed dates for suppression logic
+    # We need both earliest (for individual checks) and latest (for suppression range)
     proposed_visit_dates.sort()
     earliest_proposed_date = proposed_visit_dates[0] if proposed_visit_dates else None
+    latest_proposed_date = proposed_visit_dates[-1] if proposed_visit_dates else None
+    
+    if proposed_visit_dates:
+        log_activity(f"  Proposed visits found: {len(proposed_visit_dates)} - earliest: {earliest_proposed_date.strftime('%Y-%m-%d')}, latest: {latest_proposed_date.strftime('%Y-%m-%d')}", level='info')
     
     # OPTIMIZED: Process each visit using itertuples (faster than iterrows)
     for visit_tuple in study_visits.itertuples():
@@ -404,12 +419,13 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                     should_suppress = True
                     suppress_reason = f"proposed visit exists for {visit_name}"
                 
-                # Rule 2: If predicted date >= today AND predicted date < any proposed date → skip
-                # This suppresses intermediate visits between now and proposed visits
-                elif predicted_date >= today and earliest_proposed_date is not None:
-                    if predicted_date < earliest_proposed_date:
+                # Rule 2: Suppress ALL predicted visits between today and latest proposed date
+                # If multiple proposed visits exist (e.g., V-EOT and V-FU), suppress everything
+                # between now and the latest proposed date
+                elif predicted_date >= today and latest_proposed_date is not None:
+                    if predicted_date < latest_proposed_date:
                         should_suppress = True
-                        suppress_reason = f"before proposed visit on {earliest_proposed_date.strftime('%Y-%m-%d')}"
+                        suppress_reason = f"before latest proposed visit on {latest_proposed_date.strftime('%Y-%m-%d')}"
                 
                 # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
                 # (should_suppress remains False for past dates)
