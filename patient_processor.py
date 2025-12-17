@@ -111,7 +111,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     # #region agent log
     import json
-    with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+    import os
+    log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, 'a') as f:
         f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "patient_processor.py:110", "message": "Date comparison check", "data": {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
     # #endregion
     
@@ -156,7 +159,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
                 log_activity(f"  Formatting as proposed: {visit_status}", level='info')
                 # #region agent log
                 import json
-                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                import os
+                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, 'a') as f:
                     f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:148", "message": "Visit status set to proposed format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
                 # #endregion
         elif is_screen_fail:
@@ -167,7 +173,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
             visit_status = f"✅ {visit_name}"
             # #region agent log
             import json
-            with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+            import os
+            log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
                 f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:155", "message": "Visit status set to actual format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
             # #endregion
     
@@ -205,7 +214,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     # #region agent log
     import json
-    with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+    import os
+    log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, 'a') as f:
         f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:177", "message": "Visit record created", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed, "visit_date": str(visit_date)}}) + '\n')
     # #endregion
     
@@ -368,7 +380,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         
         # #region agent log
         import json
-        with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+        import os
+        log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a') as f:
             f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:344", "message": "Checking if visit is proposed (suppression logic)", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
         # #endregion
         
@@ -379,7 +394,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
             # #region agent log
             import json
-            with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+            import os
+            log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'a') as f:
                 f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:349", "message": "Proposed visit added to dictionary", "data": {"patient_id": patient_id, "visit_name": visit_name, "proposed_date": str(visit_date), "total_proposed": len(proposed_visits)}}) + '\n')
             # #endregion
     
@@ -422,7 +440,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             if visit_record is not None:
                 # #region agent log
                 import json
-                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                import os
+                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, 'a') as f:
                     f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:390", "message": "Visit record appended to list", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_record.get("Visit", ""), "is_proposed": visit_record.get("IsProposed", False)}}) + '\n')
                 # #endregion
                 visit_records.append(visit_record)
@@ -455,7 +476,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 
                 # #region agent log
                 import json
-                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                import os
+                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, 'a') as f:
                     f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:417", "message": "Suppression logic check", "data": {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}}) + '\n')
                 # #endregion
                 
@@ -477,7 +501,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 
                 # #region agent log
                 import json
-                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                import os
+                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, 'a') as f:
                     f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:429", "message": "Suppression decision", "data": {"patient_id": patient_id, "visit_name": visit_name, "should_suppress": should_suppress, "suppress_reason": suppress_reason}}) + '\n')
                 # #endregion
                 
