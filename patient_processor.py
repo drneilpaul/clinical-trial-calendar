@@ -428,6 +428,18 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     earliest_proposed_date = proposed_visit_dates[0] if proposed_visit_dates else None
     latest_proposed_date = proposed_visit_dates[-1] if proposed_visit_dates else None
     
+    # Check if any proposed visit is among the last visits in the trial schedule
+    # If so, we should suppress ALL visits after the latest proposed date (study ending early)
+    is_terminal_proposed_visit = False
+    if proposed_visits and len(study_visits) > 0:
+        # Get the last few visits in the trial schedule (last 5 visits)
+        sorted_study_visits = study_visits.sort_values('Day')
+        last_visit_names = sorted_study_visits.tail(5)["VisitName"].astype(str).tolist()
+        # Check if any proposed visit name matches one of the last visits
+        if any(visit_name in last_visit_names for visit_name in proposed_visits.keys()):
+            is_terminal_proposed_visit = True
+            log_activity(f"  Terminal visit(s) detected in proposed visits - will suppress all visits after {latest_proposed_date.strftime('%Y-%m-%d')}", level='info')
+    
     if proposed_visit_dates:
         log_activity(f"  Proposed visits found: {len(proposed_visit_dates)} - earliest: {earliest_proposed_date.strftime('%Y-%m-%d')}, latest: {latest_proposed_date.strftime('%Y-%m-%d')}", level='info')
     
@@ -491,10 +503,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 suppress_reason = None
                 
                 # #region agent log
-                _debug_log("patient_processor.py:445", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
+                _debug_log("patient_processor.py:461", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None, "is_terminal": is_terminal_proposed_visit}, "D")
                 # Special logging for Zeus patient 670001
                 if patient_id == "670001" and study == "ZEUS EX6018-4758":
-                    _debug_log("patient_processor.py:448", "Zeus 670001 suppression details", {"visit_name": visit_name, "predicted_date": str(predicted_date), "proposed_visit_names": list(proposed_visits.keys()), "proposed_visit_dates": [str(d) for d in proposed_visits.values()], "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
+                    _debug_log("patient_processor.py:464", "Zeus 670001 suppression details", {"visit_name": visit_name, "predicted_date": str(predicted_date), "proposed_visit_names": list(proposed_visits.keys()), "proposed_visit_dates": [str(d) for d in proposed_visits.values()], "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None, "is_terminal": is_terminal_proposed_visit}, "D")
                 # #endregion
                 
                 # Rule 1: If predicted visit name matches a proposed visit → skip
@@ -509,6 +521,11 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                     if predicted_date < latest_proposed_date:
                         should_suppress = True
                         suppress_reason = f"before latest proposed visit on {latest_proposed_date.strftime('%Y-%m-%d')}"
+                    # Rule 3: If the proposed visit is a terminal visit (one of the last in the schedule),
+                    # also suppress ALL predicted visits AFTER the latest proposed date (study ending early)
+                    elif is_terminal_proposed_visit and predicted_date > latest_proposed_date:
+                        should_suppress = True
+                        suppress_reason = f"after terminal proposed visit on {latest_proposed_date.strftime('%Y-%m-%d')} (study ending early)"
                 
                 # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
                 # (should_suppress remains False for past dates)
