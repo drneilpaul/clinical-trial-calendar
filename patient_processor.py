@@ -1,8 +1,28 @@
 import pandas as pd
 from datetime import timedelta, date
+import os
+import json
 from helpers import safe_string_conversion, get_visit_type_series
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
+
+# Helper function for debug logging that works in both local and Streamlit Cloud environments
+def _debug_log(location, message, data, hypothesis_id):
+    """Write debug log entry, gracefully handling file system issues"""
+    try:
+        # Try workspace-relative path first (for Streamlit Cloud)
+        if os.path.exists('/mount/src'):
+            log_dir = '/mount/src/clinical-trial-calendar/.cursor'
+        else:
+            # Try local path (for local development)
+            log_dir = os.path.join(os.path.dirname(__file__), '.cursor')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, 'debug.log')
+        with open(log_path, 'a') as f:
+            f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": hypothesis_id, "location": location, "message": message, "data": data}) + '\n')
+    except Exception:
+        # Silently fail if logging isn't possible (e.g., permission issues)
+        pass
 
 def process_patient_actual_visits(patient_id, study, actual_visits_df, study_visits):
     """Process actual visits for a specific patient"""
@@ -110,12 +130,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     visit_date = pd.Timestamp(visit_date.date()).normalize() if hasattr(visit_date, 'date') else pd.Timestamp(visit_date).normalize()
     
     # #region agent log
-    import json
-    import os
-    log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    with open(log_path, 'a') as f:
-        f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "patient_processor.py:110", "message": "Date comparison check", "data": {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
+    _debug_log("patient_processor.py:110", "Date comparison check", {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "A")
     # #endregion
     
     is_proposed = visit_date > today
@@ -158,12 +173,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
                 visit_status = f"❓ {visit_name} (Proposed)"
                 log_activity(f"  Formatting as proposed: {visit_status}", level='info')
                 # #region agent log
-                import json
-                import os
-                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:148", "message": "Visit status set to proposed format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
+                _debug_log("patient_processor.py:148", "Visit status set to proposed format", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}, "C")
                 # #endregion
         elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
@@ -172,12 +182,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         else:
             visit_status = f"✅ {visit_name}"
             # #region agent log
-            import json
-            import os
-            log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            with open(log_path, 'a') as f:
-                f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:155", "message": "Visit status set to actual format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
+            _debug_log("patient_processor.py:155", "Visit status set to actual format", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}, "C")
             # #endregion
     
     # CHANGED: Validate site exists and is valid, don't default
@@ -213,12 +218,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     }
     
     # #region agent log
-    import json
-    import os
-    log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    with open(log_path, 'a') as f:
-        f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:177", "message": "Visit record created", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed, "visit_date": str(visit_date)}}) + '\n')
+    _debug_log("patient_processor.py:177", "Visit record created", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed, "visit_date": str(visit_date)}, "C")
     # #endregion
     
     # Simplified: No tolerance window records created for actual visits (proposed or not)
@@ -379,12 +379,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         visit_date = pd.Timestamp(visit_date.date()).normalize()
         
         # #region agent log
-        import json
-        import os
-        log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        with open(log_path, 'a') as f:
-            f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:344", "message": "Checking if visit is proposed (suppression logic)", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
+        _debug_log("patient_processor.py:344", "Checking if visit is proposed (suppression logic)", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "B")
         # #endregion
         
         if visit_date > today:
@@ -393,12 +388,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             proposed_visit_dates.append(visit_date)
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
             # #region agent log
-            import json
-            import os
-            log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            with open(log_path, 'a') as f:
-                f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:349", "message": "Proposed visit added to dictionary", "data": {"patient_id": patient_id, "visit_name": visit_name, "proposed_date": str(visit_date), "total_proposed": len(proposed_visits)}}) + '\n')
+            _debug_log("patient_processor.py:349", "Proposed visit added to dictionary", {"patient_id": patient_id, "visit_name": visit_name, "proposed_date": str(visit_date), "total_proposed": len(proposed_visits)}, "B")
             # #endregion
     
     # Sort proposed dates for suppression logic
@@ -439,12 +429,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
                 # #region agent log
-                import json
-                import os
-                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:390", "message": "Visit record appended to list", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_record.get("Visit", ""), "is_proposed": visit_record.get("IsProposed", False)}}) + '\n')
+                _debug_log("patient_processor.py:390", "Visit record appended to list", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_record.get("Visit", ""), "is_proposed": visit_record.get("IsProposed", False)}, "C")
                 # #endregion
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
@@ -475,12 +460,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 suppress_reason = None
                 
                 # #region agent log
-                import json
-                import os
-                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:417", "message": "Suppression logic check", "data": {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}}) + '\n')
+                _debug_log("patient_processor.py:417", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
                 # #endregion
                 
                 # Rule 1: If predicted visit name matches a proposed visit → skip
@@ -500,12 +480,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 # (should_suppress remains False for past dates)
                 
                 # #region agent log
-                import json
-                import os
-                log_path = '/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log'
-                os.makedirs(os.path.dirname(log_path), exist_ok=True)
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:429", "message": "Suppression decision", "data": {"patient_id": patient_id, "visit_name": visit_name, "should_suppress": should_suppress, "suppress_reason": suppress_reason}}) + '\n')
+                _debug_log("patient_processor.py:429", "Suppression decision", {"patient_id": patient_id, "visit_name": visit_name, "should_suppress": should_suppress, "suppress_reason": suppress_reason}, "D")
                 # #endregion
                 
                 if should_suppress:
