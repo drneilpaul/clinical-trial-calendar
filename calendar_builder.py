@@ -48,8 +48,12 @@ def is_patient_inactive(patient_id, study, visits_df, actual_visits_df=None):
                 (~patient_visits['Visit'].isin(['-', '+']))
             ]
             
-            # If no predicted visits remaining, patient is finished
-            if predicted.empty:
+            # Check if there are any proposed visits (IsProposed=True)
+            is_proposed = patient_visits.get('IsProposed', False) == True if 'IsProposed' in patient_visits.columns else pd.Series([False] * len(patient_visits))
+            proposed = patient_visits[is_proposed & (~patient_visits['Visit'].isin(['-', '+']))]
+            
+            # Patient is only "finished" if no predicted visits AND no proposed visits remain
+            if predicted.empty and proposed.empty:
                 return True, 'finished'
     
     return False, 'active'
@@ -400,16 +404,28 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                                         calendar_df.at[i, col_id] = visit_info
                                     else:
                                         calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
+                            # If this is a proposed visit (❓)
+                            elif "❓" in visit_info and "(Proposed)" in visit_info:
+                                # Proposed visits can replace predicted/planned, but not actual
+                                if current_value in ["-", "+", ""]:
+                                    calendar_df.at[i, col_id] = visit_info
+                                elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                    # Replace predicted/planned with proposed, but keep existing actual
+                                    calendar_df.at[i, col_id] = visit_info
+                                else:
+                                    # Actual visit exists - don't replace, but can append if multiple actual visits
+                                    if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                        calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                             # If this is a predicted visit (📋) 
                             elif "📋" in visit_info and "(Predicted)" in visit_info:
                                 # Only add if cell is empty or has tolerance markers
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
-                                elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅"]):
+                                elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "❓"]):
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                             # If this is an actual visit (✅, 🔴, ⚠️)
                             else:
-                                # Actual visits take priority - always add them
+                                # Actual visits take priority - always add them (replace proposed/predicted)
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
                                     if is_actual:
@@ -424,11 +440,11 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                                             if CALENDAR_DEBUG:
                                                 log_activity(f"    -> Added to existing actual visit", level='info')
                                     else:
-                                        # Replace predicted/planned with actual
+                                        # Replace predicted/proposed/planned with actual
                                         calendar_df.at[i, col_id] = visit_info
                                         if is_actual:
                                             if CALENDAR_DEBUG:
-                                                log_activity(f"    -> Replaced predicted/planned with actual", level='info')
+                                                log_activity(f"    -> Replaced predicted/proposed/planned with actual", level='info')
                     else:
                         # NEW: Log when column not found
                         if is_actual:
@@ -436,7 +452,9 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             log_activity(f"  ERROR: Could not find column for actual visit {base_col_id}. Available similar columns: {available_cols}", level='error')
 
                     # Count payments for actual visits and scheduled main visits
-                    if (is_actual) or (not is_actual and visit_info not in ("-", "+")):
+                    # CRITICAL: Exclude proposed visits from income (they're future dates, not earned yet)
+                    is_proposed = visit.get('IsProposed', False)
+                    if (is_actual and not is_proposed) or (not is_actual and visit_info not in ("-", "+")):
                         income_col = f"{study} Income"
                         if income_col in calendar_df.columns:
                             calendar_df.at[i, income_col] += payment

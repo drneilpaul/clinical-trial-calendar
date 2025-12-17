@@ -414,14 +414,22 @@ def build_ratio_breakdown_data(financial_df, patients_df, period_config, weights
 
 def calculate_income_realization_metrics(visits_df, trials_df, patients_df):
     """Calculate income realization and pipeline metrics"""
+    from datetime import date
     # Get current financial year boundaries using centralized function
     fy_start, fy_end = get_current_financial_year_boundaries()
 
     # OPTIMIZED: Filter visits for current financial year only (no copy needed for filtering)
     fy_visits = visits_df[(visits_df['Date'] >= fy_start) & (visits_df['Date'] <= fy_end)]
     
+    # Get today's date for filtering proposed visits
+    today = pd.to_datetime(date.today()).normalize()
+    
     # Separate completed vs scheduled work (no copy needed - just filtering/reading)
-    completed_visits = fy_visits[fy_visits.get('IsActual', False) == True]
+    # CRITICAL: Exclude proposed visits from completed income (only count past actual visits)
+    is_actual = fy_visits.get('IsActual', False) == True
+    is_proposed = fy_visits.get('IsProposed', False) == True if 'IsProposed' in fy_visits.columns else pd.Series([False] * len(fy_visits))
+    date_past = fy_visits['Date'] <= today
+    completed_visits = fy_visits[is_actual & ~is_proposed & date_past]
     all_visits = fy_visits  # Both completed and scheduled - no copy needed since we're just reading
     
     # Use existing Payment column directly - already has correct values
@@ -484,7 +492,11 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         # (No need to recalculate from trial schedule as this causes double-counting)
         
         # OPTIMIZED: Separate actual and predicted visits (no copy needed - just filtering)
-        actual_visits = fy_visits[fy_visits.get('IsActual', False) == True]
+        # CRITICAL: Exclude proposed visits from actual income (only count past actual visits)
+        is_actual = fy_visits.get('IsActual', False) == True
+        is_proposed = fy_visits.get('IsProposed', False) == True if 'IsProposed' in fy_visits.columns else pd.Series([False] * len(fy_visits))
+        date_past = fy_visits['Date'] <= today
+        actual_visits = fy_visits[is_actual & ~is_proposed & date_past]
         predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False]
         
         # Calculate actual income by site - handle NaN values safely
@@ -553,11 +565,17 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
         
         # Calculate monthly breakdown
         monthly_data = []
+        from datetime import date
+        today = pd.to_datetime(date.today()).normalize()
         month_values = fy_visits['MonthYear'].dropna().unique()
         for month in sorted(month_values):
             month_visits = fy_visits[fy_visits['MonthYear'] == month]
             
-            completed = month_visits[month_visits.get('IsActual', False) == True]
+            # CRITICAL: Exclude proposed visits from completed income (only count past actual visits)
+            is_actual = month_visits.get('IsActual', False) == True
+            is_proposed = month_visits.get('IsProposed', False) == True if 'IsProposed' in month_visits.columns else pd.Series([False] * len(month_visits))
+            date_past = month_visits['Date'] <= today
+            completed = month_visits[is_actual & ~is_proposed & date_past]
             completed_income = completed['Payment'].sum()
             
             total_scheduled_income = month_visits['Payment'].sum()
@@ -632,17 +650,22 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
         
         # Calculate by site
         site_data = []
+        from datetime import date
+        today = pd.to_datetime(date.today()).normalize()
+        
         for site in fy_visits['SiteofVisit'].unique():
             site_visits = fy_visits[fy_visits['SiteofVisit'] == site]
             
-            completed = site_visits[site_visits.get('IsActual', False) == True]
+            # CRITICAL: Exclude proposed visits from completed income (only count past actual visits)
+            is_actual = site_visits.get('IsActual', False) == True
+            is_proposed = site_visits.get('IsProposed', False) == True if 'IsProposed' in site_visits.columns else pd.Series([False] * len(site_visits))
+            date_past = site_visits['Date'] <= today
+            completed = site_visits[is_actual & ~is_proposed & date_past]
             completed_income = completed['Payment'].fillna(0).sum()
             
             total_scheduled_income = site_visits['Payment'].fillna(0).sum()
             
             # Remaining pipeline for this site
-            from datetime import date
-            today = pd.to_datetime(date.today())
             remaining = site_visits[(site_visits['Date'] >= today) & (site_visits.get('IsActual', False) == False)]
             pipeline_income = remaining['Payment'].fillna(0).sum()
             
@@ -714,7 +737,13 @@ def calculate_study_realization_by_study(visits_df, period: str = 'current_fy'):
         df['Payment'] = pd.to_numeric(df.get('Payment', 0), errors='coerce').fillna(0.0)
 
         # Completed vs scheduled flags
-        is_completed = df.get('IsActual', False) == True
+        # CRITICAL: Exclude proposed visits from completed income (only count past actual visits)
+        from datetime import date
+        today = pd.to_datetime(date.today()).normalize()
+        is_actual = df.get('IsActual', False) == True
+        is_proposed = df.get('IsProposed', False) == True if 'IsProposed' in df.columns else pd.Series([False] * len(df))
+        date_past = df['Date'] <= today
+        is_completed = is_actual & ~is_proposed & date_past
         is_pipeline = df.get('IsActual', False) == False
 
         # Group aggregations

@@ -74,6 +74,7 @@ def process_study_events(event_templates, actual_visits_df):
             "SiteofVisit": site,
             "PatientOrigin": site,
             "IsActual": is_actual,
+            "IsProposed": False,  # Study events are always actual when recorded
             "IsScreenFail": False,
             "IsOutOfProtocol": False,
             "VisitDay": 0 if visit_type == 'siv' else 999,
@@ -259,6 +260,7 @@ def create_tolerance_window_records(patient_id, study, site, patient_origin, exp
                 "SiteofVisit": site,
                 "PatientOrigin": patient_origin,
                 "IsActual": False,
+                "IsProposed": False,  # Tolerance markers are never proposed
                 "IsScreenFail": False,
                 "IsOutOfProtocol": False,
                 "VisitDay": visit_day,
@@ -282,6 +284,7 @@ def create_tolerance_window_records(patient_id, study, site, patient_origin, exp
             "SiteofVisit": site,
             "PatientOrigin": patient_origin,
             "IsActual": False,
+            "IsProposed": False,  # Tolerance markers are never proposed
             "IsScreenFail": False,
             "IsOutOfProtocol": False,
             "VisitDay": visit_day,

@@ -184,6 +184,9 @@ def get_visit_based_style(cell_str):
     """Get styling based on visit type - simplified without tolerance windows"""
     if '✅' in cell_str or ('Visit' in cell_str and any(symbol in cell_str for symbol in ["✅"])):
         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+    elif '❓' in cell_str and '(Proposed)' in cell_str:
+        # Proposed visits (future-dated tentative bookings)
+        return 'background-color: #fff3cd; color: #856404; font-weight: bold; border: 2px solid #ffc107; font-style: italic;'
     elif '⚠️ Screen Fail' in cell_str or 'Screen Fail' in cell_str:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold; border: 2px solid #dc3545;'
     elif '⚠️ Withdrawn' in cell_str or 'Withdrawn' in cell_str:
@@ -191,7 +194,7 @@ def get_visit_based_style(cell_str):
     elif '📋' in cell_str and '(Predicted)' in cell_str:
         # Predicted visits (no actual visit yet)
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
-    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "📋"]):
+    elif "Visit " in cell_str and not any(symbol in cell_str for symbol in ["✅", "⚠️", "📋", "❓"]):
         return 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
     return ""
 

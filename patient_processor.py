@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import timedelta
+from datetime import timedelta, date
 from helpers import safe_string_conversion, get_visit_type_series
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
@@ -103,6 +103,10 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
+    # Check if this is a proposed visit (future date)
+    today = pd.Timestamp(date.today()).normalize()
+    is_proposed = visit_date > today
+    
     # Get payment amount
     trial_payment = visit.get("Payment", 0)
     if pd.notna(trial_payment):
@@ -116,7 +120,8 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     is_withdrawn = "Withdrawn" in notes
     
     # Improved data validation with warnings
-    if stoppage_date is not None and visit_date > stoppage_date:
+    # CRITICAL: Skip stoppage date validation for proposed visits (they're legitimate tentative bookings)
+    if not is_proposed and stoppage_date is not None and visit_date > stoppage_date:
         visit_status = f"⚠️ DATA ERROR {visit_name}"
         is_out_of_protocol = False
         processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure or withdrawal")
@@ -124,7 +129,15 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         # Simplified: All actual visits are just marked as completed (no tolerance window checking)
         is_out_of_protocol = False  # Always False - we don't check tolerance windows anymore
         
-        if is_screen_fail:
+        if is_proposed:
+            # Proposed visit - format differently
+            if is_screen_fail:
+                visit_status = f"⚠️ Screen Fail {visit_name}"  # Shouldn't happen, but handle gracefully
+            elif is_withdrawn:
+                visit_status = f"⚠️ Withdrawn {visit_name}"  # Shouldn't happen, but handle gracefully
+            else:
+                visit_status = f"❓ {visit_name} (Proposed)"
+        elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
         elif is_withdrawn:
             visit_status = f"⚠️ Withdrawn {visit_name}"
@@ -154,6 +167,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "SiteofVisit": site,
         "PatientOrigin": patient_origin,
         "IsActual": True,
+        "IsProposed": is_proposed,  # Add IsProposed flag
         "IsScreenFail": is_screen_fail,
         "IsWithdrawn": is_withdrawn,
         "IsOutOfProtocol": is_out_of_protocol,
@@ -162,7 +176,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "VisitType": visit_type
     }
     
-    # Simplified: No tolerance window records created
+    # Simplified: No tolerance window records created for actual visits (proposed or not)
     tolerance_records = []
     
     return visit_record, tolerance_records
@@ -226,6 +240,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "SiteofVisit": site,
         "PatientOrigin": patient_origin,
         "IsActual": False,
+        "IsProposed": False,  # Predicted visits are never proposed
         "IsScreenFail": False,
         "IsOutOfProtocol": False,
         "VisitDay": visit_day,
@@ -307,6 +322,27 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             baseline_date = actual_baseline_date
             patient_needs_recalc = True
     
+    # CRITICAL: Identify proposed visits BEFORE creating predicted visits (for suppression logic)
+    today = pd.Timestamp(date.today()).normalize()
+    proposed_visits = {}  # visit_name -> proposed_date
+    proposed_visit_dates = []  # List of all proposed dates for this patient
+    
+    for visit_name, actual_visit_data in patient_actual_visits.items():
+        visit_date = actual_visit_data["ActualDate"]
+        if not isinstance(visit_date, pd.Timestamp):
+            visit_date = pd.Timestamp(visit_date)
+        visit_date = pd.Timestamp(visit_date.date()).normalize()
+        
+        if visit_date > today:
+            # This is a proposed visit
+            proposed_visits[visit_name] = visit_date
+            proposed_visit_dates.append(visit_date)
+            log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
+    
+    # Sort proposed dates to find earliest one for suppression logic
+    proposed_visit_dates.sort()
+    earliest_proposed_date = proposed_visit_dates[0] if proposed_visit_dates else None
+    
     # OPTIMIZED: Process each visit using itertuples (faster than iterrows)
     for visit_tuple in study_visits.itertuples():
         visit_name = str(visit_tuple.VisitName)
@@ -348,17 +384,46 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             
             # No planned marker needed - actual visit is sufficient
         else:
-            # No actual visit found
+            # No actual visit found - check if we should suppress predicted visit
             # FIXED: Only schedule predicted visits for Day != 0
             # Day 0 visits (SIV, Monitor, V1.1, Unscheduled) are optional and only appear when actual
             # Day < 0 (Screening) and Day >= 1 should be predicted normally
             if visit_day != 0:
-                # Process scheduled visit with full tolerance windows
-                scheduled_records, exclusions = process_scheduled_visit(
-                    patient_id, study, patient_origin, visit, baseline_date, stoppage_date
+                # Calculate predicted date to check suppression rules
+                expected_date, _, _, _, _ = calculate_tolerance_windows(
+                    visit, baseline_date, visit_day
                 )
-                visit_records.extend(scheduled_records)
-                screen_fail_exclusions += exclusions
+                predicted_date = pd.Timestamp(expected_date.date()).normalize()
+                
+                # SUPPRESSION LOGIC: Check if this predicted visit should be suppressed
+                should_suppress = False
+                suppress_reason = None
+                
+                # Rule 1: If predicted visit name matches a proposed visit → skip
+                if visit_name in proposed_visits:
+                    should_suppress = True
+                    suppress_reason = f"proposed visit exists for {visit_name}"
+                
+                # Rule 2: If predicted date >= today AND predicted date < any proposed date → skip
+                # This suppresses intermediate visits between now and proposed visits
+                elif predicted_date >= today and earliest_proposed_date is not None:
+                    if predicted_date < earliest_proposed_date:
+                        should_suppress = True
+                        suppress_reason = f"before proposed visit on {earliest_proposed_date.strftime('%Y-%m-%d')}"
+                
+                # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
+                # (should_suppress remains False for past dates)
+                
+                if should_suppress:
+                    log_activity(f"  Suppressing predicted visit {visit_name} on {predicted_date.strftime('%Y-%m-%d')} - {suppress_reason}", level='info')
+                    # Don't create this predicted visit
+                else:
+                    # Process scheduled visit with full tolerance windows
+                    scheduled_records, exclusions = process_scheduled_visit(
+                        patient_id, study, patient_origin, visit, baseline_date, stoppage_date
+                    )
+                    visit_records.extend(scheduled_records)
+                    screen_fail_exclusions += exclusions
             # else: Skip Day 0 visits only - they're optional and only appear when actual
     
     # OPTIMIZED: Handle unmatched actual visits (including Day 0 optional visits)
@@ -429,8 +494,13 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             else:
                 visit_display = f"✅ {visit_name}"
             
+            # Check if this unmatched visit is proposed (future date)
+            unmatched_visit_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
+            today = pd.Timestamp(date.today()).normalize()
+            is_unmatched_proposed = unmatched_visit_date > today
+            
             visit_record = {
-                "Date": pd.Timestamp(actual_visit_data["ActualDate"].date()),
+                "Date": unmatched_visit_date,
                 "PatientID": patient_id,
                 "Visit": visit_display,
                 "Study": study,
@@ -438,6 +508,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 "SiteofVisit": str(visit_site).strip(),
                 "PatientOrigin": patient_origin,
                 "IsActual": True,
+                "IsProposed": is_unmatched_proposed,  # Add IsProposed flag
                 "IsScreenFail": is_screen_fail,
                 "IsWithdrawn": is_withdrawn,
                 "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
