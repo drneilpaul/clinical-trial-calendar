@@ -108,6 +108,13 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     today = pd.Timestamp(date.today()).normalize()
     # visit_date is already normalized above, ensure it's date-only
     visit_date = pd.Timestamp(visit_date.date()).normalize() if hasattr(visit_date, 'date') else pd.Timestamp(visit_date).normalize()
+    
+    # #region agent log
+    import json
+    with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A", "location": "patient_processor.py:110", "message": "Date comparison check", "data": {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
+    # #endregion
+    
     is_proposed = visit_date > today
     
     # Debug logging for proposed visit detection
@@ -147,12 +154,22 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
             else:
                 visit_status = f"❓ {visit_name} (Proposed)"
                 log_activity(f"  Formatting as proposed: {visit_status}", level='info')
+                # #region agent log
+                import json
+                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:148", "message": "Visit status set to proposed format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
+                # #endregion
         elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
         elif is_withdrawn:
             visit_status = f"⚠️ Withdrawn {visit_name}"
         else:
             visit_status = f"✅ {visit_name}"
+            # #region agent log
+            import json
+            with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:155", "message": "Visit status set to actual format", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}}) + '\n')
+            # #endregion
     
     # CHANGED: Validate site exists and is valid, don't default
     site = visit.get("SiteforVisit")
@@ -185,6 +202,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "VisitName": visit_name,
         "VisitType": visit_type
     }
+    
+    # #region agent log
+    import json
+    with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:177", "message": "Visit record created", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed, "visit_date": str(visit_date)}}) + '\n')
+    # #endregion
     
     # Simplified: No tolerance window records created for actual visits (proposed or not)
     tolerance_records = []
@@ -343,11 +366,22 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             visit_date = pd.Timestamp(visit_date)
         visit_date = pd.Timestamp(visit_date.date()).normalize()
         
+        # #region agent log
+        import json
+        with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:344", "message": "Checking if visit is proposed (suppression logic)", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}}) + '\n')
+        # #endregion
+        
         if visit_date > today:
             # This is a proposed visit
             proposed_visits[visit_name] = visit_date
             proposed_visit_dates.append(visit_date)
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
+            # #region agent log
+            import json
+            with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "patient_processor.py:349", "message": "Proposed visit added to dictionary", "data": {"patient_id": patient_id, "visit_name": visit_name, "proposed_date": str(visit_date), "total_proposed": len(proposed_visits)}}) + '\n')
+            # #endregion
     
     # Sort proposed dates for suppression logic
     # We need both earliest (for individual checks) and latest (for suppression range)
@@ -386,6 +420,11 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             )
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
+                # #region agent log
+                import json
+                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C", "location": "patient_processor.py:390", "message": "Visit record appended to list", "data": {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_record.get("Visit", ""), "is_proposed": visit_record.get("IsProposed", False)}}) + '\n')
+                # #endregion
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
             
@@ -414,6 +453,12 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 should_suppress = False
                 suppress_reason = None
                 
+                # #region agent log
+                import json
+                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:417", "message": "Suppression logic check", "data": {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}}) + '\n')
+                # #endregion
+                
                 # Rule 1: If predicted visit name matches a proposed visit → skip
                 if visit_name in proposed_visits:
                     should_suppress = True
@@ -429,6 +474,12 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 
                 # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
                 # (should_suppress remains False for past dates)
+                
+                # #region agent log
+                import json
+                with open('/Users/neilpaul/XcodeFiles/clinical-trial-calendar/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D", "location": "patient_processor.py:429", "message": "Suppression decision", "data": {"patient_id": patient_id, "visit_name": visit_name, "should_suppress": should_suppress, "suppress_reason": suppress_reason}}) + '\n')
+                # #endregion
                 
                 if should_suppress:
                     log_activity(f"  Suppressing predicted visit {visit_name} on {predicted_date.strftime('%Y-%m-%d')} - {suppress_reason}", level='info')
