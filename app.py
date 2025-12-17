@@ -422,6 +422,27 @@ def setup_file_uploaders():
                     else:
                         log_activity("Failed to create database backup", level='error')
                 
+                # Debug log download
+                st.markdown("### Debug Log")
+                from patient_processor import get_debug_log_content, _get_debug_log_path
+                debug_log_path = _get_debug_log_path()
+                debug_log_content = get_debug_log_content()
+                if debug_log_content:
+                    st.download_button(
+                        "📋 Download Debug Log",
+                        data=debug_log_content,
+                        file_name=f"debug_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+                        mime="text/plain",
+                        width="stretch",
+                        help=f"Debug log path: {debug_log_path}"
+                    )
+                    st.caption(f"Log file: {debug_log_path}")
+                else:
+                    if debug_log_path:
+                        st.info(f"📝 Debug log will be saved to: `{debug_log_path}`\n\nRun the calendar first to generate logs.")
+                    else:
+                        st.warning("Debug logging path not available. Logs may not be saved.")
+                
                 st.divider()
                 
                 if SWITCH_PATIENT_AVAILABLE and st.button("🔄 Switch Patient Study", width="stretch"):
