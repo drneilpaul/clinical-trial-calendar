@@ -6,23 +6,48 @@ from helpers import safe_string_conversion, get_visit_type_series
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
 
+# Global variable to store log path for access
+_DEBUG_LOG_PATH = None
+
+def _get_debug_log_path():
+    """Get the debug log file path, creating directory if needed"""
+    global _DEBUG_LOG_PATH
+    if _DEBUG_LOG_PATH is None:
+        try:
+            # Try workspace-relative path first (for Streamlit Cloud)
+            if os.path.exists('/mount/src'):
+                log_dir = '/mount/src/clinical-trial-calendar/.cursor'
+            else:
+                # Try local path (for local development)
+                log_dir = os.path.join(os.path.dirname(__file__), '.cursor')
+            os.makedirs(log_dir, exist_ok=True)
+            _DEBUG_LOG_PATH = os.path.join(log_dir, 'debug.log')
+        except Exception:
+            _DEBUG_LOG_PATH = None
+    return _DEBUG_LOG_PATH
+
 # Helper function for debug logging that works in both local and Streamlit Cloud environments
 def _debug_log(location, message, data, hypothesis_id):
     """Write debug log entry, gracefully handling file system issues"""
     try:
-        # Try workspace-relative path first (for Streamlit Cloud)
-        if os.path.exists('/mount/src'):
-            log_dir = '/mount/src/clinical-trial-calendar/.cursor'
-        else:
-            # Try local path (for local development)
-            log_dir = os.path.join(os.path.dirname(__file__), '.cursor')
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, 'debug.log')
-        with open(log_path, 'a') as f:
-            f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": hypothesis_id, "location": location, "message": message, "data": data}) + '\n')
+        log_path = _get_debug_log_path()
+        if log_path:
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({"timestamp": pd.Timestamp.now().timestamp() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": hypothesis_id, "location": location, "message": message, "data": data}) + '\n')
     except Exception:
         # Silently fail if logging isn't possible (e.g., permission issues)
         pass
+
+def get_debug_log_content():
+    """Read debug log file content for download/display"""
+    try:
+        log_path = _get_debug_log_path()
+        if log_path and os.path.exists(log_path):
+            with open(log_path, 'r') as f:
+                return f.read()
+    except Exception:
+        pass
+    return None
 
 def process_patient_actual_visits(patient_id, study, actual_visits_df, study_visits):
     """Process actual visits for a specific patient"""
@@ -129,11 +154,14 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     # visit_date is already normalized above, ensure it's date-only
     visit_date = pd.Timestamp(visit_date.date()).normalize() if hasattr(visit_date, 'date') else pd.Timestamp(visit_date).normalize()
     
-    # #region agent log
-    _debug_log("patient_processor.py:110", "Date comparison check", {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "A")
-    # #endregion
-    
     is_proposed = visit_date > today
+    
+    # #region agent log
+    _debug_log("patient_processor.py:161", "Date comparison check", {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today), "is_proposed": is_proposed}, "A")
+    # Special logging for V-EOT and V-FU (the visits we're debugging)
+    if visit_name in ["V-EOT", "V-FU", "V-EOT (Proposed)", "V-FU (Proposed)"]:
+        _debug_log("patient_processor.py:164", "V-EOT/V-FU date check", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_proposed": is_proposed, "date_type": str(type(visit_date)), "today_type": str(type(today))}, "A")
+    # #endregion
     
     # Debug logging for proposed visit detection
     if is_proposed:
@@ -379,7 +407,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         visit_date = pd.Timestamp(visit_date.date()).normalize()
         
         # #region agent log
-        _debug_log("patient_processor.py:344", "Checking if visit is proposed (suppression logic)", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "B")
+        _debug_log("patient_processor.py:407", "Checking if visit is proposed (suppression logic)", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "B")
+        # Special logging for V-EOT and V-FU
+        if visit_name in ["V-EOT", "V-FU"] and patient_id == "670001":
+            _debug_log("patient_processor.py:410", "V-EOT/V-FU suppression check", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today), "raw_date_from_db": str(actual_visit_data.get("ActualDate", "N/A"))}, "B")
         # #endregion
         
         if visit_date > today:
@@ -460,7 +491,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 suppress_reason = None
                 
                 # #region agent log
-                _debug_log("patient_processor.py:417", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
+                _debug_log("patient_processor.py:445", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
+                # Special logging for Zeus patient 670001
+                if patient_id == "670001" and study == "ZEUS EX6018-4758":
+                    _debug_log("patient_processor.py:448", "Zeus 670001 suppression details", {"visit_name": visit_name, "predicted_date": str(predicted_date), "proposed_visit_names": list(proposed_visits.keys()), "proposed_visit_dates": [str(d) for d in proposed_visits.values()], "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None}, "D")
                 # #endregion
                 
                 # Rule 1: If predicted visit name matches a proposed visit → skip
