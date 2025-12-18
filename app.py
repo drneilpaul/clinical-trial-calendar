@@ -1069,19 +1069,23 @@ def main():
                         # Checkbox state matches selections - just update tracking value
                         st.session_state['prev_select_all_sites_checkbox_value'] = select_all_sites
                     
-                    # Site multiselect
-                    selected_sites = st.multiselect(
-                        "Sites",
-                        options=available_site_options,
-                        default=st.session_state.pending_site_filter,
-                        label_visibility="collapsed",
-                        key="site_multiselect"
-                    )
+                    # Individual checkboxes for each site
+                    selected_sites = []
+                    for site in available_site_options:
+                        is_selected = site in pending_sites
+                        site_key = f"site_checkbox_{site}"
+                        checked = st.checkbox(
+                            site,
+                            value=is_selected,
+                            key=site_key
+                        )
+                        if checked:
+                            selected_sites.append(site)
                     
-                    # Update pending site filter if changed via multiselect
-                    if selected_sites != pending_sites:
+                    # Update pending site filter if changed
+                    if set(selected_sites) != set(pending_sites):
                         st.session_state.pending_site_filter = selected_sites
-                        # Update tracking value to match new selection state (checkbox will auto-update on rerun)
+                        # Update tracking value to match new selection state
                         new_all_selected = len(selected_sites) == len(available_site_options) and len(available_site_options) > 0
                         st.session_state['prev_select_all_sites_checkbox_value'] = new_all_selected
                     
@@ -1122,19 +1126,23 @@ def main():
                         # Checkbox state matches selections - just update tracking value
                         st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
                     
-                    # Study multiselect
-                    selected_studies = st.multiselect(
-                        "Studies",
-                        options=available_study_options,
-                        default=st.session_state.pending_study_filter,
-                        label_visibility="collapsed",
-                        key="study_multiselect"
-                    )
+                    # Individual checkboxes for each study
+                    selected_studies = []
+                    for study in available_study_options:
+                        is_selected = study in pending_studies
+                        study_key = f"study_checkbox_{study}"
+                        checked = st.checkbox(
+                            study,
+                            value=is_selected,
+                            key=study_key
+                        )
+                        if checked:
+                            selected_studies.append(study)
                     
-                    # Update pending study filter if changed via multiselect
-                    if selected_studies != pending_studies:
+                    # Update pending study filter if changed
+                    if set(selected_studies) != set(pending_studies):
                         st.session_state.pending_study_filter = selected_studies
-                        # Update tracking value to match new selection state (checkbox will auto-update on rerun)
+                        # Update tracking value to match new selection state
                         new_all_selected = len(selected_studies) == len(available_study_options) and len(available_study_options) > 0
                         st.session_state['prev_select_all_studies_checkbox_value'] = new_all_selected
                     
