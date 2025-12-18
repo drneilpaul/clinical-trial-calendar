@@ -502,7 +502,7 @@ def setup_file_uploaders():
 def display_action_buttons():
     """Enhanced action buttons with authentication check"""
     if st.session_state.get('auth_level') != 'admin':
-        st.info("🔒 Login as admin to add/edit patients, visits, and study events")
+        # Login status is clear in sidebar, no need for info message
         return
     
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -524,8 +524,7 @@ def display_action_buttons():
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
-    st.title(APP_TITLE)
-    st.caption(f"{APP_VERSION} | {APP_SUBTITLE}")
+    st.markdown(f"# {APP_TITLE} <span style='font-size: 0.6em; color: #666; font-weight: normal;'>{APP_VERSION} | {APP_SUBTITLE}</span>", unsafe_allow_html=True)
 
     initialize_session_state()
     

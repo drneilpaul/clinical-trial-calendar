@@ -564,7 +564,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         except Exception as e:
             st.warning(f"Calendar styling unavailable: {e}")
             log_activity(f"Styling error details: {str(e)}", level='error')
-            st.dataframe(display_with_headers, width="stretch")
+            st.dataframe(display_with_headers, width="stretch", height=400)
 
         if excluded_visits and len(excluded_visits) > 0:
             st.warning("Some visits were excluded due to screen failure:")
@@ -577,7 +577,7 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
         # Try to show basic calendar without headers
         try:
             st.write("**Fallback Calendar Display (Basic)**")
-            st.dataframe(calendar_df, width="stretch")
+            st.dataframe(calendar_df, width="stretch", height=400)
         except Exception as fallback_error:
             st.error(f"Even basic display failed: {fallback_error}")
             log_activity(f"Basic display also failed: {str(fallback_error)}", level='error')
