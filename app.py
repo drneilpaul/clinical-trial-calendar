@@ -1041,8 +1041,8 @@ def main():
                     pending_sites = st.session_state.pending_site_filter or []
                     all_sites_selected = len(pending_sites) == len(available_site_options) and len(available_site_options) > 0
                     
-                    # Check previous state to detect changes
-                    prev_select_all_sites = st.session_state.get('prev_select_all_sites', all_sites_selected)
+                    # Track previous checkbox state (before widget is created)
+                    prev_select_all_sites = st.session_state.get('prev_select_all_sites_checkbox_value', all_sites_selected)
                     
                     select_all_sites = st.checkbox(
                         "Select All",
@@ -1050,18 +1050,24 @@ def main():
                         key="select_all_sites_checkbox"
                     )
                     
-                    # Handle Select All checkbox changes
-                    if select_all_sites != prev_select_all_sites:
+                    # Handle Select All checkbox changes (check if user clicked it)
+                    # Compare current checkbox value with what it should be based on selections
+                    checkbox_changed = (select_all_sites != prev_select_all_sites)
+                    if checkbox_changed:
+                        # User clicked the checkbox - update selections accordingly
                         if select_all_sites:
                             # User checked "Select All" - select all sites
                             st.session_state.pending_site_filter = available_site_options.copy()
                         else:
                             # User unchecked "Select All" - deselect all sites
                             st.session_state.pending_site_filter = []
-                        st.session_state['prev_select_all_sites'] = select_all_sites
+                        # Update tracking value for next render
+                        st.session_state['prev_select_all_sites_checkbox_value'] = select_all_sites
+                        # Trigger rerun to reflect changes
                         st.rerun()
                     else:
-                        st.session_state['prev_select_all_sites'] = select_all_sites
+                        # Checkbox state matches selections - just update tracking value
+                        st.session_state['prev_select_all_sites_checkbox_value'] = select_all_sites
                     
                     # Site multiselect
                     selected_sites = st.multiselect(
@@ -1075,11 +1081,9 @@ def main():
                     # Update pending site filter if changed via multiselect
                     if selected_sites != pending_sites:
                         st.session_state.pending_site_filter = selected_sites
-                        # Update Select All checkbox state
+                        # Update tracking value to match new selection state (checkbox will auto-update on rerun)
                         new_all_selected = len(selected_sites) == len(available_site_options) and len(available_site_options) > 0
-                        if new_all_selected != select_all_sites:
-                            st.session_state['select_all_sites_checkbox'] = new_all_selected
-                            st.session_state['prev_select_all_sites'] = new_all_selected
+                        st.session_state['prev_select_all_sites_checkbox_value'] = new_all_selected
                     
                     st.markdown("")  # Spacing
                     
@@ -1090,8 +1094,8 @@ def main():
                     pending_studies = st.session_state.pending_study_filter or []
                     all_studies_selected = len(pending_studies) == len(available_study_options) and len(available_study_options) > 0
                     
-                    # Check previous state to detect changes
-                    prev_select_all_studies = st.session_state.get('prev_select_all_studies', all_studies_selected)
+                    # Track previous checkbox state (before widget is created)
+                    prev_select_all_studies = st.session_state.get('prev_select_all_studies_checkbox_value', all_studies_selected)
                     
                     select_all_studies = st.checkbox(
                         "Select All",
@@ -1099,18 +1103,24 @@ def main():
                         key="select_all_studies_checkbox"
                     )
                     
-                    # Handle Select All checkbox changes
-                    if select_all_studies != prev_select_all_studies:
+                    # Handle Select All checkbox changes (check if user clicked it)
+                    # Compare current checkbox value with what it should be based on selections
+                    checkbox_changed = (select_all_studies != prev_select_all_studies)
+                    if checkbox_changed:
+                        # User clicked the checkbox - update selections accordingly
                         if select_all_studies:
                             # User checked "Select All" - select all studies
                             st.session_state.pending_study_filter = available_study_options.copy()
                         else:
                             # User unchecked "Select All" - deselect all studies
                             st.session_state.pending_study_filter = []
-                        st.session_state['prev_select_all_studies'] = select_all_studies
+                        # Update tracking value for next render
+                        st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
+                        # Trigger rerun to reflect changes
                         st.rerun()
                     else:
-                        st.session_state['prev_select_all_studies'] = select_all_studies
+                        # Checkbox state matches selections - just update tracking value
+                        st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
                     
                     # Study multiselect
                     selected_studies = st.multiselect(
@@ -1124,11 +1134,9 @@ def main():
                     # Update pending study filter if changed via multiselect
                     if selected_studies != pending_studies:
                         st.session_state.pending_study_filter = selected_studies
-                        # Update Select All checkbox state
+                        # Update tracking value to match new selection state (checkbox will auto-update on rerun)
                         new_all_selected = len(selected_studies) == len(available_study_options) and len(available_study_options) > 0
-                        if new_all_selected != select_all_studies:
-                            st.session_state['select_all_studies_checkbox'] = new_all_selected
-                            st.session_state['prev_select_all_studies'] = new_all_selected
+                        st.session_state['prev_select_all_studies_checkbox_value'] = new_all_selected
                     
                     st.markdown("")  # Spacing
                     
