@@ -913,16 +913,14 @@ def main():
                     else:
                         combo_options = cached_options
 
-            # Initialize filter state variables
-            if 'calendar_filter_order' not in st.session_state:
-                st.session_state.calendar_filter_order = 'site_first'
-            if 'pending_site_filter' not in st.session_state:
+            # Initialize filter state variables - default to all selected
+            if 'pending_site_filter' not in st.session_state or not st.session_state.pending_site_filter:
                 st.session_state.pending_site_filter = available_sites.copy() if available_sites else []
-            if 'pending_study_filter' not in st.session_state:
+            if 'pending_study_filter' not in st.session_state or not st.session_state.pending_study_filter:
                 st.session_state.pending_study_filter = available_studies.copy() if available_studies else []
-            if 'active_site_filter' not in st.session_state:
+            if 'active_site_filter' not in st.session_state or not st.session_state.active_site_filter:
                 st.session_state.active_site_filter = available_sites.copy() if available_sites else []
-            if 'active_study_filter' not in st.session_state:
+            if 'active_study_filter' not in st.session_state or not st.session_state.active_study_filter:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
             # Calendar display options
@@ -974,65 +972,26 @@ def main():
                     filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
                 
                 with st.expander(filter_summary, expanded=False):
-                    # Filter order selector
-                    prev_filter_order = st.session_state.get('calendar_filter_order', 'site_first')
-                    filter_order = st.radio(
-                        "Filter order:",
-                        options=["Site → Study", "Study → Site"],
-                        index=0 if prev_filter_order == 'site_first' else 1,
-                        horizontal=True,
-                        key="filter_order_radio"
-                    )
-                    new_filter_order = 'site_first' if filter_order == "Site → Study" else 'study_first'
-                    
-                    # If filter order changed, we may need to adjust pending selections
-                    if new_filter_order != prev_filter_order:
-                        st.session_state.calendar_filter_order = new_filter_order
-                        # Preserve selections where possible - filtering will happen via available options
-                        # Don't clear selections, just let the dynamic filtering handle it
-                    else:
-                        st.session_state.calendar_filter_order = new_filter_order
-                    
-                    # Get relationship maps
+                    # Get relationship maps for site-study relationships
                     relationship_map = st.session_state.get('site_study_relationship_map', {})
                     site_to_studies = relationship_map.get('site_to_studies', {})
                     study_to_sites = relationship_map.get('study_to_sites', {})
                     
-                    # Determine available options based on filter order and selections
-                    if st.session_state.calendar_filter_order == 'site_first':
-                        # Site → Study mode
-                        # Sites: show all available sites
-                        available_site_options = available_sites.copy() if available_sites else []
-                        
-                        # Studies: filter based on selected sites
-                        selected_sites_for_filter = st.session_state.pending_site_filter or []
-                        if selected_sites_for_filter:
-                            available_study_options = set()
-                            for site in selected_sites_for_filter:
-                                if site in site_to_studies:
-                                    available_study_options.update(site_to_studies[site])
-                            available_study_options = sorted(list(available_study_options))
-                        else:
-                            available_study_options = available_studies.copy() if available_studies else []
-                        
-                        study_label = "Study (at selected sites):"
-                    else:
-                        # Study → Site mode
-                        # Studies: show all available studies
-                        available_study_options = available_studies.copy() if available_studies else []
-                        
-                        # Sites: filter based on selected studies
-                        selected_studies_for_filter = st.session_state.pending_study_filter or []
-                        if selected_studies_for_filter:
-                            available_site_options = set()
-                            for study in selected_studies_for_filter:
-                                if study in study_to_sites:
-                                    available_site_options.update(study_to_sites[study])
-                            available_site_options = sorted(list(available_site_options))
-                        else:
-                            available_site_options = available_sites.copy() if available_sites else []
-                        
-                        study_label = "Study:"
+                    # Always use Site → Study mode (simplified)
+                    # Sites: show all available sites
+                    available_site_options = available_sites.copy() if available_sites else []
+                    
+                    # Studies: show all studies, but some may be disabled based on selected sites
+                    available_study_options = available_studies.copy() if available_studies else []
+                    
+                    # Determine which studies are enabled (have at least one selected site)
+                    selected_sites_for_filter = st.session_state.pending_site_filter or []
+                    enabled_studies = set()
+                    for site in selected_sites_for_filter:
+                        if site in site_to_studies:
+                            enabled_studies.update(site_to_studies[site])
+                    
+                    study_label = "Study:"
                     
                     # Site selector
                     st.markdown("**Site:**")
@@ -1126,24 +1085,39 @@ def main():
                         # Checkbox state matches selections - just update tracking value
                         st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
                     
-                    # Individual checkboxes for each study
+                    # Individual checkboxes for each study - disabled if site not selected
                     selected_studies = []
                     for study in available_study_options:
                         is_selected = study in pending_studies
                         study_key = f"study_checkbox_{study}"
-                        checked = st.checkbox(
-                            study,
-                            value=is_selected,
-                            key=study_key
-                        )
-                        if checked:
-                            selected_studies.append(study)
+                        is_enabled = study in enabled_studies
+                        
+                        # If study becomes disabled, remove it from selection
+                        if not is_enabled and is_selected:
+                            # Study was disabled - keep it in pending but don't allow interaction
+                            selected_studies.append(study)  # Keep current state
+                        else:
+                            checked = st.checkbox(
+                                study,
+                                value=is_selected,
+                                disabled=not is_enabled,
+                                key=study_key,
+                                help=f"Disabled because no associated site is selected" if not is_enabled else None
+                            )
+                            if checked and is_enabled:
+                                selected_studies.append(study)
+                            elif is_selected and not is_enabled:
+                                # Was selected but now disabled - keep in list but will be filtered out
+                                selected_studies.append(study)
+                    
+                    # Clean up: remove studies that are no longer enabled
+                    final_selected_studies = [s for s in selected_studies if s in enabled_studies]
                     
                     # Update pending study filter if changed
-                    if set(selected_studies) != set(pending_studies):
-                        st.session_state.pending_study_filter = selected_studies
+                    if set(final_selected_studies) != set(pending_studies):
+                        st.session_state.pending_study_filter = final_selected_studies
                         # Update tracking value to match new selection state
-                        new_all_selected = len(selected_studies) == len(available_study_options) and len(available_study_options) > 0
+                        new_all_selected = len(final_selected_studies) == len([s for s in available_study_options if s in enabled_studies]) and len(enabled_studies) > 0
                         st.session_state['prev_select_all_studies_checkbox_value'] = new_all_selected
                     
                     st.markdown("")  # Spacing
