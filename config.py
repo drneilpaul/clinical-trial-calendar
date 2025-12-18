@@ -9,6 +9,10 @@ def initialize_session_state():
     if 'auth_level' not in st.session_state:
         st.session_state.auth_level = 'public'
     
+    # Debug level - default to STANDARD
+    if 'debug_level' not in st.session_state:
+        st.session_state.debug_level = DEBUG_STANDARD
+    
     if 'show_patient_form' not in st.session_state:
         st.session_state.show_patient_form = False
     if 'show_visit_form' not in st.session_state:
@@ -63,3 +67,42 @@ DEFAULT_RECRUITMENT_WEIGHT = 30
 # Fixed list sizes for profit sharing
 ASHFIELDS_LIST_SIZE = 28500
 KILTEARN_LIST_SIZE = 12500
+
+# =============================================================================
+# DEBUG SYSTEM CONFIGURATION
+# =============================================================================
+
+# Debug level constants
+DEBUG_OFF = 0
+DEBUG_ERRORS = 1
+DEBUG_STANDARD = 2
+DEBUG_VERBOSE = 3
+DEBUG_DEBUG = 4
+
+def get_debug_level():
+    """Get current debug level from session state, defaulting to STANDARD"""
+    try:
+        return st.session_state.get('debug_level', DEBUG_STANDARD)
+    except:
+        # Fallback if streamlit not available (e.g., in tests)
+        return DEBUG_STANDARD
+
+def should_log_debug():
+    """Check if detailed debug logging should occur (level >= DEBUG)"""
+    return get_debug_level() >= DEBUG_DEBUG
+
+def should_log_info():
+    """Check if info level logging should occur (level >= VERBOSE)"""
+    return get_debug_level() >= DEBUG_VERBOSE
+
+def should_log_warning():
+    """Check if warning level logging should occur (level >= STANDARD)"""
+    return get_debug_level() >= DEBUG_STANDARD
+
+def should_log_error():
+    """Check if error level logging should occur (level >= ERRORS)"""
+    return get_debug_level() >= DEBUG_ERRORS
+
+def should_show_debug_ui():
+    """Check if debug UI elements should be visible (level >= VERBOSE)"""
+    return get_debug_level() >= DEBUG_VERBOSE

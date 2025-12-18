@@ -22,6 +22,7 @@ EXPORT_COLUMNS = [
     "ActualDate",
     "Outcome",
     "IsWithdrawn",
+    "IsDied",
     "Notes",
     "ExtrasPerformed"
 ]
@@ -133,6 +134,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
         export_df["ActualDate"] = pd.NaT
         export_df["Outcome"] = ""
         export_df["IsWithdrawn"] = ""
+        export_df["IsDied"] = ""
         export_df["Notes"] = ""
         export_df["ExtrasPerformed"] = ""
 
@@ -163,6 +165,7 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
             "ActualDate": 15,
             "Outcome": 18,
             "IsWithdrawn": 14,
+            "IsDied": 14,
             "Notes": 30,
             "ExtrasPerformed": 25
         }
@@ -323,6 +326,10 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
         is_withdrawn_val = getattr(row, 'IsWithdrawn', '') if hasattr(row, 'IsWithdrawn') else ''
         if _truthy(is_withdrawn_val) and 'Withdrawn' not in notes:
             notes = (notes + ('; ' if notes else '') + 'Withdrawn').strip()
+        # Optional IsDied column
+        is_died_val = getattr(row, 'IsDied', '') if hasattr(row, 'IsDied') else ''
+        if _truthy(is_died_val) and 'Died' not in notes:
+            notes = (notes + ('; ' if notes else '') + 'Died').strip()
         extras_value = getattr(row, 'ExtrasPerformed', '')
         extras_field = '' if pd.isna(extras_value) else str(extras_value).strip()
 

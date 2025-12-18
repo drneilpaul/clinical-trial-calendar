@@ -413,7 +413,8 @@ def show_legend(actual_visits_df):
     - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
     - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
     - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
-    - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future visits - stops all scheduled visits)
+    - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
+    - ⚠️ Died VisitName (Gray background with dark text) = Patient death (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
 
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)

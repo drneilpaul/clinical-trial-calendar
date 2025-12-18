@@ -33,6 +33,8 @@ def is_patient_inactive(patient_id, study, visits_df, actual_visits_df=None):
                 return True, 'withdrawn'
             if 'ScreenFail' in notes_combined:
                 return True, 'screen_failed'
+            if 'Died' in notes_combined:
+                return True, 'died'
     
     # Check if patient has any predicted visits remaining
     if visits_df is not None and not visits_df.empty:

@@ -43,6 +43,26 @@ def extract_withdrawals(actual_visits_df):
     
     return withdrawals
 
+def extract_deaths(actual_visits_df):
+    """Extract death information from actual visits"""
+    deaths = {}
+    
+    if actual_visits_df is not None and not actual_visits_df.empty:
+        # Find visits marked as deaths
+        death_visits = actual_visits_df[
+            actual_visits_df["Notes"].str.contains("Died", case=False, na=False)
+        ]
+        
+        for _, visit in death_visits.iterrows():
+            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
+            death_date = visit['ActualDate']
+            
+            # Store the earliest death date for each patient-study combination
+            if patient_study_key not in deaths or death_date < deaths[patient_study_key]:
+                deaths[patient_study_key] = death_date
+    
+    return deaths
+
 def prepare_financial_data(visits_df):
     """Prepare financial data with proper columns for profit sharing analysis"""
     if visits_df.empty:

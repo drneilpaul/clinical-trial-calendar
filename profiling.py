@@ -38,7 +38,7 @@ def timeit(func):
         
         message = f"{emoji} PERFORMANCE: {func.__name__} took {elapsed:.2f}s"
         
-        # Store timing in session state for Phase 1 validation to read
+        # Always store timing in session state (for potential UI display)
         try:
             import streamlit as st
             if 'performance_timings' not in st.session_state:
@@ -51,17 +51,29 @@ def timeit(func):
         except (ImportError, AttributeError):
             pass
         
-        # Try to use log_activity if available (Streamlit context)
+        # Check debug level before logging to activity log
+        should_log_performance = False
         try:
-            from helpers import log_activity
-            # Use 'warning' level for slow functions to make them more visible
-            # Use 'info' for fast functions
-            log_activity(message, level=level)
-            # Also print to console for visibility
-            print(f"[PERF] {message}")
+            from config import should_log_info, get_debug_level, DEBUG_STANDARD
+            # Log slow functions (>5s) at STANDARD level, all others at VERBOSE
+            current_level = get_debug_level()
+            if elapsed > 5.0:
+                # Always log very slow functions as warnings (if warnings enabled)
+                should_log_performance = current_level >= DEBUG_STANDARD
+            else:
+                # Log normal/fast functions only at VERBOSE level
+                should_log_performance = should_log_info()
         except (ImportError, AttributeError):
-            # Fallback for non-Streamlit contexts (testing, debugging)
-            print(f"[PERF] {message}")
+            # If config not available, log everything (backward compatibility)
+            should_log_performance = True
+        
+        # Try to use log_activity if available and debug level allows
+        if should_log_performance:
+            try:
+                from helpers import log_activity
+                log_activity(message, level=level)
+            except (ImportError, AttributeError):
+                pass
         
         return result
     
@@ -89,11 +101,19 @@ def profile_dataframe_operation(df, operation_name):
             elapsed = time.time() - self.start_time
             message = f"⏱️ {self.name} on {len(self.df)} rows took {elapsed:.2f}s"
             
+            # Check debug level before logging
             try:
-                from helpers import log_activity
-                log_activity(message, level='info')
+                from config import should_log_info
+                if should_log_info():
+                    from helpers import log_activity
+                    log_activity(message, level='info')
             except (ImportError, AttributeError):
-                print(message)
+                # Fallback: try to log anyway if config unavailable
+                try:
+                    from helpers import log_activity
+                    log_activity(message, level='info')
+                except (ImportError, AttributeError):
+                    pass
             
             return False
     

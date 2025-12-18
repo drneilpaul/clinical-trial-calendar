@@ -375,11 +375,13 @@ def setup_file_uploaders():
                 
                 st.divider()
                 
-                if st.button("🔍 Check All Database Tables", width="stretch"):
-                    st.session_state.show_database_contents = True
-                    st.rerun()
-                
-                st.divider()
+                # Database table viewing - only show at VERBOSE level or higher
+                if should_show_debug_ui():
+                    if st.button("🔍 Check All Database Tables", width="stretch"):
+                        st.session_state.show_database_contents = True
+                        st.rerun()
+                    
+                    st.divider()
                 
                 if st.button("🔄 Refresh App Data", width="stretch"):
                     # Clear all cached data
@@ -403,10 +405,65 @@ def setup_file_uploaders():
                 
                 st.divider()
                 
-                st.session_state.show_debug_info = st.checkbox("Show Debug Info", value=st.session_state.get('show_debug_info', False))
-                st.session_state.debug_mode = st.checkbox("🔧 Debug Mode (Optimization Validation)", value=st.session_state.get('debug_mode', False), help="Enable to run Phase 1 validation and performance checks")
+                # Unified Debug Level Control
+                from config import (DEBUG_OFF, DEBUG_ERRORS, DEBUG_STANDARD, 
+                                  DEBUG_VERBOSE, DEBUG_DEBUG, get_debug_level)
+                
+                debug_level_options = {
+                    "Off": DEBUG_OFF,
+                    "Errors Only": DEBUG_ERRORS,
+                    "Standard (Recommended)": DEBUG_STANDARD,
+                    "Verbose": DEBUG_VERBOSE,
+                    "Debug (All Details)": DEBUG_DEBUG
+                }
+                
+                # Get current level, defaulting to STANDARD
+                current_level = st.session_state.get('debug_level', DEBUG_STANDARD)
+                current_option = None
+                for opt_name, opt_level in debug_level_options.items():
+                    if opt_level == current_level:
+                        current_option = opt_name
+                        break
+                if current_option is None:
+                    current_option = "Standard (Recommended)"
+                
+                selected_option = st.selectbox(
+                    "Debug Level",
+                    options=list(debug_level_options.keys()),
+                    index=list(debug_level_options.keys()).index(current_option),
+                    help="Controls debug logging verbosity and UI elements. Standard is recommended for normal use.",
+                    key="debug_level_selector"
+                )
+                st.session_state.debug_level = debug_level_options[selected_option]
                 
                 st.divider()
+                
+                # Conditional debug UI elements - only show at VERBOSE level or higher
+                from config import should_show_debug_ui
+                
+                if should_show_debug_ui():
+                    # Debug log download (only visible at VERBOSE+)
+                    st.markdown("### Debug Log")
+                    from patient_processor import get_debug_log_content, _get_debug_log_path
+                    debug_log_path = _get_debug_log_path()
+                    debug_log_content = get_debug_log_content()
+                    if debug_log_content:
+                        st.download_button(
+                            "📋 Download Debug Log",
+                            data=debug_log_content,
+                            file_name=f"debug_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+                            mime="text/plain",
+                            width="stretch",
+                            help=f"Debug log path: {debug_log_path}"
+                        )
+                        st.caption(f"Log file: {debug_log_path}")
+                    else:
+                        if debug_log_path:
+                            st.info(f"📝 Debug log will be saved to: `{debug_log_path}`\n\nRun the calendar first to generate logs.")
+                        else:
+                            st.warning("Debug logging path not available. Logs may not be saved.")
+                    
+                    st.divider()
                 
                 if st.button("📦 Download DB Backup", width="stretch"):
                     backup_zip = db.create_backup_zip()
@@ -421,27 +478,6 @@ def setup_file_uploaders():
                         log_activity("Database backup created successfully", level='success')
                     else:
                         log_activity("Failed to create database backup", level='error')
-                
-                # Debug log download
-                st.markdown("### Debug Log")
-                from patient_processor import get_debug_log_content, _get_debug_log_path
-                debug_log_path = _get_debug_log_path()
-                debug_log_content = get_debug_log_content()
-                if debug_log_content:
-                    st.download_button(
-                        "📋 Download Debug Log",
-                        data=debug_log_content,
-                        file_name=f"debug_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-                        mime="text/plain",
-                        width="stretch",
-                        help=f"Debug log path: {debug_log_path}"
-                    )
-                    st.caption(f"Log file: {debug_log_path}")
-                else:
-                    if debug_log_path:
-                        st.info(f"📝 Debug log will be saved to: `{debug_log_path}`\n\nRun the calendar first to generate logs.")
-                    else:
-                        st.warning("Debug logging path not available. Logs may not be saved.")
                 
                 st.divider()
                 
@@ -539,8 +575,9 @@ def main():
                 log_activity(f"Validation error: {e}", level='error')
     # === END ADDITION ===
     
-    # Database Contents Display
-    if st.session_state.get('show_database_contents', False):
+    # Database Contents Display - only show at VERBOSE level or higher
+    from config import should_show_debug_ui
+    if st.session_state.get('show_database_contents', False) and should_show_debug_ui():
         st.markdown("---")
         st.subheader("📊 Database Contents")
         
@@ -658,7 +695,9 @@ def main():
                 log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
                 st.session_state._last_data_summary = f"{len(patients_df)}_{len(trials_df)}"
             
-            if st.session_state.get('show_debug_info', False):
+            # Show debug info only at VERBOSE level or higher
+            from config import should_show_debug_ui
+            if should_show_debug_ui():
                 st.write("**Data Summary:**")
                 st.write(f"Patients: {len(patients_df)} | Trials: {len(trials_df)} | Actual Visits: {len(actual_visits_df) if actual_visits_df is not None else 0}")
                 
@@ -775,77 +814,6 @@ def main():
                 hide_inactive=hide_inactive
             )
             
-            # ====================================================================
-            # BASELINE CALENDAR SAVE (Temporary - for Phase 3 validation)
-            # ====================================================================
-            if st.session_state.get('debug_mode', False):
-                if st.sidebar.button("💾 Save Baseline Calendar", help="Save current calendar for Phase 3 validation"):
-                    baseline_path = "baseline_calendar.pkl"
-                    calendar_df.to_pickle(baseline_path)
-                    st.sidebar.success(f"Baseline saved to {baseline_path}")
-                    
-                    # Also save performance metrics
-                    import json
-                    if 'performance_timings' in st.session_state:
-                        with open('baseline_performance.json', 'w') as f:
-                            json.dump(st.session_state.performance_timings, f, indent=2)
-                        st.sidebar.success("Performance metrics saved")
-                    log_activity("Baseline calendar saved for Phase 3 validation", level='info')
-            # ====================================================================
-            # END BASELINE SAVE
-            # ====================================================================
-            
-            # ====================================================================
-            # PHASE 1 VALIDATION - Only runs in debug mode
-            # ====================================================================
-            # Validates that the optimized calculate_financial_totals() function
-            # produces correct results. Only runs when debug mode is enabled.
-            if st.session_state.get('debug_mode', False):
-                try:
-                    from validate_phase1 import validate_financial_totals
-                    validate_financial_totals(calendar_df, "Phase 1", show_in_ui=True)
-                except Exception as e:
-                    # Silently fail if validation script has issues - don't break the app
-                    log_activity(f"Phase 1 validation error: {e}", level='warning')
-            # ====================================================================
-            # END PHASE 1 VALIDATION
-            # ====================================================================
-            
-            # ====================================================================
-            # PHASE 3 VALIDATION - Only runs in debug mode
-            # ====================================================================
-            if st.session_state.get('debug_mode', False):
-                try:
-                    from validate_phase3 import validate_phase3_optimization
-                    import os
-                    
-                    baseline_path = "baseline_calendar.pkl"
-                    if os.path.exists(baseline_path):
-                        baseline_calendar = pd.read_pickle(baseline_path)
-                        
-                        # Run comprehensive validation
-                        validation_results = validate_phase3_optimization(
-                            baseline_calendar,
-                            calendar_df,
-                            test_name="Phase 3 Live Validation",
-                            show_in_ui=True
-                        )
-                        
-                        if not validation_results.get('passed', False):
-                            st.error("⚠️ Phase 3 validation failed! See details above.")
-                        else:
-                            st.success("✅ Phase 3 validation passed!")
-                    else:
-                        st.info("ℹ️ Baseline calendar not found. Generate calendar with original implementation first, then click 'Save Baseline Calendar'.")
-                except ImportError:
-                    st.warning("⚠️ validate_phase3 module not found. Skipping Phase 3 validation.")
-                except Exception as e:
-                    st.error(f"Phase 3 validation error: {str(e)}")
-                    log_activity(f"Phase 3 validation error: {str(e)}", level='error')
-            # ====================================================================
-            # END PHASE 3 VALIDATION
-            # ====================================================================
-            
             screen_failures = extract_screen_failures(actual_visits_df)
             withdrawals = extract_withdrawals(actual_visits_df)
 
@@ -918,7 +886,7 @@ def main():
                 hide_inactive = st.checkbox(
                     "Hide inactive patients",
                     value=prev_hide_inactive,
-                    help="Hide patients who have withdrawn, screen failed, or finished all visits",
+                    help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
                     key="hide_inactive_checkbox"
                 )
                 # Check if value changed and clear cache if so
@@ -1137,11 +1105,11 @@ def main():
             - **ActualDate** - When visit actually occurred
             
             Optional columns:
-            - **Notes** - Visit notes (use 'ScreenFail' to mark failures, 'Withdrawn' to mark withdrawals)
+            - **Notes** - Visit notes (use 'ScreenFail' to mark failures, 'Withdrawn' to mark withdrawals, 'Died' to mark deaths)
             - **VisitType** - patient/siv/monitor (defaults to patient)
             
             Note: If a study event (siv/monitor) is in Actual Visits, it happened (completed).
-            Both 'ScreenFail' and 'Withdrawn' in Notes will stop all future scheduled visits for that patient.
+            'ScreenFail', 'Withdrawn', and 'Died' in Notes will stop all future scheduled visits for that patient (but Day 0 extra visits after death/withdrawal still count).
             """)
         
         st.markdown("---")
@@ -1154,6 +1122,7 @@ def main():
         - Each study must have exactly one Day 1 visit (baseline reference point)
         - Use 'ScreenFail' in the Notes column to automatically exclude future visits (screen failure)
         - Use 'Withdrawn' in the Notes column to automatically exclude future visits (patient withdrawal)
+        - Use 'Died' in the Notes column to automatically exclude future visits (patient death - Day 0 extras after death still count)
         - For study events (SIV/Monitor): use empty Day field in Trials file, manage via Actual Visits
         """)
 

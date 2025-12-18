@@ -156,23 +156,59 @@ def detect_withdrawals(actual_visits_df, trials_df):
     
     return withdrawals, unmatched_visits
 
+def detect_deaths(actual_visits_df, trials_df):
+    """Detect patient deaths from actual visits data"""
+    deaths = {}
+    unmatched_visits = []
+    
+    if actual_visits_df is None:
+        return deaths, unmatched_visits
+    
+    death_visits = actual_visits_df[
+        actual_visits_df["Notes"].str.contains("Died", case=False, na=False)
+    ]
+    
+    # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+    for visit_tuple in death_visits.itertuples(index=False):
+        # Create patient-specific key
+        patient_study_key = f"{visit_tuple.PatientID}_{visit_tuple.Study}"
+        death_date = visit_tuple.ActualDate
+        
+        study_visits = trials_df[
+            (trials_df["Study"] == visit_tuple.Study) & 
+            (trials_df["VisitName"] == visit_tuple.VisitName)
+        ]
+        
+        if len(study_visits) == 0:
+            unmatched_visits.append(f"Death visit '{visit_tuple.VisitName}' not found in study {visit_tuple.Study}")
+            continue
+        
+        # Store earliest death date for this specific patient
+        if patient_study_key not in deaths or death_date < deaths[patient_study_key]:
+            deaths[patient_study_key] = death_date
+    
+    return deaths, unmatched_visits
+
 def detect_patient_stoppages(actual_visits_df, trials_df):
-    """Detect both screen failures and withdrawals, returning combined stoppage dates"""
+    """Detect screen failures, withdrawals, and deaths, returning combined stoppage dates"""
     screen_failures, screen_fail_unmatched = detect_screen_failures(actual_visits_df, trials_df)
     withdrawals, withdrawal_unmatched = detect_withdrawals(actual_visits_df, trials_df)
+    deaths, death_unmatched = detect_deaths(actual_visits_df, trials_df)
     
     # Combine stoppages - use earliest date for each patient+study
     stoppages = {}
-    for key in set(list(screen_failures.keys()) + list(withdrawals.keys())):
+    for key in set(list(screen_failures.keys()) + list(withdrawals.keys()) + list(deaths.keys())):
         dates = []
         if key in screen_failures:
             dates.append(screen_failures[key])
         if key in withdrawals:
             dates.append(withdrawals[key])
+        if key in deaths:
+            dates.append(deaths[key])
         if dates:
             stoppages[key] = min(dates)
     
-    unmatched_visits = screen_fail_unmatched + withdrawal_unmatched
+    unmatched_visits = screen_fail_unmatched + withdrawal_unmatched + death_unmatched
     return stoppages, unmatched_visits
 
 def calculate_tolerance_windows(visit, baseline_date, visit_day):
@@ -238,7 +274,7 @@ def create_tolerance_window_records(patient_id, study, site, patient_origin, exp
     """Create tolerance window records for a visit
     
     Args:
-        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+        stoppage_date: Date of screen failure, withdrawal, or death (stops future visits)
     """
     records = []
     

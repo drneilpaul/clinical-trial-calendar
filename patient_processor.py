@@ -28,7 +28,19 @@ def _get_debug_log_path():
 
 # Helper function for debug logging that works in both local and Streamlit Cloud environments
 def _debug_log(location, message, data, hypothesis_id):
-    """Write debug log entry, gracefully handling file system issues"""
+    """Write debug log entry, gracefully handling file system issues. Only logs if debug level >= DEBUG."""
+    # Check debug level before doing any file I/O
+    try:
+        from config import should_log_debug
+        if not should_log_debug():
+            return  # No-op if debug level is too low
+    except ImportError:
+        # If config not available, log anyway (backward compatibility)
+        pass
+    except Exception:
+        # If any error checking debug level, skip logging (fail closed for performance)
+        return
+    
     try:
         log_path = _get_debug_log_path()
         if log_path:
@@ -39,8 +51,47 @@ def _debug_log(location, message, data, hypothesis_id):
         pass
 
 def get_debug_log_content():
-    """Read debug log file content for download/display"""
+    """Read debug log file content for download/display, optionally including activity log"""
     try:
+        from config import should_log_info, should_log_debug, get_debug_level, DEBUG_VERBOSE
+        
+        content_parts = []
+        current_level = get_debug_level()
+        
+        # Include activity log if level >= VERBOSE
+        if current_level >= DEBUG_VERBOSE:
+            try:
+                import streamlit as st
+                if 'activity_log' in st.session_state and st.session_state.activity_log:
+                    content_parts.append("=" * 80)
+                    content_parts.append("ACTIVITY LOG")
+                    content_parts.append("=" * 80)
+                    for entry in st.session_state.activity_log:
+                        timestamp = entry['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if hasattr(entry['timestamp'], 'strftime') else str(entry['timestamp'])
+                        level = entry.get('level', 'info').upper()
+                        message = entry.get('message', '')
+                        content_parts.append(f"[{timestamp}] [{level}] {message}")
+                    content_parts.append("")
+            except:
+                pass
+        
+        # Include detailed debug log if level >= DEBUG
+        if should_log_debug():
+            log_path = _get_debug_log_path()
+            if log_path and os.path.exists(log_path):
+                if content_parts:
+                    content_parts.append("=" * 80)
+                    content_parts.append("DETAILED DEBUG LOG (JSON)")
+                    content_parts.append("=" * 80)
+                with open(log_path, 'r') as f:
+                    debug_content = f.read()
+                    if debug_content.strip():
+                        content_parts.append(debug_content)
+        
+        if content_parts:
+            return "\n".join(content_parts)
+        
+        # Fallback: just return debug log file if it exists
         log_path = _get_debug_log_path()
         if log_path and os.path.exists(log_path):
             with open(log_path, 'r') as f:
@@ -126,7 +177,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     """Process a single actual visit
     
     Args:
-        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+        stoppage_date: Date of screen failure, withdrawal, or death (stops future visits)
     """
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -156,13 +207,6 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     is_proposed = visit_date > today
     
-    # #region agent log
-    _debug_log("patient_processor.py:161", "Date comparison check", {"patient_id": patient_id, "visit_name": visit_name, "raw_date": str(actual_visit_data["ActualDate"]), "normalized_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today), "is_proposed": is_proposed}, "A")
-    # Special logging for V-EOT and V-FU (the visits we're debugging)
-    if visit_name in ["V-EOT", "V-FU", "V-EOT (Proposed)", "V-FU (Proposed)"]:
-        _debug_log("patient_processor.py:164", "V-EOT/V-FU date check", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_proposed": is_proposed, "date_type": str(type(visit_date)), "today_type": str(type(today))}, "A")
-    # #endregion
-    
     # Debug logging for proposed visit detection
     if is_proposed:
         from helpers import log_activity
@@ -175,17 +219,18 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     else:
         payment = 0.0
     
-    # Check for screen failure and withdrawal
+    # Check for screen failure, withdrawal, and death
     notes = str(actual_visit_data.get("Notes", ""))
     is_screen_fail = "ScreenFail" in notes
     is_withdrawn = "Withdrawn" in notes
+    is_died = "Died" in notes
     
     # Improved data validation with warnings
     # CRITICAL: Skip stoppage date validation for proposed visits (they're legitimate tentative bookings)
     if not is_proposed and stoppage_date is not None and visit_date > stoppage_date:
         visit_status = f"⚠️ DATA ERROR {visit_name}"
         is_out_of_protocol = False
-        processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure or withdrawal")
+        processing_messages.append(f"⚠️ Patient {patient_id} has visit '{visit_name}' on {visit_date.strftime('%Y-%m-%d')} AFTER screen failure, withdrawal, or death")
     else:
         # Simplified: All actual visits are just marked as completed (no tolerance window checking)
         is_out_of_protocol = False  # Always False - we don't check tolerance windows anymore
@@ -197,21 +242,19 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
                 visit_status = f"⚠️ Screen Fail {visit_name}"  # Shouldn't happen, but handle gracefully
             elif is_withdrawn:
                 visit_status = f"⚠️ Withdrawn {visit_name}"  # Shouldn't happen, but handle gracefully
+            elif is_died:
+                visit_status = f"⚠️ Died {visit_name}"  # Shouldn't happen, but handle gracefully
             else:
                 visit_status = f"❓ {visit_name} (Proposed)"
                 log_activity(f"  Formatting as proposed: {visit_status}", level='info')
-                # #region agent log
-                _debug_log("patient_processor.py:148", "Visit status set to proposed format", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}, "C")
-                # #endregion
         elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
         elif is_withdrawn:
             visit_status = f"⚠️ Withdrawn {visit_name}"
+        elif is_died:
+            visit_status = f"⚠️ Died {visit_name}"
         else:
             visit_status = f"✅ {visit_name}"
-            # #region agent log
-            _debug_log("patient_processor.py:155", "Visit status set to actual format", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed}, "C")
-            # #endregion
     
     # CHANGED: Validate site exists and is valid, don't default
     site = visit.get("SiteforVisit")
@@ -239,15 +282,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "IsProposed": is_proposed,  # Add IsProposed flag
         "IsScreenFail": is_screen_fail,
         "IsWithdrawn": is_withdrawn,
+        "IsDied": is_died,
         "IsOutOfProtocol": is_out_of_protocol,
         "VisitDay": visit_day,
         "VisitName": visit_name,
         "VisitType": visit_type
     }
-    
-    # #region agent log
-    _debug_log("patient_processor.py:177", "Visit record created", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_status, "is_proposed": is_proposed, "visit_date": str(visit_date)}, "C")
-    # #endregion
     
     # Simplified: No tolerance window records created for actual visits (proposed or not)
     tolerance_records = []
@@ -258,7 +298,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     """Process a single scheduled (predicted) visit
     
     Args:
-        stoppage_date: Date of screen failure or withdrawal (stops future visits)
+        stoppage_date: Date of screen failure, withdrawal, or death (stops future visits)
     """
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -406,21 +446,11 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             visit_date = pd.Timestamp(visit_date)
         visit_date = pd.Timestamp(visit_date.date()).normalize()
         
-        # #region agent log
-        _debug_log("patient_processor.py:407", "Checking if visit is proposed (suppression logic)", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today)}, "B")
-        # Special logging for V-EOT and V-FU
-        if visit_name in ["V-EOT", "V-FU"] and patient_id == "670001":
-            _debug_log("patient_processor.py:410", "V-EOT/V-FU suppression check", {"patient_id": patient_id, "visit_name": visit_name, "visit_date": str(visit_date), "today": str(today), "is_future": str(visit_date > today), "raw_date_from_db": str(actual_visit_data.get("ActualDate", "N/A"))}, "B")
-        # #endregion
-        
         if visit_date > today:
             # This is a proposed visit
             proposed_visits[visit_name] = visit_date
             proposed_visit_dates.append(visit_date)
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
-            # #region agent log
-            _debug_log("patient_processor.py:349", "Proposed visit added to dictionary", {"patient_id": patient_id, "visit_name": visit_name, "proposed_date": str(visit_date), "total_proposed": len(proposed_visits)}, "B")
-            # #endregion
     
     # Sort proposed dates for suppression logic
     # We need both earliest (for individual checks) and latest (for suppression range)
@@ -471,9 +501,6 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             )
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
-                # #region agent log
-                _debug_log("patient_processor.py:390", "Visit record appended to list", {"patient_id": patient_id, "visit_name": visit_name, "visit_status": visit_record.get("Visit", ""), "is_proposed": visit_record.get("IsProposed", False)}, "C")
-                # #endregion
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
             
@@ -502,13 +529,6 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 should_suppress = False
                 suppress_reason = None
                 
-                # #region agent log
-                _debug_log("patient_processor.py:461", "Suppression logic check", {"patient_id": patient_id, "visit_name": visit_name, "predicted_date": str(predicted_date), "today": str(today), "proposed_visits": list(proposed_visits.keys()), "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None, "is_terminal": is_terminal_proposed_visit}, "D")
-                # Special logging for Zeus patient 670001
-                if patient_id == "670001" and study == "ZEUS EX6018-4758":
-                    _debug_log("patient_processor.py:464", "Zeus 670001 suppression details", {"visit_name": visit_name, "predicted_date": str(predicted_date), "proposed_visit_names": list(proposed_visits.keys()), "proposed_visit_dates": [str(d) for d in proposed_visits.values()], "latest_proposed_date": str(latest_proposed_date) if latest_proposed_date else None, "is_terminal": is_terminal_proposed_visit}, "D")
-                # #endregion
-                
                 # Rule 1: If predicted visit name matches a proposed visit → skip
                 if visit_name in proposed_visits:
                     should_suppress = True
@@ -529,10 +549,6 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 
                 # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
                 # (should_suppress remains False for past dates)
-                
-                # #region agent log
-                _debug_log("patient_processor.py:429", "Suppression decision", {"patient_id": patient_id, "visit_name": visit_name, "should_suppress": should_suppress, "suppress_reason": suppress_reason}, "D")
-                # #endregion
                 
                 if should_suppress:
                     log_activity(f"  Suppressing predicted visit {visit_name} on {predicted_date.strftime('%Y-%m-%d')} - {suppress_reason}", level='info')
@@ -606,11 +622,14 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             notes_str = str(actual_visit_data.get("Notes", ""))
             is_screen_fail = "ScreenFail" in notes_str
             is_withdrawn = "Withdrawn" in notes_str
+            is_died = "Died" in notes_str
             
             if is_screen_fail:
                 visit_display = f"⚠️ Screen Fail {visit_name}"
             elif is_withdrawn:
                 visit_display = f"⚠️ Withdrawn {visit_name}"
+            elif is_died:
+                visit_display = f"⚠️ Died {visit_name}"
             else:
                 visit_display = f"✅ {visit_name}"
             
@@ -631,6 +650,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 "IsProposed": is_unmatched_proposed,  # Add IsProposed flag
                 "IsScreenFail": is_screen_fail,
                 "IsWithdrawn": is_withdrawn,
+                "IsDied": is_died,
                 "IsOutOfProtocol": False,  # Day 0 visits are never out of protocol
                 "VisitDay": visit_day,
                 "VisitName": visit_name,

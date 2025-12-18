@@ -280,17 +280,22 @@ class DatabaseValidator:
         else:
             self.info.append(f"✅ No duplicate visits")
         
-        # Check 6: Screen failures and withdrawals
+        # Check 6: Screen failures, withdrawals, and deaths
         screen_fails = actual_visits_df[
             actual_visits_df['Notes'].str.contains('ScreenFail', case=False, na=False)
         ]
         withdrawals = actual_visits_df[
             actual_visits_df['Notes'].str.contains('Withdrawn', case=False, na=False)
         ]
+        deaths = actual_visits_df[
+            actual_visits_df['Notes'].str.contains('Died', case=False, na=False)
+        ]
         if not screen_fails.empty:
             self.info.append(f"📊 {len(screen_fails)} screen failure(s) recorded")
         if not withdrawals.empty:
             self.info.append(f"📊 {len(withdrawals)} withdrawal(s) recorded")
+        if not deaths.empty:
+            self.info.append(f"📊 {len(deaths)} death(s) recorded")
     
     def validate_cross_table_relationships(self, patients_df, trials_df, actual_visits_df):
         """Validate relationships between tables"""

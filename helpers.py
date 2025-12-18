@@ -572,25 +572,53 @@ def init_activity_log():
 
 def log_activity(message: str, level: str = 'info', details: str = None):
     """
-    Log activity with timestamp
-    
+    Log activity with timestamp, respecting debug levels
+
     Args:
         message: Main activity message
         level: 'info', 'success', 'error', or 'warning'
         details: Optional additional details
     """
+    # Check debug level before logging
+    try:
+        from config import (should_log_info, should_log_warning, 
+                          should_log_error, get_debug_level, DEBUG_OFF)
+        
+        current_level = get_debug_level()
+        
+        # If debug is OFF, don't log anything
+        if current_level == DEBUG_OFF:
+            return
+        
+        # Check level-specific filtering
+        if level == 'error':
+            if not should_log_error():
+                return
+        elif level == 'warning':
+            if not should_log_warning():
+                return
+        elif level in ['info', 'success']:
+            if not should_log_info():
+                return
+    except ImportError:
+        # If config not available, log everything (backward compatibility)
+        pass
+    except Exception:
+        # If any error checking debug level, log anyway (fail open)
+        pass
+    
     if 'activity_log' not in st.session_state:
         init_activity_log()
-    
+
     log_entry = {
         'timestamp': datetime.now(),
         'message': message,
         'level': level,
         'details': details
     }
-    
+
     st.session_state.activity_log.append(log_entry)
-    
+
     # Keep only last 500 entries to prevent memory issues (increased from 100 for longer sessions)
     MAX_LOG_ENTRIES = 500
     if len(st.session_state.activity_log) > MAX_LOG_ENTRIES:
