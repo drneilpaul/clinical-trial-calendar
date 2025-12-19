@@ -826,8 +826,8 @@ def main():
 
             available_sites = sorted([site for site in unique_visit_sites])
             available_studies = []
-            if 'Study' in visits_df_filtered.columns:
-                available_studies = sorted(visits_df_filtered['Study'].dropna().astype(str).unique().tolist())
+            if 'Study' in visits_df.columns:
+                available_studies = sorted(visits_df['Study'].dropna().astype(str).unique().tolist())
 
             # Build combined site/study selector
             site_field = None
@@ -960,6 +960,10 @@ def main():
                     st.session_state.scroll_to_today = True
                     st.rerun()
             with col_options[3]:
+                # Calendar range selector moved to same line
+                calendar_filter_option = render_calendar_start_selector()
+                calendar_start_date = calendar_filter_option.get("start")
+            with col_options[4]:
                 # Build filter summary for expander header
                 active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                 active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
@@ -971,7 +975,7 @@ def main():
                 else:
                     filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
                 
-                with st.expander(filter_summary, expanded=False):
+                with st.expander(filter_summary, expanded=True):
                     # Get relationship maps for site-study relationships
                     relationship_map = st.session_state.get('site_study_relationship_map', {})
                     site_to_studies = relationship_map.get('site_to_studies', {})
@@ -996,40 +1000,10 @@ def main():
                     # Site selector
                     st.markdown("**Site:**")
                     
-                    # Select All checkbox for sites
+                    # Individual checkboxes for each site (Select All removed)
                     pending_sites = st.session_state.pending_site_filter or []
-                    all_sites_selected = len(pending_sites) == len(available_site_options) and len(available_site_options) > 0
-                    
-                    # Track previous checkbox state (before widget is created)
-                    prev_select_all_sites = st.session_state.get('prev_select_all_sites_checkbox_value', all_sites_selected)
-                    
-                    select_all_sites = st.checkbox(
-                        "Select All",
-                        value=all_sites_selected,
-                        key="select_all_sites_checkbox"
-                    )
-                    
-                    # Handle Select All checkbox changes (check if user clicked it)
-                    # Compare current checkbox value with what it should be based on selections
-                    checkbox_changed = (select_all_sites != prev_select_all_sites)
-                    if checkbox_changed:
-                        # User clicked the checkbox - update selections accordingly
-                        if select_all_sites:
-                            # User checked "Select All" - select all sites
-                            st.session_state.pending_site_filter = available_site_options.copy()
-                        else:
-                            # User unchecked "Select All" - deselect all sites
-                            st.session_state.pending_site_filter = []
-                        # Update tracking value for next render
-                        st.session_state['prev_select_all_sites_checkbox_value'] = select_all_sites
-                        # Trigger rerun to reflect changes
-                        st.rerun()
-                    else:
-                        # Checkbox state matches selections - just update tracking value
-                        st.session_state['prev_select_all_sites_checkbox_value'] = select_all_sites
-                    
-                    # Individual checkboxes for each site
                     selected_sites = []
+                    
                     for site in available_site_options:
                         is_selected = site in pending_sites
                         site_key = f"site_checkbox_{site}"
@@ -1044,71 +1018,31 @@ def main():
                     # Update pending site filter if changed
                     if set(selected_sites) != set(pending_sites):
                         st.session_state.pending_site_filter = selected_sites
-                        # Update tracking value to match new selection state
-                        new_all_selected = len(selected_sites) == len(available_site_options) and len(available_site_options) > 0
-                        st.session_state['prev_select_all_sites_checkbox_value'] = new_all_selected
+                        st.rerun()  # Rerun to update study checkboxes enable/disable state
                     
                     st.markdown("")  # Spacing
                     
                     # Study selector
                     st.markdown(f"**{study_label}**")
                     
-                    # Select All checkbox for studies
+                    # Individual checkboxes for each study - disabled if site not selected (Select All removed)
                     pending_studies = st.session_state.pending_study_filter or []
-                    all_studies_selected = len(pending_studies) == len(available_study_options) and len(available_study_options) > 0
-                    
-                    # Track previous checkbox state (before widget is created)
-                    prev_select_all_studies = st.session_state.get('prev_select_all_studies_checkbox_value', all_studies_selected)
-                    
-                    select_all_studies = st.checkbox(
-                        "Select All",
-                        value=all_studies_selected,
-                        key="select_all_studies_checkbox"
-                    )
-                    
-                    # Handle Select All checkbox changes (check if user clicked it)
-                    # Compare current checkbox value with what it should be based on selections
-                    checkbox_changed = (select_all_studies != prev_select_all_studies)
-                    if checkbox_changed:
-                        # User clicked the checkbox - update selections accordingly
-                        if select_all_studies:
-                            # User checked "Select All" - select all studies
-                            st.session_state.pending_study_filter = available_study_options.copy()
-                        else:
-                            # User unchecked "Select All" - deselect all studies
-                            st.session_state.pending_study_filter = []
-                        # Update tracking value for next render
-                        st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
-                        # Trigger rerun to reflect changes
-                        st.rerun()
-                    else:
-                        # Checkbox state matches selections - just update tracking value
-                        st.session_state['prev_select_all_studies_checkbox_value'] = select_all_studies
-                    
-                    # Individual checkboxes for each study - disabled if site not selected
                     selected_studies = []
+                    
                     for study in available_study_options:
                         is_selected = study in pending_studies
                         study_key = f"study_checkbox_{study}"
                         is_enabled = study in enabled_studies
                         
-                        # If study becomes disabled, remove it from selection
-                        if not is_enabled and is_selected:
-                            # Study was disabled - keep it in pending but don't allow interaction
-                            selected_studies.append(study)  # Keep current state
-                        else:
-                            checked = st.checkbox(
-                                study,
-                                value=is_selected,
-                                disabled=not is_enabled,
-                                key=study_key,
-                                help=f"Disabled because no associated site is selected" if not is_enabled else None
-                            )
-                            if checked and is_enabled:
-                                selected_studies.append(study)
-                            elif is_selected and not is_enabled:
-                                # Was selected but now disabled - keep in list but will be filtered out
-                                selected_studies.append(study)
+                        checked = st.checkbox(
+                            study,
+                            value=is_selected if is_enabled else False,  # Uncheck if disabled
+                            disabled=not is_enabled,
+                            key=study_key,
+                            help=f"Disabled because no associated site is selected" if not is_enabled else None
+                        )
+                        if checked and is_enabled:
+                            selected_studies.append(study)
                     
                     # Clean up: remove studies that are no longer enabled
                     final_selected_studies = [s for s in selected_studies if s in enabled_studies]
@@ -1116,9 +1050,6 @@ def main():
                     # Update pending study filter if changed
                     if set(final_selected_studies) != set(pending_studies):
                         st.session_state.pending_study_filter = final_selected_studies
-                        # Update tracking value to match new selection state
-                        new_all_selected = len(final_selected_studies) == len([s for s in available_study_options if s in enabled_studies]) and len(enabled_studies) > 0
-                        st.session_state['prev_select_all_studies_checkbox_value'] = new_all_selected
                     
                     st.markdown("")  # Spacing
                     
@@ -1138,6 +1069,10 @@ def main():
                             st.session_state.active_site_filter = available_sites.copy() if available_sites else []
                             st.session_state.active_study_filter = available_studies.copy() if available_studies else []
                             st.rerun()
+            
+            # Apply filters to dataframes using calendar start date
+            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
+            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
             
             # Use active filters for calendar filtering
             selected_sites = st.session_state.active_site_filter or available_sites
