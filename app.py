@@ -920,8 +920,8 @@ def main():
             if 'active_study_filter' not in st.session_state or not st.session_state.active_study_filter:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
-            # Calendar display options
-            col_options = st.columns([1, 1, 1, 3])
+            # Calendar display options - moved calendar view selector to same line
+            col_options = st.columns([1, 1, 1, 1, 2])
             with col_options[0]:
                 prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
                 hide_inactive = st.checkbox(
