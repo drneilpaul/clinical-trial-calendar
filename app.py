@@ -29,7 +29,7 @@ from data_analysis import (
     extract_screen_failures, extract_withdrawals, display_site_wise_statistics, display_processing_messages
 )
 from calculations import prepare_financial_data
-from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE
+from config import initialize_session_state, get_file_structure_info, APP_TITLE, APP_VERSION, APP_SUBTITLE, should_show_debug_ui
 
 def extract_site_summary(patients_df, screen_failures=None):
     """Extract site summary statistics from patients dataframe with robust site detection"""
@@ -439,8 +439,6 @@ def setup_file_uploaders():
                 st.divider()
                 
                 # Conditional debug UI elements - only show at VERBOSE level or higher
-                from config import should_show_debug_ui
-                
                 if should_show_debug_ui():
                     # Debug log download (only visible at VERBOSE+)
                     st.markdown("### Debug Log")
@@ -575,7 +573,6 @@ def main():
     # === END ADDITION ===
     
     # Database Contents Display - only show at VERBOSE level or higher
-    from config import should_show_debug_ui
     if st.session_state.get('show_database_contents', False) and should_show_debug_ui():
         st.markdown("---")
         st.subheader("📊 Database Contents")
@@ -695,7 +692,6 @@ def main():
                 st.session_state._last_data_summary = f"{len(patients_df)}_{len(trials_df)}"
             
             # Show debug info only at VERBOSE level or higher
-            from config import should_show_debug_ui
             if should_show_debug_ui():
                 st.write("**Data Summary:**")
                 st.write(f"Patients: {len(patients_df)} | Trials: {len(trials_df)} | Actual Visits: {len(actual_visits_df) if actual_visits_df is not None else 0}")
