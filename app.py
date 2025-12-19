@@ -818,12 +818,7 @@ def main():
 
             display_processing_messages(messages)
             
-            # Calendar range selector
-            calendar_filter_option = render_calendar_start_selector()
-            calendar_start_date = calendar_filter_option.get("start")
-            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
-            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
-
+            # Calendar range selector moved to col_options[3] (same line as other controls)
             available_sites = sorted([site for site in unique_visit_sites])
             available_studies = []
             if 'Study' in visits_df.columns:
@@ -1070,6 +1065,10 @@ def main():
                             st.session_state.active_study_filter = available_studies.copy() if available_studies else []
                             st.rerun()
             
+            # Get calendar_start_date from the selector (created in col_options[3])
+            calendar_filter_option = st.session_state.get("calendar_start_selection", {})
+            calendar_start_date = calendar_filter_option.get("start") if calendar_filter_option else None
+            
             # Apply filters to dataframes using calendar start date
             calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
             visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
@@ -1136,7 +1135,9 @@ def main():
                 filtered_unique_visit_sites = unique_visit_sites
 
             if calendar_start_date is not None:
-                st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({calendar_filter_option.get('label')}).")
+                calendar_filter_option = st.session_state.get("calendar_start_selection", {})
+                label = calendar_filter_option.get('label', 'selected period') if calendar_filter_option else 'selected period'
+                st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({label}).")
             else:
                 st.caption("Showing all recorded visits.")
 
