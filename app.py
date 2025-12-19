@@ -825,9 +825,10 @@ def main():
                 available_studies = sorted(visits_df['Study'].dropna().astype(str).unique().tolist())
 
             # Build combined site/study selector
+            # Note: Use visits_df (not filtered) for building filter options - filtering happens later
             site_field = None
             for candidate in ['SiteofVisit', 'VisitSite', 'Site', 'OriginSite', 'Practice']:
-                if candidate in visits_df_filtered.columns:
+                if candidate in visits_df.columns:
                     site_field = candidate
                     break
 
@@ -838,11 +839,11 @@ def main():
             study_site_map = {}  # {study: set of sites}
             
             if available_studies and site_field:
-                if site_field not in visits_df_filtered.columns:
-                    temp_df = visits_df_filtered[['Study']].dropna(subset=['Study']).copy()
+                if site_field not in visits_df.columns:
+                    temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
                     temp_df[site_field] = site_label_fallback
                 else:
-                    temp_df = visits_df_filtered[[site_field, 'Study']].dropna(subset=['Study']).copy()
+                    temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
                 
                 temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
                 temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
@@ -861,14 +862,15 @@ def main():
                         study_site_map[study_val] = set()
                     study_site_map[study_val].add(site_val)
             
+            # Build combo options for legacy compatibility (not used in new UI, but keeping for now)
             combo_options = {}
             if available_studies:
                 if site_field is None:
-                    temp_df = visits_df_filtered[['Study']].dropna(subset=['Study']).copy()
+                    temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
                     temp_df['__site'] = site_label_fallback
                     site_field = '__site'
                 else:
-                    temp_df = visits_df_filtered[[site_field, 'Study']].dropna(subset=['Study']).copy()
+                    temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
                 temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
                 temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
                 temp_df = temp_df.drop_duplicates()
