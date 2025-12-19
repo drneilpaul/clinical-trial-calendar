@@ -7,9 +7,13 @@ import streamlit.components.v1 as components
 from helpers import log_activity, generate_financial_year_options, trigger_data_refresh
 from calendar_builder import is_patient_inactive
 
-def render_calendar_start_selector(years_back: int = 4):
+def render_calendar_start_selector(years_back: int = 4, show_label: bool = True):
     """
     Render a financial year selectbox for filtering the calendar view.
+    
+    Args:
+        years_back: Number of years back to include in options
+        show_label: If False, hide the label for better alignment (default: True)
     
     Returns:
         dict: The selected option with keys label/start/end.
@@ -26,12 +30,19 @@ def render_calendar_start_selector(years_back: int = 4):
     if session_key in st.session_state and st.session_state[session_key] not in labels:
         del st.session_state[session_key]
     
+    label_text = "Calendar view from" if show_label else ""
+    help_text = "Filter the calendar to show visits from the selected financial year onward."
+    if not show_label:
+        # Include label in help text when label is hidden
+        help_text = "Calendar view from: " + help_text
+    
     selected_label = st.selectbox(
-        "Calendar view from",
+        label_text,
         labels,
         index=default_index,
         key=session_key,
-        help="Filter the calendar to show visits from the selected financial year onward."
+        label_visibility="visible" if show_label else "collapsed",
+        help=help_text
     )
     
     selected_option = next(opt for opt in options if opt["label"] == selected_label)

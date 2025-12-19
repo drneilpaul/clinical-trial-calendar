@@ -957,8 +957,8 @@ def main():
                     st.session_state.scroll_to_today = True
                     st.rerun()
             with col_options[3]:
-                # Calendar range selector moved to same line
-                calendar_filter_option = render_calendar_start_selector()
+                # Calendar range selector moved to same line - hide label for alignment
+                calendar_filter_option = render_calendar_start_selector(show_label=False)
                 calendar_start_date = calendar_filter_option.get("start")
             with col_options[4]:
                 # Build filter summary for expander header
@@ -972,7 +972,14 @@ def main():
                 else:
                     filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
                 
-                with st.expander(filter_summary, expanded=True):
+                # Determine if filter is active (expanded if active, closed if showing all)
+                has_active_filter = (
+                    (active_sites_count < total_sites or active_studies_count < total_studies)
+                    if (total_sites > 0 and total_studies > 0)
+                    else False
+                )
+                
+                with st.expander(filter_summary, expanded=has_active_filter):
                     # Get relationship maps for site-study relationships
                     relationship_map = st.session_state.get('site_study_relationship_map', {})
                     site_to_studies = relationship_map.get('site_to_studies', {})
@@ -1012,10 +1019,10 @@ def main():
                         if checked:
                             selected_sites.append(site)
                     
-                    # Update pending site filter if changed
+                    # Update pending site filter if changed (no rerun - only updates on Apply Filter click)
                     if set(selected_sites) != set(pending_sites):
                         st.session_state.pending_site_filter = selected_sites
-                        st.rerun()  # Rerun to update study checkboxes enable/disable state
+                        # Note: Study checkboxes will update their enabled/disabled state when Apply Filter is clicked
                     
                     st.markdown("")  # Spacing
                     
@@ -1050,22 +1057,12 @@ def main():
                     
                     st.markdown("")  # Spacing
                     
-                    # Action buttons
-                    col_apply, col_show_all = st.columns([1, 1])
-                    with col_apply:
-                        if st.button("Apply Filter", type="primary", key="apply_filter_button", use_container_width=True):
-                            # Copy pending to active and trigger rerun
-                            st.session_state.active_site_filter = st.session_state.pending_site_filter.copy()
-                            st.session_state.active_study_filter = st.session_state.pending_study_filter.copy()
-                            st.rerun()
-                    with col_show_all:
-                        if st.button("Show All", key="show_all_button", use_container_width=True):
-                            # Reset both pending and active to all
-                            st.session_state.pending_site_filter = available_sites.copy() if available_sites else []
-                            st.session_state.pending_study_filter = available_studies.copy() if available_studies else []
-                            st.session_state.active_site_filter = available_sites.copy() if available_sites else []
-                            st.session_state.active_study_filter = available_studies.copy() if available_studies else []
-                            st.rerun()
+                    # Apply Filter button (Show All removed per user request)
+                    if st.button("Apply Filter", type="primary", key="apply_filter_button", use_container_width=True):
+                        # Copy pending to active and trigger rerun
+                        st.session_state.active_site_filter = st.session_state.pending_site_filter.copy()
+                        st.session_state.active_study_filter = st.session_state.pending_study_filter.copy()
+                        st.rerun()
             
             # Get calendar_start_date from the selector (created in col_options[3])
             calendar_filter_option = st.session_state.get("calendar_start_selection", {})
