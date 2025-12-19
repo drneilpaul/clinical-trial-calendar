@@ -980,89 +980,87 @@ def main():
                 )
                 
                 with st.expander(filter_summary, expanded=has_active_filter):
-                    # Get relationship maps for site-study relationships
-                    relationship_map = st.session_state.get('site_study_relationship_map', {})
-                    site_to_studies = relationship_map.get('site_to_studies', {})
-                    study_to_sites = relationship_map.get('study_to_sites', {})
-                    
-                    # Always use Site → Study mode (simplified)
-                    # Sites: show all available sites
-                    available_site_options = available_sites.copy() if available_sites else []
-                    
-                    # Studies: show all studies, but some may be disabled based on selected sites
-                    available_study_options = available_studies.copy() if available_studies else []
-                    
-                    # Determine which studies are enabled (have at least one selected site)
-                    selected_sites_for_filter = st.session_state.pending_site_filter or []
-                    enabled_studies = set()
-                    for site in selected_sites_for_filter:
-                        if site in site_to_studies:
-                            enabled_studies.update(site_to_studies[site])
-                    
-                    study_label = "Study:"
-                    
-                    # Site selector
-                    st.markdown("**Site:**")
-                    
-                    # Individual checkboxes for each site (Select All removed)
-                    pending_sites = st.session_state.pending_site_filter or []
-                    selected_sites = []
-                    
-                    for site in available_site_options:
-                        is_selected = site in pending_sites
-                        site_key = f"site_checkbox_{site}"
-                        checked = st.checkbox(
-                            site,
-                            value=is_selected,
-                            key=site_key
-                        )
-                        if checked:
-                            selected_sites.append(site)
-                    
-                    # Update pending site filter if changed (no rerun - only updates on Apply Filter click)
-                    if set(selected_sites) != set(pending_sites):
-                        st.session_state.pending_site_filter = selected_sites
-                        # Note: Study checkboxes will update their enabled/disabled state when Apply Filter is clicked
-                    
-                    st.markdown("")  # Spacing
-                    
-                    # Study selector
-                    st.markdown(f"**{study_label}**")
-                    
-                    # Individual checkboxes for each study - disabled if site not selected (Select All removed)
-                    pending_studies = st.session_state.pending_study_filter or []
-                    selected_studies = []
-                    
-                    for study in available_study_options:
-                        is_selected = study in pending_studies
-                        study_key = f"study_checkbox_{study}"
-                        is_enabled = study in enabled_studies
+                    # Wrap filter UI in form to prevent reruns on checkbox clicks
+                    with st.form(key="calendar_filter_form"):
+                        # Get relationship maps for site-study relationships
+                        relationship_map = st.session_state.get('site_study_relationship_map', {})
+                        site_to_studies = relationship_map.get('site_to_studies', {})
+                        study_to_sites = relationship_map.get('study_to_sites', {})
                         
-                        checked = st.checkbox(
-                            study,
-                            value=is_selected if is_enabled else False,  # Uncheck if disabled
-                            disabled=not is_enabled,
-                            key=study_key,
-                            help=f"Disabled because no associated site is selected" if not is_enabled else None
-                        )
-                        if checked and is_enabled:
-                            selected_studies.append(study)
-                    
-                    # Clean up: remove studies that are no longer enabled
-                    final_selected_studies = [s for s in selected_studies if s in enabled_studies]
-                    
-                    # Update pending study filter if changed
-                    if set(final_selected_studies) != set(pending_studies):
+                        # Always use Site → Study mode (simplified)
+                        # Sites: show all available sites
+                        available_site_options = available_sites.copy() if available_sites else []
+                        
+                        # Studies: show all studies, but some may be disabled based on selected sites
+                        available_study_options = available_studies.copy() if available_studies else []
+                        
+                        study_label = "Study:"
+                        
+                        # Site selector
+                        st.markdown("**Site:**")
+                        
+                        # Individual checkboxes for each site (Select All removed)
+                        pending_sites = st.session_state.pending_site_filter or []
+                        selected_sites = []
+                        
+                        for site in available_site_options:
+                            is_selected = site in pending_sites
+                            site_key = f"site_checkbox_{site}"
+                            checked = st.checkbox(
+                                site,
+                                value=is_selected,
+                                key=site_key
+                            )
+                            if checked:
+                                selected_sites.append(site)
+                        
+                        # Update pending site filter based on form values (no rerun until form submission)
+                        st.session_state.pending_site_filter = selected_sites
+                        
+                        # Determine which studies are enabled based on CURRENT form selections (not session state)
+                        enabled_studies = set()
+                        for site in selected_sites:
+                            if site in site_to_studies:
+                                enabled_studies.update(site_to_studies[site])
+                        
+                        st.markdown("")  # Spacing
+                        
+                        # Study selector
+                        st.markdown(f"**{study_label}**")
+                        
+                        # Individual checkboxes for each study - disabled if site not selected (Select All removed)
+                        pending_studies = st.session_state.pending_study_filter or []
+                        selected_studies = []
+                        
+                        for study in available_study_options:
+                            is_selected = study in pending_studies
+                            study_key = f"study_checkbox_{study}"
+                            is_enabled = study in enabled_studies
+                            
+                            checked = st.checkbox(
+                                study,
+                                value=is_selected if is_enabled else False,  # Uncheck if disabled
+                                disabled=not is_enabled,
+                                key=study_key,
+                                help=f"Disabled because no associated site is selected" if not is_enabled else None
+                            )
+                            if checked and is_enabled:
+                                selected_studies.append(study)
+                        
+                        # Clean up: remove studies that are no longer enabled
+                        final_selected_studies = [s for s in selected_studies if s in enabled_studies]
+                        
+                        # Update pending study filter based on form values (no rerun until form submission)
                         st.session_state.pending_study_filter = final_selected_studies
-                    
-                    st.markdown("")  # Spacing
-                    
-                    # Apply Filter button (Show All removed per user request)
-                    if st.button("Apply Filter", type="primary", key="apply_filter_button", use_container_width=True):
-                        # Copy pending to active and trigger rerun
-                        st.session_state.active_site_filter = st.session_state.pending_site_filter.copy()
-                        st.session_state.active_study_filter = st.session_state.pending_study_filter.copy()
-                        st.rerun()
+                        
+                        st.markdown("")  # Spacing
+                        
+                        # Apply Filter button - form submit button (triggers rerun only on submit)
+                        submitted = st.form_submit_button("Apply Filter", type="primary", use_container_width=True)
+                        if submitted:
+                            # Copy pending to active - form submission automatically triggers rerun
+                            st.session_state.active_site_filter = st.session_state.pending_site_filter.copy()
+                            st.session_state.active_study_filter = st.session_state.pending_study_filter.copy()
             
             # Get calendar_start_date from the selector (created in col_options[3])
             calendar_filter_option = st.session_state.get("calendar_start_selection", {})
