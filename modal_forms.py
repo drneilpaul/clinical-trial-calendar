@@ -618,6 +618,10 @@ def visit_entry_modal():
         withdrawn_flag = st.checkbox(
             "Withdrawn – stop future visits",
             help="Tick to mark the patient as withdrawn. This will stop all future scheduled visits.")
+        
+        died_flag = st.checkbox(
+            "Has Died – stop future visits",
+            help="Tick to mark the patient as deceased. Enter the actual date of death. All scheduled visits AFTER this date will be suppressed. Missed visits due BEFORE the death date will still show as predicted. Day 0 extras after death still count.")
     
     # Duplicate checking logic
     def check_for_duplicates(patient_id, study, visit_name, actual_date, visits_df):
@@ -731,6 +735,10 @@ def visit_entry_modal():
             final_notes = notes if notes else ''
             if withdrawn_flag and 'Withdrawn' not in final_notes:
                 final_notes = (final_notes + ('; ' if final_notes else '') + 'Withdrawn').strip()
+            
+            # Ensure Notes includes 'Died' if checkbox selected
+            if died_flag and 'Died' not in final_notes:
+                final_notes = (final_notes + ('; ' if final_notes else '') + 'Died').strip()
 
             # Create new visit data
             new_visit = {
