@@ -55,13 +55,8 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
-            df = df.rename(columns={
-                'patient_id': 'PatientID',
-                'study': 'Study',
-                'start_date': 'StartDate',
-                'patient_practice': 'PatientPractice'
-            })
             
+            # Database columns are now PascalCase, no renaming needed
             if 'StartDate' in df.columns:
                 df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
             
@@ -92,20 +87,7 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
-            df = df.rename(columns={
-                'study': 'Study',
-                'day': 'Day',
-                'visit_name': 'VisitName',
-                'site_for_visit': 'SiteforVisit',
-                'payment': 'Payment',
-                'tolerance_before': 'ToleranceBefore',
-                'tolerance_after': 'ToleranceAfter',
-                # Optional columns for month-based intervals
-                'interval_unit': 'IntervalUnit',
-                'interval_value': 'IntervalValue',
-                # VisitType column (if exists)
-                'visit_type': 'VisitType'
-            })
+            # Database columns are now PascalCase, no renaming needed
             return df
         return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType'])
     except Exception as e:
@@ -127,17 +109,7 @@ def _fetch_all_actual_visits_cached() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
-            
-            rename_map = {
-                'patient_id': 'PatientID',
-                'study': 'Study',
-                'visit_name': 'VisitName',
-                'actual_date': 'ActualDate',
-                'notes': 'Notes',
-            }
-            if 'visit_type' in df.columns:
-                rename_map['visit_type'] = 'VisitType'
-            df = df.rename(columns=rename_map)
+            # Database columns are now PascalCase, no renaming needed
             
             if 'ActualDate' in df.columns:
                 df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce')
@@ -232,10 +204,10 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
                     start_date = None
             
             record = {
-                'patient_id': str(row_tuple.PatientID),
-                'study': str(row_tuple.Study),
-                'start_date': str(start_date) if start_date else None,
-                'patient_practice': str(getattr(row_tuple, 'PatientPractice', ''))
+                'PatientID': str(row_tuple.PatientID),
+                'Study': str(row_tuple.Study),
+                'StartDate': str(start_date) if start_date else None,
+                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', ''))
             }
             records.append(record)
         
@@ -290,6 +262,7 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             trials_df_clean['ToleranceAfter'] = pd.to_numeric(trials_df_clean['ToleranceAfter'], errors='coerce').fillna(0)
         
         records = []
+        records_with_visit_type = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in trials_df_clean.itertuples(index=False):
             # Get VisitType if it exists, otherwise infer from VisitName
@@ -305,26 +278,27 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                     visit_type_value = 'patient'  # Default
             
             record = {
-                'study': str(row_tuple.Study),
-                'day': int(row_tuple.Day),
-                'visit_name': str(row_tuple.VisitName),
-                'site_for_visit': str(getattr(row_tuple, 'SiteforVisit', '')),
-                'payment': float(getattr(row_tuple, 'Payment', 0)),
-                'tolerance_before': int(getattr(row_tuple, 'ToleranceBefore', 0)),
-                'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
+                'Study': str(row_tuple.Study),
+                'Day': int(row_tuple.Day),
+                'VisitName': str(row_tuple.VisitName),
+                'SiteforVisit': str(getattr(row_tuple, 'SiteforVisit', '')),
+                'Payment': float(getattr(row_tuple, 'Payment', 0)),
+                'ToleranceBefore': int(getattr(row_tuple, 'ToleranceBefore', 0)),
+                'ToleranceAfter': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
-                'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
-                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
-                # VisitType field
-                'visit_type': str(visit_type_value).lower() if visit_type_value else 'patient'
+                'IntervalUnit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
+                'IntervalValue': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
+                # VisitType column (now always included since database has it)
+                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient'
             }
             records.append(record)
         
         log_activity(f"Sample trial records: {records[:3]}", level='info')
-        log_activity(f"Payment values in records: {[r['payment'] for r in records[:5]]}", level='info')
+        log_activity(f"Payment values in records: {[r['Payment'] for r in records[:5]]}", level='info')
         log_activity(f"Cleaned Payment column sample: {trials_df_clean['Payment'].head().tolist()}", level='info')
         
         client.table('trial_schedules').insert(records).execute()
+        
         log_activity(f"Successfully saved {len(records)} trial schedules to database", level='info')
         return True
         
@@ -358,12 +332,12 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
             visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
                 
             record = {
-                'patient_id': str(row_tuple.PatientID),
-                'study': str(row_tuple.Study),
-                'visit_name': str(row_tuple.VisitName),
-                'actual_date': actual_date_str,
-                'notes': str(getattr(row_tuple, 'Notes', '')),
-                'visit_type': str(visit_type_value)  # Use lowercase to match database schema
+                'PatientID': str(row_tuple.PatientID),
+                'Study': str(row_tuple.Study),
+                'VisitName': str(row_tuple.VisitName),
+                'ActualDate': actual_date_str,
+                'Notes': str(getattr(row_tuple, 'Notes', '')),
+                'VisitType': str(visit_type_value)
             }
             records.append(record)
         
@@ -417,10 +391,10 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
                     start_date = None
             
             record = {
-                'patient_id': str(row_tuple.PatientID),
-                'study': str(row_tuple.Study),
-                'start_date': str(start_date) if start_date else None,
-                'patient_practice': str(getattr(row_tuple, 'PatientPractice', ''))
+                'PatientID': str(row_tuple.PatientID),
+                'Study': str(row_tuple.Study),
+                'StartDate': str(start_date) if start_date else None,
+                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', ''))
             }
             records.append(record)
         
@@ -457,12 +431,12 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
         if duplicate_check_result['has_duplicates']:
             duplicate_info = duplicate_check_result['duplicates']
             if duplicate_check_result['is_exact_duplicate']:
-                message = f"Exact duplicate found: {duplicate_info['patient_id']} - {duplicate_info['visit_name']} on {duplicate_info['actual_date']}"
+                message = f"Exact duplicate found: {duplicate_info['PatientID']} - {duplicate_info['VisitName']} on {duplicate_info['ActualDate']}"
                 log_activity(f"Duplicate visit prevented: {message}", level='warning')
                 return False, message, 'DUPLICATE_FOUND'
             else:
                 # Same visit on different date - allow but warn
-                message = f"Same visit exists on different date: {duplicate_info['patient_id']} - {duplicate_info['visit_name']} (existing: {duplicate_info['actual_date']})"
+                message = f"Same visit exists on different date: {duplicate_info['PatientID']} - {duplicate_info['VisitName']} (existing: {duplicate_info['ActualDate']})"
                 log_activity(f"Visit with different date detected: {message}", level='info')
         
         from helpers import get_visit_type_series
@@ -483,12 +457,12 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
             visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
             
             record = {
-                'patient_id': str(row_tuple.PatientID),
-                'study': str(row_tuple.Study),
-                'visit_name': str(row_tuple.VisitName),
-                'actual_date': actual_date_str,
-                'notes': str(getattr(row_tuple, 'Notes', '')),
-                'visit_type': str(visit_type_value)  # Use lowercase to match database schema
+                'PatientID': str(row_tuple.PatientID),
+                'Study': str(row_tuple.Study),
+                'VisitName': str(row_tuple.VisitName),
+                'ActualDate': actual_date_str,
+                'Notes': str(getattr(row_tuple, 'Notes', '')),
+                'VisitType': str(visit_type_value)
             }
             records.append(record)
         
@@ -523,13 +497,7 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
         if existing_visits.empty:
             return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
         
-        # Normalize column names to match our format
-        existing_visits = existing_visits.rename(columns={
-            'patient_id': 'PatientID',
-            'study': 'Study', 
-            'visit_name': 'VisitName',
-            'actual_date': 'ActualDate'
-        })
+        # Database columns are now PascalCase, no renaming needed
         
         # Check each visit in the input DataFrame
         for _, new_visit in visit_df.iterrows():
@@ -567,10 +535,10 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
                     'has_duplicates': True,
                     'is_exact_duplicate': True,
                     'duplicates': {
-                        'patient_id': duplicate_info['PatientID'],
-                        'study': duplicate_info['Study'],
-                        'visit_name': duplicate_info['VisitName'],
-                        'actual_date': duplicate_info['ActualDate']
+                        'PatientID': duplicate_info['PatientID'],
+                        'Study': duplicate_info['Study'],
+                        'VisitName': duplicate_info['VisitName'],
+                        'ActualDate': duplicate_info['ActualDate']
                     }
                 }
             
@@ -588,10 +556,10 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
                     'has_duplicates': True,
                     'is_exact_duplicate': False,
                     'duplicates': {
-                        'patient_id': duplicate_info['PatientID'],
-                        'study': duplicate_info['Study'],
-                        'visit_name': duplicate_info['VisitName'],
-                        'actual_date': duplicate_info['ActualDate']
+                        'PatientID': duplicate_info['PatientID'],
+                        'Study': duplicate_info['Study'],
+                        'VisitName': duplicate_info['VisitName'],
+                        'ActualDate': duplicate_info['ActualDate']
                     }
                 }
         
@@ -617,6 +585,7 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
         schedule_df_clean = normalize_payment_column(schedule_df, 'Payment')
         
         records = []
+        records_with_visit_type = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in schedule_df_clean.itertuples(index=False):
             # Get VisitType if it exists, otherwise infer from VisitName
@@ -632,22 +601,23 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                     visit_type_value = 'patient'  # Default
             
             record = {
-                'study': str(row_tuple.Study),
-                'day': int(getattr(row_tuple, 'Day', 0)),
-                'visit_name': str(row_tuple.VisitName),
-                'site_for_visit': str(getattr(row_tuple, 'SiteforVisit', '')),
-                'payment': float(getattr(row_tuple, 'Payment', 0)),
-                'tolerance_before': int(getattr(row_tuple, 'ToleranceBefore', 0)),
-                'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
+                'Study': str(row_tuple.Study),
+                'Day': int(getattr(row_tuple, 'Day', 0)),
+                'VisitName': str(row_tuple.VisitName),
+                'SiteforVisit': str(getattr(row_tuple, 'SiteforVisit', '')),
+                'Payment': float(getattr(row_tuple, 'Payment', 0)),
+                'ToleranceBefore': int(getattr(row_tuple, 'ToleranceBefore', 0)),
+                'ToleranceAfter': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
-                'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
-                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
-                # VisitType field
-                'visit_type': str(visit_type_value).lower() if visit_type_value else 'patient'
+                'IntervalUnit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
+                'IntervalValue': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
+                # VisitType column (now always included since database has it)
+                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient'
             }
             records.append(record)
         
         response = client.table('trial_schedules').insert(records).execute()
+        
         log_activity(f"Appended {len(records)} trial schedule(s) to database", level='success')
         return True
         
@@ -887,25 +857,25 @@ def switch_patient_study(patient_id, old_study, new_study, new_start_date):
             return False, "Cannot switch to the same study", 0
         
         # Check if patient exists
-        patient_check = client.table('patients').select('*').eq('patient_id', patient_id).eq('study', old_study).execute()
+        patient_check = client.table('patients').select('*').eq('PatientID', patient_id).eq('Study', old_study).execute()
         if not patient_check.data:
             log_activity(f"Cannot switch patient study: Patient {patient_id} not found in study {old_study}", level='error')
             return False, f"Patient {patient_id} not found in study {old_study}", 0
         
         # Check if target study exists in trial schedules
-        trial_check = client.table('trial_schedules').select('study').eq('study', new_study).limit(1).execute()
+        trial_check = client.table('trial_schedules').select('Study').eq('Study', new_study).limit(1).execute()
         if not trial_check.data:
             log_activity(f"Cannot switch patient study: Target study {new_study} not found in trial schedules", level='error')
             return False, f"Target study {new_study} not found in trial schedules", 0
         
         # Check if target study has exactly one Day 1 visit
-        day1_check = client.table('trial_schedules').select('*').eq('study', new_study).eq('day', 1).execute()
+        day1_check = client.table('trial_schedules').select('*').eq('Study', new_study).eq('Day', 1).execute()
         if len(day1_check.data) != 1:
             log_activity(f"Cannot switch patient study: Target study {new_study} has {len(day1_check.data)} Day 1 visits (should be exactly 1)", level='error')
             return False, f"Target study {new_study} must have exactly one Day 1 visit", 0
         
         # Get count of actual visits to update
-        visits_check = client.table('actual_visits').select('id').eq('patient_id', patient_id).eq('study', old_study).execute()
+        visits_check = client.table('actual_visits').select('id').eq('PatientID', patient_id).eq('Study', old_study).execute()
         visits_count = len(visits_check.data)
         
         # Update patient record
@@ -923,9 +893,9 @@ def switch_patient_study(patient_id, old_study, new_study, new_start_date):
             return False, f"Invalid date format: {new_start_date}", 0
         
         patient_update = client.table('patients').update({
-            'study': new_study,
-            'start_date': db_start_date
-        }).eq('patient_id', patient_id).eq('study', old_study).execute()
+            'Study': new_study,
+            'StartDate': db_start_date
+        }).eq('PatientID', patient_id).eq('Study', old_study).execute()
         
         if not patient_update.data:
             log_activity(f"Failed to update patient {patient_id} record", level='error')
@@ -933,8 +903,8 @@ def switch_patient_study(patient_id, old_study, new_study, new_start_date):
         
         # Update all actual visits for this patient
         visits_update = client.table('actual_visits').update({
-            'study': new_study
-        }).eq('patient_id', patient_id).eq('study', old_study).execute()
+            'Study': new_study
+        }).eq('PatientID', patient_id).eq('Study', old_study).execute()
         
         log_activity(f"Successfully switched patient {patient_id} from {old_study} to {new_study}", level='success')
         log_activity(f"Updated {visits_count} actual visits", level='info')

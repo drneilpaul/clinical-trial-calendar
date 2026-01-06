@@ -192,7 +192,7 @@ class DatabaseValidator:
         else:
             self.info.append(f"✅ No duplicate visit definitions")
         
-        # Check 5: Study events have valid sites
+        # Check 5: Study events have valid sites and VisitType
         from helpers import get_visit_type_series
         visit_types = get_visit_type_series(trials_df, default='patient')
         if not visit_types.empty:
@@ -205,6 +205,36 @@ class DatabaseValidator:
                     )
                 else:
                     self.info.append(f"✅ All {len(study_events)} study events have valid sites")
+                
+                # Check 5a: Study events have VisitType set (not None/null)
+                # Detect SIV/Monitor by VisitName if VisitType column exists but has None values
+                if 'VisitType' in trials_df.columns or 'visit_type' in trials_df.columns:
+                    visit_type_col = 'VisitType' if 'VisitType' in trials_df.columns else 'visit_type'
+                    # Find SIV/Monitor templates by VisitName
+                    siv_templates = trials_df[
+                        (trials_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV')
+                    ]
+                    monitor_templates = trials_df[
+                        (trials_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False))
+                    ]
+                    all_study_event_templates = pd.concat([siv_templates, monitor_templates]).drop_duplicates()
+                    
+                    if not all_study_event_templates.empty:
+                        # Check for None/null/empty VisitType values
+                        missing_visit_type = all_study_event_templates[
+                            all_study_event_templates[visit_type_col].isna() |
+                            (all_study_event_templates[visit_type_col].astype(str).str.strip().isin(['', 'None', 'nan', 'null', 'NULL']))
+                        ]
+                        
+                        if not missing_visit_type.empty:
+                            missing_list = missing_visit_type[['Study', 'VisitName', 'SiteforVisit']].to_dict('records')
+                            self.errors.append(
+                                f"❌ {len(missing_visit_type)} study event template(s) (SIV/Monitor) have missing VisitType: "
+                                f"{missing_list[:5]}"
+                                + (f" and {len(missing_visit_type) - 5} more" if len(missing_visit_type) > 5 else "")
+                            )
+                        else:
+                            self.info.append(f"✅ All {len(all_study_event_templates)} study event templates have valid VisitType")
     
     def validate_actual_visits_table(self, actual_visits_df, patients_df, trials_df):
         """Validate actual visits table integrity"""

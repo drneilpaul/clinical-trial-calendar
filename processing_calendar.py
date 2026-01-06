@@ -423,9 +423,17 @@ def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
     from helpers import get_visit_type_series
     
-    # Ensure VisitType column exists (add it if missing, infer from VisitName)
-    if 'VisitType' not in trials_df.columns and 'visit_type' not in trials_df.columns and 'visitType' not in trials_df.columns:
-        # Auto-detect VisitType from VisitName if column doesn't exist
+    # Ensure VisitType column exists and fill None values (add it if missing, infer from VisitName)
+    visit_type_col = None
+    if 'VisitType' in trials_df.columns:
+        visit_type_col = 'VisitType'
+    elif 'visit_type' in trials_df.columns:
+        visit_type_col = 'visit_type'
+    elif 'visitType' in trials_df.columns:
+        visit_type_col = 'visitType'
+    
+    if visit_type_col is None:
+        # Column doesn't exist - create it
         trials_df = trials_df.copy()
         trials_df['VisitType'] = 'patient'  # Default to patient
         
@@ -436,6 +444,29 @@ def separate_visit_types(trials_df):
         # Auto-detect Monitors
         monitor_mask = trials_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
         trials_df.loc[monitor_mask, 'VisitType'] = 'monitor'
+    else:
+        # Column exists but may have None values - fill them
+        trials_df = trials_df.copy()
+        # Fill None/null/empty values with 'patient' default
+        none_mask = (
+            trials_df[visit_type_col].isna() |
+            (trials_df[visit_type_col].astype(str).str.strip().isin(['', 'None', 'nan', 'null', 'NULL']))
+        )
+        trials_df.loc[none_mask, visit_type_col] = 'patient'
+        
+        # Auto-detect SIVs from VisitName (even if VisitType is set to patient)
+        siv_mask = (
+            (trials_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') &
+            (trials_df[visit_type_col].astype(str).str.lower() != 'siv')
+        )
+        trials_df.loc[siv_mask, visit_type_col] = 'siv'
+        
+        # Auto-detect Monitors from VisitName
+        monitor_mask = (
+            trials_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False) &
+            (~trials_df[visit_type_col].astype(str).str.lower().isin(['monitor']))
+        )
+        trials_df.loc[monitor_mask, visit_type_col] = 'monitor'
     
     visit_types = get_visit_type_series(trials_df, default='patient')
     patient_mask = visit_types.isin(['patient', 'extra'])
