@@ -1,6 +1,17 @@
 import streamlit as st
 import pandas as pd
 
+# =============================================================================
+# DEBUG SYSTEM CONFIGURATION
+# =============================================================================
+
+# Debug level constants (defined before functions that use them)
+DEBUG_OFF = 0
+DEBUG_ERRORS = 1
+DEBUG_STANDARD = 2
+DEBUG_VERBOSE = 3
+DEBUG_DEBUG = 4
+
 def initialize_session_state():
     """Initialize all session state variables"""
     from helpers import init_activity_log, init_error_system
@@ -35,6 +46,18 @@ def initialize_session_state():
         st.session_state.calendar_cache_buster = 0
     if 'show_weights_form' not in st.session_state:
         st.session_state.show_weights_form = False
+    if 'show_scrollbars' not in st.session_state:
+        st.session_state.show_scrollbars = True  # Default to showing scrollbars for new users
+    
+    # Filter state variables - initialized as empty lists, will be populated when data is loaded
+    if 'pending_site_filter' not in st.session_state:
+        st.session_state.pending_site_filter = []
+    if 'pending_study_filter' not in st.session_state:
+        st.session_state.pending_study_filter = []
+    if 'active_site_filter' not in st.session_state:
+        st.session_state.active_site_filter = []
+    if 'active_study_filter' not in st.session_state:
+        st.session_state.active_study_filter = []
 
 def get_file_structure_info():
     """Return file structure information as markdown"""
@@ -67,17 +90,6 @@ DEFAULT_RECRUITMENT_WEIGHT = 30
 # Fixed list sizes for profit sharing
 ASHFIELDS_LIST_SIZE = 28500
 KILTEARN_LIST_SIZE = 12500
-
-# =============================================================================
-# DEBUG SYSTEM CONFIGURATION
-# =============================================================================
-
-# Debug level constants
-DEBUG_OFF = 0
-DEBUG_ERRORS = 1
-DEBUG_STANDARD = 2
-DEBUG_VERBOSE = 3
-DEBUG_DEBUG = 4
 
 def get_debug_level():
     """Get current debug level from session state, defaulting to STANDARD"""

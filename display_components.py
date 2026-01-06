@@ -561,12 +561,16 @@ def display_calendar(calendar_df, site_column_mapping, unique_visit_sites, exclu
             if scroll_to_today:
                 st.session_state.scroll_to_today = False  # Reset flag after use
             
+            # Get scrollbar visibility preference from session state
+            show_scrollbars = st.session_state.get('show_scrollbars', True)
+            
             # Generate HTML with frozen headers
             html_table = _generate_calendar_html_with_frozen_headers(
                 styled_data, site_column_mapping, compact_mode, 
                 list(display_with_headers.columns),
                 header_rows_df=header_rows,  # Pass unstyled headers separately
-                scroll_to_today=scroll_to_today  # Pass scroll flag
+                scroll_to_today=scroll_to_today,  # Pass scroll flag
+                show_scrollbars=show_scrollbars  # Pass scrollbar visibility preference
             )
             log_activity(f"HTML generation successful, length: {len(html_table)}", level='info')
             
@@ -688,7 +692,7 @@ def _convert_to_compact_icon(cell_content):
     
     return content_str
 
-def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None, header_rows_df=None, scroll_to_today=False):
+def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, compact_mode=False, column_names=None, header_rows_df=None, scroll_to_today=False, show_scrollbars=True):
     """Generate HTML calendar with frozen headers, month separators, auto-scroll, tooltips, and compact mode"""
     try:
         # Generate HTML for data rows (if they exist)
@@ -1185,6 +1189,12 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         isolation: isolate;
                     }}
                     
+                    /* Show scrollbars always when class is applied */
+                    .calendar-container.show-scrollbars {{
+                        overflow-y: scroll !important;
+                        overflow-x: scroll !important;
+                    }}
+                    
                     /* Ensure sticky works - parent must have defined height */
                     .calendar-container table {{
                         position: relative;
@@ -1194,7 +1204,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                 </style>
             </head>
             <body style="margin: 0; padding: 0; overflow: hidden;">
-                <div class="calendar-container{' compact-mode' if compact_mode else ''}" id="calendar-scroll-container">
+                <div class="calendar-container{' compact-mode' if compact_mode else ''}{' show-scrollbars' if show_scrollbars else ''}" id="calendar-scroll-container">
                     {html_table_with_features}
                 </div>
                 <script>
@@ -1416,6 +1426,50 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     setTimeout(function() {{
                         applyStickyStyles();
                     }}, 100);
+                    
+                    // Handle scrollbar visibility preference with localStorage
+                    function applyScrollbarPreference() {{
+                        try {{
+                            const container = document.getElementById('calendar-scroll-container');
+                            if (!container) {{
+                                return;
+                            }}
+                            
+                            // Server-side preference (from Streamlit session state) takes precedence
+                            // This value comes from the checkbox in the UI
+                            const serverPreference = {str(show_scrollbars).lower()};
+                            
+                            // Read preference from localStorage (for persistence across sessions)
+                            const storedPreference = localStorage.getItem('calendar_show_scrollbars');
+                            
+                            // Determine the preference: server value always takes precedence
+                            let shouldShowScrollbars = true;
+                            if (serverPreference === 'true') {{
+                                shouldShowScrollbars = true;
+                            }} else if (serverPreference === 'false') {{
+                                shouldShowScrollbars = false;
+                            }} else if (storedPreference !== null) {{
+                                // Fallback to localStorage if server preference is not set (shouldn't happen, but safe fallback)
+                                shouldShowScrollbars = storedPreference === 'true';
+                            }}
+                            
+                            // Apply the preference by adding/removing the class
+                            if (shouldShowScrollbars) {{
+                                container.classList.add('show-scrollbars');
+                            }} else {{
+                                container.classList.remove('show-scrollbars');
+                            }}
+                            
+                            // Save server preference to localStorage to persist across sessions
+                            localStorage.setItem('calendar_show_scrollbars', shouldShowScrollbars.toString());
+                        }} catch (error) {{
+                            console.error('Error applying scrollbar preference:', error);
+                        }}
+                    }}
+                    
+                    // Apply scrollbar preference on page load
+                    applyScrollbarPreference();
+                    setTimeout(applyScrollbarPreference, 100);
                     
                     // Always scroll to today on initial load (simpler and more reliable)
                     // When view options change (compact/hide inactive), the calendar structure changes

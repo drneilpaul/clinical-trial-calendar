@@ -924,7 +924,7 @@ def main():
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
             # Calendar display options - moved calendar view selector to same line
-            col_options = st.columns([1, 1, 1, 1, 2])
+            col_options = st.columns([1, 1, 1, 1, 1, 2])
             with col_options[0]:
                 prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
                 hide_inactive = st.checkbox(
@@ -956,14 +956,28 @@ def main():
                 else:
                     st.session_state.compact_calendar_mode = compact_mode
             with col_options[2]:
+                prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
+                show_scrollbars = st.checkbox(
+                    "Show scrollbars",
+                    value=prev_show_scrollbars,
+                    help="Always show vertical and horizontal scrollbars (useful on Windows)",
+                    key="show_scrollbars_checkbox"
+                )
+                # Check if value changed and trigger rerun
+                if show_scrollbars != prev_show_scrollbars:
+                    st.session_state.show_scrollbars = show_scrollbars
+                    st.rerun()
+                else:
+                    st.session_state.show_scrollbars = show_scrollbars
+            with col_options[3]:
                 if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
                     st.session_state.scroll_to_today = True
                     st.rerun()
-            with col_options[3]:
+            with col_options[4]:
                 # Calendar range selector moved to same line - hide label for alignment
                 calendar_filter_option = render_calendar_start_selector(show_label=False)
                 calendar_start_date = calendar_filter_option.get("start")
-            with col_options[4]:
+            with col_options[5]:
                 # Build filter summary for expander header
                 active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                 active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
