@@ -1195,6 +1195,32 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         overflow-x: scroll !important;
                     }}
                     
+                    /* Make scrollbars more visible - especially on Mac */
+                    .calendar-container.show-scrollbars::-webkit-scrollbar {{
+                        width: 12px !important;
+                        height: 12px !important;
+                    }}
+                    
+                    .calendar-container.show-scrollbars::-webkit-scrollbar-track {{
+                        background: #f1f1f1 !important;
+                        border-radius: 4px !important;
+                    }}
+                    
+                    .calendar-container.show-scrollbars::-webkit-scrollbar-thumb {{
+                        background: #888 !important;
+                        border-radius: 4px !important;
+                    }}
+                    
+                    .calendar-container.show-scrollbars::-webkit-scrollbar-thumb:hover {{
+                        background: #555 !important;
+                    }}
+                    
+                    /* For Firefox - ensure scrollbars are always visible */
+                    .calendar-container.show-scrollbars {{
+                        scrollbar-width: thin !important;
+                        scrollbar-color: #888 #f1f1f1 !important;
+                    }}
+                    
                     /* Ensure sticky works - parent must have defined height */
                     .calendar-container table {{
                         position: relative;
@@ -1456,20 +1482,35 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                             // Apply the preference by adding/removing the class
                             if (shouldShowScrollbars) {{
                                 container.classList.add('show-scrollbars');
+                                // Force scrollbars to be visible by setting overflow directly
+                                container.style.setProperty('overflow-y', 'scroll', 'important');
+                                container.style.setProperty('overflow-x', 'scroll', 'important');
                             }} else {{
                                 container.classList.remove('show-scrollbars');
+                                container.style.setProperty('overflow-y', 'auto', 'important');
+                                container.style.setProperty('overflow-x', 'auto', 'important');
                             }}
                             
                             // Save server preference to localStorage to persist across sessions
                             localStorage.setItem('calendar_show_scrollbars', shouldShowScrollbars.toString());
+                            
+                            // Debug logging (can be removed later)
+                            console.log('Scrollbar preference applied:', shouldShowScrollbars, 'Server:', serverPreference, 'Stored:', storedPreference);
                         }} catch (error) {{
                             console.error('Error applying scrollbar preference:', error);
                         }}
                     }}
                     
-                    // Apply scrollbar preference on page load
+                    // Apply scrollbar preference on page load - run immediately and with delays
                     applyScrollbarPreference();
+                    setTimeout(applyScrollbarPreference, 50);
                     setTimeout(applyScrollbarPreference, 100);
+                    setTimeout(applyScrollbarPreference, 300);
+                    
+                    // Also apply when DOM is fully loaded
+                    if (document.readyState === 'loading') {{
+                        document.addEventListener('DOMContentLoaded', applyScrollbarPreference);
+                    }}
                     
                     // Always scroll to today on initial load (simpler and more reliable)
                     // When view options change (compact/hide inactive), the calendar structure changes
