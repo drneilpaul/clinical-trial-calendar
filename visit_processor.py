@@ -34,16 +34,21 @@ def process_study_events(event_templates, actual_visits_df):
         if pd.isna(actual_date):
             continue
         
-        # Study events MUST have a valid template with site information
+        # Study events need site information - try template first, then fallback to actual visit data
         payment = 0
         site = None
         
+        # First, try to get site from template (preferred - includes payment info)
         if not event_templates.empty:
+            # Match on Study and VisitName first
             template = event_templates[
                 (event_templates['Study'] == study) & 
-                (event_templates['VisitName'] == visit_name) &
-                (event_templates['VisitType'] == visit_type)
+                (event_templates['VisitName'] == visit_name)
             ]
+            
+            # If VisitType column exists, also match on it
+            if 'VisitType' in event_templates.columns:
+                template = template[template['VisitType'] == visit_type]
             
             if not template.empty:
                 template_row = template.iloc[0]
@@ -53,11 +58,26 @@ def process_study_events(event_templates, actual_visits_df):
                 # Validate site is not empty/invalid
                 if pd.notna(site_value) and str(site_value).strip() not in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']:
                     site = str(site_value).strip()
-
-        # Skip this event if no valid site found
+        
+        # Fallback: If no template found, try to get site from actual visit record
+        # This handles cases where SIVs are added but templates don't exist yet
+        if site is None:
+            # Check if there's a SiteforVisit or Site column in the actual visit
+            site_candidates = ['SiteforVisit', 'Site', 'VisitSite', 'SiteofVisit']
+            for site_col in site_candidates:
+                if hasattr(event_tuple, site_col):
+                    site_value = getattr(event_tuple, site_col, None)
+                    if pd.notna(site_value) and str(site_value).strip() not in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']:
+                        site = str(site_value).strip()
+                        break
+            
+            # If still no site, try to infer from PatientID format (SIV_STUDYNAME format)
+            # But we need the actual site name, so this won't work
+        
+        # Skip this event if no valid site found after all attempts
         if site is None:
             from helpers import log_activity
-            log_activity(f"WARNING: Skipping study event {visit_name} for {study} - no valid SiteforVisit found in trial schedule", level='warning')
+            log_activity(f"WARNING: Skipping study event '{visit_name}' for study '{study}' - no valid site found. Please ensure the event has a SiteforVisit in trial_schedules or add it to the actual visit record.", level='warning')
             continue
         
         # All study events in actual_visits are completed

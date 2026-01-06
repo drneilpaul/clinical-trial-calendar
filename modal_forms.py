@@ -621,7 +621,7 @@ def visit_entry_modal():
         
         died_flag = st.checkbox(
             "Has Died – stop future visits",
-            help="Tick to mark the patient as deceased. Enter the actual date of death. All scheduled visits AFTER this date will be suppressed. Missed visits due BEFORE the death date will still show as predicted. Day 0 extras after death still count.")
+            help="Tick to mark the patient as deceased. This will stop all future scheduled visits (Day >= 1). Day 0 extras after death still count.")
     
     # Duplicate checking logic
     def check_for_duplicates(patient_id, study, visit_name, actual_date, visits_df):
@@ -1018,7 +1018,8 @@ def study_event_entry_modal():
                 'ActualDate': formatted_date,
                 'VisitType': visit_type,
                 'Status': status.lower(),
-                'Notes': notes if notes else ''
+                'Notes': notes if notes else '',
+                'SiteforVisit': site  # Include site so it can be used during processing
             }
             
             # Handle database or file mode
@@ -1030,6 +1031,27 @@ def study_event_entry_modal():
                     success, message, code = db.append_visit_to_database(event_df)
                     
                     if success:
+                        # Automatically create/update trial_schedules template for this SIV/Monitor
+                        # This ensures the event will display properly on the calendar
+                        try:
+                            template_df = pd.DataFrame([{
+                                'Study': selected_study,
+                                'Day': 0 if visit_type == 'siv' else 999,  # SIVs use Day 0, Monitors use 999
+                                'VisitName': event_name,
+                                'SiteforVisit': site,
+                                'Payment': 0,  # Default to 0, can be updated later
+                                'ToleranceBefore': 0,
+                                'ToleranceAfter': 0,
+                                'VisitType': visit_type
+                            }])
+                            
+                            # Try to append the template (will fail silently if duplicate exists, which is fine)
+                            db.append_trial_schedule_to_database(template_df)
+                            log_activity(f"Created/updated trial schedule template for {event_name} ({selected_study}) at {site}", level='info')
+                        except Exception as template_error:
+                            # Template might already exist - that's okay
+                            log_activity(f"Note: Trial schedule template for {event_name} may already exist: {template_error}", level='info')
+                        
                         st.success(f"Study event '{event_name}' recorded successfully!")
                         log_activity(f"Recorded study event {event_name} for {selected_study}", level='success')
                         

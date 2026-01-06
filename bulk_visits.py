@@ -27,16 +27,6 @@ EXPORT_COLUMNS = [
     "ExtrasPerformed"
 ]
 
-# Instruction text for Excel file (to be added when instruction rows feature is implemented)
-# Update the "IMPORTANT RULES" section with:
-# IMPORTANT RULES:
-# • If Outcome is 'Did not happen', ActualDate MUST be blank
-# • Only rows with Outcome='Happened' AND ActualDate filled will be imported
-# • For Death: Enter the actual date of death if known, otherwise use the visit date
-# • All visits scheduled AFTER the death date will be suppressed
-# • Missed visits due BEFORE death date will still show as predicted
-# • Dates must be DD/MM/YYYY format
-
 
 def _normalise_key(patient_id: Any, study: Any) -> Tuple[str, str]:
     return (str(patient_id).strip(), str(study).strip())

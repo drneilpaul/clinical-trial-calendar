@@ -622,8 +622,14 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
         return True
         
     except Exception as e:
-        log_activity(f"Error appending trial schedule: {e}", level='error')
-        return False
+        error_str = str(e).lower()
+        # If it's a duplicate key error, that's okay - template already exists
+        if 'duplicate' in error_str or 'unique' in error_str or 'already exists' in error_str:
+            log_activity(f"Trial schedule template already exists (this is okay): {e}", level='info')
+            return True  # Return True since the template exists, which is what we want
+        else:
+            log_activity(f"Error appending trial schedule: {e}", level='error')
+            return False
 
 def export_patients_to_csv() -> Optional[pd.DataFrame]:
     """Export patients from database in upload-ready CSV format"""

@@ -94,7 +94,7 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
     unmatched_visits = []
     screen_failures = {}
     withdrawals = {}
-    stoppages = {}  # Combined screen failures and withdrawals
+    stoppages = {}  # Combined screen failures, withdrawals, and deaths
     
     if actual_visits_df is not None:
         actual_visits_df = prepare_actual_visits_data(actual_visits_df)
@@ -422,17 +422,32 @@ def validate_study_structure(patients_df, trials_df):
 def separate_visit_types(trials_df):
     """Separate patient visits from study events"""
     from helpers import get_visit_type_series
-    if 'VisitType' in trials_df.columns or 'visit_type' in trials_df.columns or 'visitType' in trials_df.columns:
-        visit_types = get_visit_type_series(trials_df, default='patient')
-        patient_mask = visit_types.isin(['patient', 'extra'])
-        patient_visits = trials_df[patient_mask]
+    
+    # Ensure VisitType column exists (add it if missing, infer from VisitName)
+    if 'VisitType' not in trials_df.columns and 'visit_type' not in trials_df.columns and 'visitType' not in trials_df.columns:
+        # Auto-detect VisitType from VisitName if column doesn't exist
+        trials_df = trials_df.copy()
+        trials_df['VisitType'] = 'patient'  # Default to patient
         
-        study_event_templates = trials_df[visit_types.isin(['siv', 'monitor'])]
-    else:
-        # FIXED: Include all patient visits including screening (negative days) and Day 0
-        # No filtering by Day - let patient processor handle all visits
-        patient_visits = trials_df.copy()
-        study_event_templates = pd.DataFrame()
+        # Auto-detect SIVs
+        siv_mask = trials_df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
+        trials_df.loc[siv_mask, 'VisitType'] = 'siv'
+        
+        # Auto-detect Monitors
+        monitor_mask = trials_df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
+        trials_df.loc[monitor_mask, 'VisitType'] = 'monitor'
+    
+    visit_types = get_visit_type_series(trials_df, default='patient')
+    patient_mask = visit_types.isin(['patient', 'extra'])
+    patient_visits = trials_df[patient_mask].copy()
+    
+    study_event_templates = trials_df[visit_types.isin(['siv', 'monitor'])].copy()
+    
+    # Ensure VisitType is in the resulting dataframes for matching
+    if 'VisitType' not in patient_visits.columns:
+        patient_visits['VisitType'] = get_visit_type_series(patient_visits, default='patient')
+    if 'VisitType' not in study_event_templates.columns and not study_event_templates.empty:
+        study_event_templates['VisitType'] = get_visit_type_series(study_event_templates, default='patient')
     
     return patient_visits, study_event_templates
 

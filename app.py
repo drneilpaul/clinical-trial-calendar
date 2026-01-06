@@ -375,9 +375,16 @@ def setup_file_uploaders():
                 
                 st.divider()
                 
-                # Database table viewing - only show at VERBOSE level or higher
+                # Database table viewing - always available for admin users
+                if st.button("📊 View Database Tables", width="stretch"):
+                    st.session_state.show_database_contents = True
+                    st.rerun()
+                
+                st.divider()
+                
+                # Additional debug tools - only show at VERBOSE level or higher
                 if should_show_debug_ui():
-                    if st.button("🔍 Check All Database Tables", width="stretch"):
+                    if st.button("🔍 Check All Database Tables (Debug)", width="stretch"):
                         st.session_state.show_database_contents = True
                         st.rerun()
                     
@@ -572,8 +579,8 @@ def main():
                 log_activity(f"Validation error: {e}", level='error')
     # === END ADDITION ===
     
-    # Database Contents Display - only show at VERBOSE level or higher
-    if st.session_state.get('show_database_contents', False) and should_show_debug_ui():
+    # Database Contents Display - always available for admin users
+    if st.session_state.get('show_database_contents', False):
         st.markdown("---")
         st.subheader("📊 Database Contents")
         
@@ -1055,8 +1062,15 @@ def main():
                         submitted = st.form_submit_button("Apply Filter", type="primary", use_container_width=True)
                         if submitted:
                             # Copy pending to active - form submission automatically triggers rerun
-                            st.session_state.active_site_filter = st.session_state.pending_site_filter.copy()
-                            st.session_state.active_study_filter = st.session_state.pending_study_filter.copy()
+                            # Defensive check: ensure we have lists before calling .copy()
+                            st.session_state.active_site_filter = (
+                                st.session_state.pending_site_filter.copy() 
+                                if st.session_state.pending_site_filter else []
+                            )
+                            st.session_state.active_study_filter = (
+                                st.session_state.pending_study_filter.copy() 
+                                if st.session_state.pending_study_filter else []
+                            )
             
             # Get calendar_start_date from the selector (created in col_options[3])
             calendar_filter_option = st.session_state.get("calendar_start_selection", {})
