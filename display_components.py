@@ -30,7 +30,7 @@ def render_calendar_start_selector(years_back: int = 4, show_label: bool = True)
     if session_key in st.session_state and st.session_state[session_key] not in labels:
         del st.session_state[session_key]
     
-    label_text = "Calendar view from" if show_label else ""
+    label_text = "Calendar view from"
     help_text = "Filter the calendar to show visits from the selected financial year onward."
     if not show_label:
         # Include label in help text when label is hidden

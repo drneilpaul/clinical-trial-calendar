@@ -220,8 +220,13 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         }).rename(columns={'PatientID': 'Patient Count'})
         
         if len(site_visits) > 0:
+            # Filter out tolerance window markers (-, +) to get actual visit count
+            filtered_site_visits = site_visits[
+                (site_visits['Visit'] != '-') & 
+                (site_visits['Visit'] != '+')
+            ]
             # Add visit counts and income for work done at this site
-            visit_breakdown = site_visits.groupby('Study').agg({
+            visit_breakdown = filtered_site_visits.groupby('Study').agg({
                 'Visit': 'count',
                 'Payment': 'sum'
             }).rename(columns={'Visit': 'Visit Count', 'Payment': 'Total Income'})

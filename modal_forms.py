@@ -1034,10 +1034,25 @@ def study_event_entry_modal():
                         # Automatically create/update trial_schedules template for this SIV/Monitor
                         # This ensures the event will display properly on the calendar
                         try:
+                            # Normalize VisitName for templates - use base name (e.g., "SIV" not "SIV @ Kiltearn")
+                            template_visit_name = event_name
+                            if visit_type == 'siv':
+                                # Extract "SIV" from names like "SIV @ Kiltearn" or "SIV at Ashfields"
+                                if 'SIV' in event_name.upper():
+                                    template_visit_name = 'SIV'
+                            elif visit_type == 'monitor':
+                                # Extract "Monitor" from names like "Monitor Visit"
+                                if 'monitor' in event_name.lower():
+                                    words = event_name.split()
+                                    for word in words:
+                                        if 'monitor' in word.lower():
+                                            template_visit_name = word
+                                            break
+                            
                             template_df = pd.DataFrame([{
                                 'Study': selected_study,
                                 'Day': 0 if visit_type == 'siv' else 999,  # SIVs use Day 0, Monitors use 999
-                                'VisitName': event_name,
+                                'VisitName': template_visit_name,  # Use normalized name for template
                                 'SiteforVisit': site,
                                 'Payment': 0,  # Default to 0, can be updated later
                                 'ToleranceBefore': 0,

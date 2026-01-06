@@ -380,79 +380,280 @@ def create_enhanced_excel_export(calendar_df, patients_df, visits_df, site_colum
     # Save to BytesIO
     output = io.BytesIO()
     
-    # === By Study Income (FY) Sheet (financial export only) ===
-    try:
-        if include_financial and visits_df is not None and not visits_df.empty:
-            from openpyxl.styles import PatternFill, Font, Alignment
-            from openpyxl.utils import get_column_letter
-            from calculations import calculate_study_realization_by_study
-            
+    # === Financial Sheets (financial export only) ===
+    if include_financial:
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
+        from calculations import (
+            calculate_study_realization_by_study,
+            calculate_monthly_realization_breakdown,
+            calculate_study_pipeline_breakdown,
+            calculate_site_realization_breakdown
+        )
+        from helpers import log_activity
+        
+        # Validate visits_df before creating financial sheets
+        if visits_df is None or visits_df.empty:
+            log_activity("Skipping financial sheets: visits_df is empty or None", level='warning')
+        else:
             # Defensive: ensure a 'Date' column exists (fallback from ActualDate if miswired)
             source_visits_df = visits_df
             try:
                 if 'Date' not in source_visits_df.columns and 'ActualDate' in source_visits_df.columns:
                     source_visits_df = source_visits_df.copy()
                     source_visits_df['Date'] = pd.to_datetime(source_visits_df['ActualDate']).dt.normalize()
-            except Exception:
-                pass
+            except Exception as e:
+                log_activity(f"Warning: Could not create Date column from ActualDate: {e}", level='warning')
             
-            by_study_df = calculate_study_realization_by_study(source_visits_df, period='current_fy')
-            ws_by = wb.create_sheet("By Study Income (FY)")
-            
-            # Title
-            ws_by['A1'] = "By Study Income (Current Financial Year)"
-            ws_by['A1'].font = Font(size=14, bold=True, color="1F4E79")
-            
-            # Headers
-            headers = list(by_study_df.columns) if not by_study_df.empty else [
-                'Study', 'Completed Income', 'Completed Visits', 'Scheduled Income',
-                'Scheduled Visits', 'Pipeline Income', 'Remaining Visits', 'Realization Rate'
-            ]
-            for col_idx, col_name in enumerate(headers, 1):
-                cell = ws_by.cell(row=3, column=col_idx, value=str(col_name))
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
-                cell.alignment = Alignment(horizontal="center")
-            
-            # Data rows
-            currency_cols = {'Completed Income', 'Scheduled Income', 'Pipeline Income'}
-            integer_cols = {'Completed Visits', 'Scheduled Visits', 'Remaining Visits'}
-            percent_cols = {'Realization Rate'}
-            
-            for row_idx, row in enumerate(by_study_df.itertuples(index=False), start=4):
-                for col_idx, col_name in enumerate(headers, 1):
-                    val = getattr(row, col_name.replace(' ', '_')) if hasattr(row, col_name.replace(' ', '_')) else getattr(row, col_name, '')
-                    cell = ws_by.cell(row=row_idx, column=col_idx, value=val)
-                    # Number formats
-                    if col_name in currency_cols:
-                        try:
-                            numeric_val = float(val)
-                            cell.value = numeric_val
-                            cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
-                        except Exception:
-                            pass
-                    elif col_name in integer_cols:
-                        try:
-                            cell.value = int(val)
-                            cell.number_format = '0'
-                        except Exception:
-                            pass
-                    elif col_name in percent_cols:
-                        try:
-                            # Expecting percentage as 0-100
-                            pct = float(val) / 100.0 if float(val) > 1 else float(val)
-                            cell.value = pct
-                            cell.number_format = '0.0%'
-                        except Exception:
-                            pass
-            
-            # Auto width
-            for idx, col_name in enumerate(headers, 1):
-                col_letter = get_column_letter(idx)
-                ws_by.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
-    except Exception as _e:
-        # Non-fatal: keep export even if this sheet fails
-        pass
+            # Validate required columns
+            required_cols = ['Date', 'Payment', 'Study']
+            missing_cols = [col for col in required_cols if col not in source_visits_df.columns]
+            if missing_cols:
+                log_activity(f"Skipping financial sheets: Missing required columns: {missing_cols}", level='warning')
+            else:
+                # Create empty trials_df (not used by these functions but required by signature)
+                trials_df = pd.DataFrame()
+                
+                # === Sheet 1: By Study Income (FY) ===
+                try:
+                    by_study_df = calculate_study_realization_by_study(source_visits_df, period='current_fy')
+                    if by_study_df is not None and not by_study_df.empty:
+                        ws_by = wb.create_sheet("By Study Income (FY)")
+                        
+                        # Title
+                        ws_by['A1'] = "By Study Income (Current Financial Year)"
+                        ws_by['A1'].font = Font(size=14, bold=True, color="1F4E79")
+                        
+                        # Headers
+                        headers = list(by_study_df.columns)
+                        for col_idx, col_name in enumerate(headers, 1):
+                            cell = ws_by.cell(row=3, column=col_idx, value=str(col_name))
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                            cell.alignment = Alignment(horizontal="center")
+                        
+                        # Data rows
+                        currency_cols = {'Completed Income', 'Scheduled Income', 'Pipeline Income'}
+                        integer_cols = {'Completed Visits', 'Scheduled Visits', 'Remaining Visits'}
+                        percent_cols = {'Realization Rate'}
+                        
+                        for row_idx, row in enumerate(by_study_df.itertuples(index=False), start=4):
+                            for col_idx, col_name in enumerate(headers, 1):
+                                val = getattr(row, col_name.replace(' ', '_'), None)
+                                if val is None:
+                                    # Try alternative attribute name
+                                    val = getattr(row, col_name, '')
+                                cell = ws_by.cell(row=row_idx, column=col_idx, value=val)
+                                # Number formats
+                                if col_name in currency_cols:
+                                    try:
+                                        numeric_val = float(val) if pd.notna(val) else 0
+                                        cell.value = numeric_val
+                                        cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in integer_cols:
+                                    try:
+                                        cell.value = int(val) if pd.notna(val) else 0
+                                        cell.number_format = '0'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in percent_cols:
+                                    try:
+                                        # Expecting percentage as 0-100
+                                        pct_val = float(val) if pd.notna(val) else 0
+                                        pct = pct_val / 100.0 if pct_val > 1 else pct_val
+                                        cell.value = pct
+                                        cell.number_format = '0.0%'
+                                    except (ValueError, TypeError):
+                                        pass
+                        
+                        # Auto width
+                        for idx, col_name in enumerate(headers, 1):
+                            col_letter = get_column_letter(idx)
+                            ws_by.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
+                        
+                        log_activity("Created 'By Study Income (FY)' sheet successfully", level='info')
+                    else:
+                        log_activity("Skipping 'By Study Income (FY)' sheet: No data returned", level='info')
+                except Exception as e:
+                    log_activity(f"Error creating 'By Study Income (FY)' sheet: {e}", level='error')
+                
+                # === Sheet 2: Monthly Realization Breakdown ===
+                try:
+                    monthly_data = calculate_monthly_realization_breakdown(source_visits_df, trials_df)
+                    if monthly_data and len(monthly_data) > 0:
+                        monthly_df = pd.DataFrame(monthly_data)
+                        ws_monthly = wb.create_sheet("Monthly Realization")
+                        
+                        # Title
+                        ws_monthly['A1'] = "Monthly Realization Breakdown (Current Financial Year)"
+                        ws_monthly['A1'].font = Font(size=14, bold=True, color="1F4E79")
+                        
+                        # Headers
+                        headers = list(monthly_df.columns)
+                        for col_idx, col_name in enumerate(headers, 1):
+                            cell = ws_monthly.cell(row=3, column=col_idx, value=str(col_name))
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                            cell.alignment = Alignment(horizontal="center")
+                        
+                        # Data rows
+                        currency_cols = {'Completed_Income', 'Scheduled_Income'}
+                        integer_cols = {'Completed_Visits', 'Scheduled_Visits'}
+                        percent_cols = {'Realization_Rate'}
+                        
+                        for row_idx, row in enumerate(monthly_df.itertuples(index=False), start=4):
+                            for col_idx, col_name in enumerate(headers, 1):
+                                val = getattr(row, col_name, '')
+                                cell = ws_monthly.cell(row=row_idx, column=col_idx, value=val)
+                                # Number formats
+                                if col_name in currency_cols:
+                                    try:
+                                        numeric_val = float(val) if pd.notna(val) else 0
+                                        cell.value = numeric_val
+                                        cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in integer_cols:
+                                    try:
+                                        cell.value = int(val) if pd.notna(val) else 0
+                                        cell.number_format = '0'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in percent_cols:
+                                    try:
+                                        pct_val = float(val) if pd.notna(val) else 0
+                                        pct = pct_val / 100.0 if pct_val > 1 else pct_val
+                                        cell.value = pct
+                                        cell.number_format = '0.0%'
+                                    except (ValueError, TypeError):
+                                        pass
+                        
+                        # Auto width
+                        for idx, col_name in enumerate(headers, 1):
+                            col_letter = get_column_letter(idx)
+                            ws_monthly.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
+                        
+                        log_activity("Created 'Monthly Realization' sheet successfully", level='info')
+                    else:
+                        log_activity("Skipping 'Monthly Realization' sheet: No data returned", level='info')
+                except Exception as e:
+                    log_activity(f"Error creating 'Monthly Realization' sheet: {e}", level='error')
+                
+                # === Sheet 3: Study Pipeline Breakdown ===
+                try:
+                    study_pipeline_df = calculate_study_pipeline_breakdown(source_visits_df, trials_df)
+                    if study_pipeline_df is not None and not study_pipeline_df.empty:
+                        ws_pipeline = wb.create_sheet("Study Pipeline")
+                        
+                        # Title
+                        ws_pipeline['A1'] = "Study Pipeline Breakdown (Future Visits)"
+                        ws_pipeline['A1'].font = Font(size=14, bold=True, color="1F4E79")
+                        
+                        # Headers
+                        headers = list(study_pipeline_df.columns)
+                        for col_idx, col_name in enumerate(headers, 1):
+                            cell = ws_pipeline.cell(row=3, column=col_idx, value=str(col_name))
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                            cell.alignment = Alignment(horizontal="center")
+                        
+                        # Data rows
+                        currency_cols = {'Pipeline_Value'}
+                        integer_cols = {'Remaining_Visits'}
+                        
+                        for row_idx, row in enumerate(study_pipeline_df.itertuples(index=False), start=4):
+                            for col_idx, col_name in enumerate(headers, 1):
+                                val = getattr(row, col_name, '')
+                                cell = ws_pipeline.cell(row=row_idx, column=col_idx, value=val)
+                                # Number formats
+                                if col_name in currency_cols:
+                                    try:
+                                        numeric_val = float(val) if pd.notna(val) else 0
+                                        cell.value = numeric_val
+                                        cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in integer_cols:
+                                    try:
+                                        cell.value = int(val) if pd.notna(val) else 0
+                                        cell.number_format = '0'
+                                    except (ValueError, TypeError):
+                                        pass
+                        
+                        # Auto width
+                        for idx, col_name in enumerate(headers, 1):
+                            col_letter = get_column_letter(idx)
+                            ws_pipeline.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
+                        
+                        log_activity("Created 'Study Pipeline' sheet successfully", level='info')
+                    else:
+                        log_activity("Skipping 'Study Pipeline' sheet: No data returned", level='info')
+                except Exception as e:
+                    log_activity(f"Error creating 'Study Pipeline' sheet: {e}", level='error')
+                
+                # === Sheet 4: Site Realization Breakdown ===
+                try:
+                    site_data = calculate_site_realization_breakdown(source_visits_df, trials_df)
+                    if site_data and len(site_data) > 0:
+                        site_df = pd.DataFrame(site_data)
+                        ws_site = wb.create_sheet("Site Realization")
+                        
+                        # Title
+                        ws_site['A1'] = "Site Realization Breakdown (Current Financial Year)"
+                        ws_site['A1'].font = Font(size=14, bold=True, color="1F4E79")
+                        
+                        # Headers
+                        headers = list(site_df.columns)
+                        for col_idx, col_name in enumerate(headers, 1):
+                            cell = ws_site.cell(row=3, column=col_idx, value=str(col_name))
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+                            cell.alignment = Alignment(horizontal="center")
+                        
+                        # Data rows
+                        currency_cols = {'Completed_Income', 'Total_Scheduled_Income', 'Pipeline_Income'}
+                        integer_cols = {'Completed_Visits', 'Total_Visits', 'Remaining_Visits'}
+                        percent_cols = {'Realization_Rate'}
+                        
+                        for row_idx, row in enumerate(site_df.itertuples(index=False), start=4):
+                            for col_idx, col_name in enumerate(headers, 1):
+                                val = getattr(row, col_name, '')
+                                cell = ws_site.cell(row=row_idx, column=col_idx, value=val)
+                                # Number formats
+                                if col_name in currency_cols:
+                                    try:
+                                        numeric_val = float(val) if pd.notna(val) else 0
+                                        cell.value = numeric_val
+                                        cell.number_format = '£#,##0.00;[Red](£#,##0.00)'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in integer_cols:
+                                    try:
+                                        cell.value = int(val) if pd.notna(val) else 0
+                                        cell.number_format = '0'
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif col_name in percent_cols:
+                                    try:
+                                        pct_val = float(val) if pd.notna(val) else 0
+                                        pct = pct_val / 100.0 if pct_val > 1 else pct_val
+                                        cell.value = pct
+                                        cell.number_format = '0.0%'
+                                    except (ValueError, TypeError):
+                                        pass
+                        
+                        # Auto width
+                        for idx, col_name in enumerate(headers, 1):
+                            col_letter = get_column_letter(idx)
+                            ws_site.column_dimensions[col_letter].width = min(max(12, len(str(col_name)) + 6), 28)
+                        
+                        log_activity("Created 'Site Realization' sheet successfully", level='info')
+                    else:
+                        log_activity("Skipping 'Site Realization' sheet: No data returned", level='info')
+                except Exception as e:
+                    log_activity(f"Error creating 'Site Realization' sheet: {e}", level='error')
     try:
         wb.save(output)
         output.seek(0)
