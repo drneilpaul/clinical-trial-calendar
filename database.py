@@ -363,7 +363,7 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
                 'visit_name': str(row_tuple.VisitName),
                 'actual_date': actual_date_str,
                 'notes': str(getattr(row_tuple, 'Notes', '')),
-                'VisitType': str(visit_type_value)
+                'visit_type': str(visit_type_value)  # Use lowercase to match database schema
             }
             records.append(record)
         
@@ -488,7 +488,7 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
                 'visit_name': str(row_tuple.VisitName),
                 'actual_date': actual_date_str,
                 'notes': str(getattr(row_tuple, 'Notes', '')),
-                'VisitType': str(visit_type_value)
+                'visit_type': str(visit_type_value)  # Use lowercase to match database schema
             }
             records.append(record)
         
@@ -725,15 +725,25 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_actual_visits()
         if df is None or df.empty:
-            return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes'])
+            return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
         
         if 'Notes' not in df.columns:
             df['Notes'] = ''
         
+        # Ensure VisitType column exists (add if missing, infer from VisitName)
+        if 'VisitType' not in df.columns:
+            df['VisitType'] = 'patient'  # Default
+            # Auto-detect SIVs
+            siv_mask = df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
+            df.loc[siv_mask, 'VisitType'] = 'siv'
+            # Auto-detect Monitors
+            monitor_mask = df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
+            df.loc[monitor_mask, 'VisitType'] = 'monitor'
+        
         if 'ActualDate' in df.columns:
             df['ActualDate'] = pd.to_datetime(df['ActualDate'], errors='coerce').dt.strftime('%d/%m/%Y')
         
-        export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes']
+        export_columns = ['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType']
         df = df[export_columns]
         
         return df
