@@ -102,10 +102,12 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
                 'tolerance_after': 'ToleranceAfter',
                 # Optional columns for month-based intervals
                 'interval_unit': 'IntervalUnit',
-                'interval_value': 'IntervalValue'
+                'interval_value': 'IntervalValue',
+                # VisitType column (if exists)
+                'visit_type': 'VisitType'
             })
             return df
-        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue'])
+        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType'])
     except Exception as e:
         return None
 
@@ -290,6 +292,18 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         records = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in trials_df_clean.itertuples(index=False):
+            # Get VisitType if it exists, otherwise infer from VisitName
+            visit_type_value = getattr(row_tuple, 'VisitType', None)
+            if pd.isna(visit_type_value) or str(visit_type_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                # Auto-detect from VisitName
+                visit_name = str(getattr(row_tuple, 'VisitName', ''))
+                if visit_name.upper().strip() == 'SIV':
+                    visit_type_value = 'siv'
+                elif 'monitor' in visit_name.lower():
+                    visit_type_value = 'monitor'
+                else:
+                    visit_type_value = 'patient'  # Default
+            
             record = {
                 'study': str(row_tuple.Study),
                 'day': int(row_tuple.Day),
@@ -300,7 +314,9 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
                 'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
-                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None)
+                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
+                # VisitType field
+                'visit_type': str(visit_type_value).lower() if visit_type_value else 'patient'
             }
             records.append(record)
         
@@ -603,6 +619,18 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
         records = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in schedule_df_clean.itertuples(index=False):
+            # Get VisitType if it exists, otherwise infer from VisitName
+            visit_type_value = getattr(row_tuple, 'VisitType', None)
+            if pd.isna(visit_type_value) or str(visit_type_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                # Auto-detect from VisitName
+                visit_name = str(getattr(row_tuple, 'VisitName', ''))
+                if visit_name.upper().strip() == 'SIV':
+                    visit_type_value = 'siv'
+                elif 'monitor' in visit_name.lower():
+                    visit_type_value = 'monitor'
+                else:
+                    visit_type_value = 'patient'  # Default
+            
             record = {
                 'study': str(row_tuple.Study),
                 'day': int(getattr(row_tuple, 'Day', 0)),
@@ -613,7 +641,9 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 'tolerance_after': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
                 'interval_unit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
-                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None)
+                'interval_value': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
+                # VisitType field
+                'visit_type': str(visit_type_value).lower() if visit_type_value else 'patient'
             }
             records.append(record)
         
@@ -672,7 +702,17 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
         if 'IntervalValue' not in df.columns:
             df['IntervalValue'] = ''
         
-        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue']
+        # Ensure VisitType column exists (add if missing, infer from VisitName)
+        if 'VisitType' not in df.columns:
+            df['VisitType'] = 'patient'  # Default
+            # Auto-detect SIVs
+            siv_mask = df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
+            df.loc[siv_mask, 'VisitType'] = 'siv'
+            # Auto-detect Monitors
+            monitor_mask = df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
+            df.loc[monitor_mask, 'VisitType'] = 'monitor'
+        
+        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType']
         df = df[export_columns]
         
         return df
