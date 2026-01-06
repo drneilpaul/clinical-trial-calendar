@@ -39,39 +39,15 @@ def process_study_events(event_templates, actual_visits_df):
         site = None
         
         # First, try to get site from template (preferred - includes payment info)
+        # Event Name is always "SIV" or "Monitor" (matches Event Type) - simple exact match
         if not event_templates.empty:
-            # Normalize visit names for matching (handle cases like "SIV @ Kiltearn" matching "SIV")
-            # For SIV/Monitor events, try exact match first, then try matching the base name
             normalized_visit_name = str(visit_name).strip()
-            base_visit_name = normalized_visit_name
             
-            # Extract base name for SIV/Monitor (e.g., "SIV @ Kiltearn" -> "SIV", "Monitor Visit" -> "Monitor")
-            if visit_type == 'siv':
-                # Match "SIV" or "SIV @ Site" or "SIV at Site" patterns
-                if normalized_visit_name.upper().startswith('SIV'):
-                    base_visit_name = 'SIV'
-            elif visit_type == 'monitor':
-                # Match "Monitor" or "Monitor Visit" patterns
-                if 'monitor' in normalized_visit_name.lower():
-                    # Find the first word that contains "monitor" (case-insensitive)
-                    words = normalized_visit_name.split()
-                    for word in words:
-                        if 'monitor' in word.lower():
-                            base_visit_name = word
-                            break
-            
-            # Try exact match first
+            # Simple exact match: Study + VisitName + VisitType
             template = event_templates[
                 (event_templates['Study'] == study) & 
-                (event_templates['VisitName'] == normalized_visit_name)
+                (event_templates['VisitName'].astype(str).str.strip().str.upper() == normalized_visit_name.upper())
             ]
-            
-            # If no exact match and we have a base name, try matching base name
-            if template.empty and base_visit_name != normalized_visit_name:
-                template = event_templates[
-                    (event_templates['Study'] == study) & 
-                    (event_templates['VisitName'].astype(str).str.strip().str.upper() == base_visit_name.upper())
-                ]
             
             # If VisitType column exists, also match on it
             if 'VisitType' in event_templates.columns and not template.empty:
@@ -97,34 +73,11 @@ def process_study_events(event_templates, actual_visits_df):
                     if pd.notna(site_value) and str(site_value).strip() not in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']:
                         site = str(site_value).strip()
                         break
-            
-            # If still no site, try to extract from VisitName (e.g., "SIV @ Kiltearn" -> "Kiltearn")
-            if site is None and visit_type in ['siv', 'monitor']:
-                visit_name_str = str(visit_name).strip()
-                # Try patterns like "SIV @ Site", "SIV at Site", "Monitor @ Site", etc.
-                import re
-                # Match patterns: "SIV @ Kiltearn", "SIV at Ashfields", "Monitor Visit @ Site"
-                patterns = [
-                    r'@\s*([A-Za-z]+)',  # "@ Kiltearn" or "@ Ashfields"
-                    r'at\s+([A-Za-z]+)',  # "at Ashfields" or "at Kiltearn"
-                    r'\s+([A-Z][a-z]+)$',  # Last capitalized word (if it's a site name)
-                ]
-                
-                for pattern in patterns:
-                    match = re.search(pattern, visit_name_str, re.IGNORECASE)
-                    if match:
-                        potential_site = match.group(1).strip()
-                        # Validate it's a known site
-                        if potential_site.lower() in ['ashfields', 'kiltearn']:
-                            site = potential_site.capitalize()  # Normalize to "Ashfields" or "Kiltearn"
-                            from helpers import log_activity
-                            log_activity(f"Extracted site '{site}' from VisitName '{visit_name}' for study event", level='info')
-                            break
         
-        # Skip this event if no valid site found after all attempts
+        # Skip this event if no valid site found
         if site is None:
             from helpers import log_activity
-            log_activity(f"WARNING: Skipping study event '{visit_name}' for study '{study}' - no valid site found. Please ensure the event has a SiteforVisit in trial_schedules or add it to the actual visit record.", level='warning')
+            log_activity(f"WARNING: Skipping study event '{visit_name}' for study '{study}' - no valid site found. Please ensure the event has a SiteforVisit in trial_schedules.", level='warning')
             continue
         
         # All study events in actual_visits are completed

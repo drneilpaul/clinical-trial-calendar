@@ -417,6 +417,7 @@ def visit_entry_modal():
     load_from_database = st.session_state.get('use_database', False)
     
     st.markdown("### Record Patient Visit")
+    st.caption("ℹ️ **Patient Visits**: Includes all scheduled visits (V1-V21, Screening, Randomisation) and Day 0 visits (Unscheduled, V1.1, Extra Visits). These appear in the patient's column on the calendar.")
     
     # Load required data based on mode
     if load_from_database:
@@ -849,6 +850,7 @@ def study_event_entry_modal():
     load_from_database = st.session_state.get('use_database', False)
     
     st.markdown("### Record Site Event (SIV/Monitor)")
+    st.caption("ℹ️ **Site Events**: Site-wide events that appear in the Events column. Event Name automatically matches Event Type (SIV or Monitor).")
     st.caption("ℹ️ For patient-specific visits (V1.1, Unscheduled, Extra Visit), use 'Record Patient Visit' button")
     
     # Load required data based on mode
@@ -896,14 +898,19 @@ def study_event_entry_modal():
         event_type = st.selectbox(
             "Event Type*",
             options=["SIV", "Monitor"],
-            help="Site Initiation Visit or Monitoring Visit",
+            help="Site Initiation Visit or Monitoring Visit. Event Name will automatically match the selected type.",
             label_visibility="collapsed"
         )
         
+        # Auto-populate Event Name from Event Type
+        event_name = event_type  # SIV -> "SIV", Monitor -> "Monitor"
+        
         st.markdown("**Event Name***")
-        event_name = st.text_input(
+        st.text_input(
             "Event Name*",
-            help="Site-wide events only (SIV, Monitor, Closeout). For patient visits like V1.1 or Unscheduled, use 'Record Patient Visit' button.",
+            value=event_name,
+            disabled=True,
+            help="Automatically set to match Event Type. Site-wide events only (SIV, Monitor). For patient visits like V1.1 or Unscheduled, use 'Record Patient Visit' button.",
             label_visibility="collapsed"
         )
     
@@ -1033,26 +1040,12 @@ def study_event_entry_modal():
                     if success:
                         # Automatically create/update trial_schedules template for this SIV/Monitor
                         # This ensures the event will display properly on the calendar
+                        # Event Name is always "SIV" or "Monitor" (matches Event Type)
                         try:
-                            # Normalize VisitName for templates - use base name (e.g., "SIV" not "SIV @ Kiltearn")
-                            template_visit_name = event_name
-                            if visit_type == 'siv':
-                                # Extract "SIV" from names like "SIV @ Kiltearn" or "SIV at Ashfields"
-                                if 'SIV' in event_name.upper():
-                                    template_visit_name = 'SIV'
-                            elif visit_type == 'monitor':
-                                # Extract "Monitor" from names like "Monitor Visit"
-                                if 'monitor' in event_name.lower():
-                                    words = event_name.split()
-                                    for word in words:
-                                        if 'monitor' in word.lower():
-                                            template_visit_name = word
-                                            break
-                            
                             template_df = pd.DataFrame([{
                                 'Study': selected_study,
                                 'Day': 0 if visit_type == 'siv' else 999,  # SIVs use Day 0, Monitors use 999
-                                'VisitName': template_visit_name,  # Use normalized name for template
+                                'VisitName': event_name,  # Always "SIV" or "Monitor" (matches Event Type)
                                 'SiteforVisit': site,
                                 'Payment': 0,  # Default to 0, can be updated later
                                 'ToleranceBefore': 0,
