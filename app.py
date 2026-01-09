@@ -1323,7 +1323,7 @@ def main():
             elif calendar_view == 'Gantt':
                 # Build and display Gantt chart
                 try:
-                    gantt_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
+                    gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
                     
                     # Option to show recruitment overlay
                     show_recruitment_overlay = st.checkbox(
@@ -1332,12 +1332,12 @@ def main():
                         help="Overlay recruitment progress on Gantt chart"
                     )
                     
+                    recruitment_data = None
                     if show_recruitment_overlay:
                         recruitment_data = build_recruitment_data(patients_df, trials_df)
                         gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
                     
-                    display_gantt_chart(gantt_data, show_recruitment_overlay, 
-                                       build_recruitment_data(patients_df, trials_df) if show_recruitment_overlay else None)
+                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data)
                 except Exception as e:
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')
