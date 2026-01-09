@@ -65,6 +65,11 @@ Defines the visit schedule for each study, including visit names, timing, locati
 - **IntervalUnit** (string): Unit for interval calculation - "month" or "day". Used when visits are scheduled monthly rather than daily.
 - **IntervalValue** (integer): Number of interval units. Used with IntervalUnit for month-based scheduling.
 - **VisitType** (string): Type of visit - "patient" (default), "extra" (optional add-on activity), "siv", "monitor", "patient_proposed" (tentative patient visit), or "event_proposed" (tentative study event) for study-level events.
+- **FPFV** (date): First Patient First Visit - Manual override for study start date. Optional. If not set, calculated from earliest patient StartDate.
+- **LPFV** (date): Last Patient First Visit - Manual override for last enrollment date. Optional. If not set, calculated from latest patient StartDate.
+- **LPLV** (date): Last Patient Last Visit - Manual override for study end date. Optional. If not set, calculated from latest visit date.
+- **StudyStatus** (string): Status of study at this site - "active" (default), "contracted", "in_setup", or "expression_of_interest". Stored per SiteforVisit+Study combination.
+- **RecruitmentTarget** (integer): Target number of patients for this study at this site. Optional (NULL if not set). Stored per SiteforVisit+Study combination.
 
 ### Month-Based vs Day-Based Scheduling
 
@@ -125,6 +130,33 @@ Study: "STUDY-2024-002", Day: 5, VisitName: "Month 12 Follow-up", SiteforVisit: 
 4. **Day 0** = Optional visits (SIV, Monitor, unscheduled visits) - these only appear when actual, not predicted
 5. **Day >= 1** = Scheduled patient visits (Day 1 = baseline, Day 2+ = follow-up visits)
 
+### Gantt and Recruitment Tracking Fields
+
+#### Date Override Fields (FPFV, LPFV, LPLV)
+- These fields allow manual override of calculated dates for Gantt chart visualization
+- **FPFV (First Patient First Visit)**: Override for study start date. If not set, calculated from earliest patient StartDate for the study at the site
+- **LPFV (Last Patient First Visit)**: Override for last enrollment date. If not set, calculated from latest patient StartDate for the study at the site
+- **LPLV (Last Patient Last Visit)**: Override for study end date. If not set, calculated from latest visit date for the study at the site
+- All date fields are optional and stored per SiteforVisit+Study combination
+- Format: DD/MM/YYYY or YYYY-MM-DD
+
+#### StudyStatus Field
+- Status of the study at a specific site (stored per SiteforVisit+Study combination)
+- Valid values:
+  - `"active"` - Study is actively running (default)
+  - `"contracted"` - Study is contracted but not yet active
+  - `"in_setup"` - Study is in setup/preparation phase
+  - `"expression_of_interest"` - Expression of interest, not yet contracted
+- Default: `"active"` if not specified
+- Allows different sites to have different statuses for the same study
+
+#### RecruitmentTarget Field
+- Target number of patients for the study at a specific site (stored per SiteforVisit+Study combination)
+- Type: Integer (positive) or NULL
+- Default: NULL (no target set)
+- Used in recruitment tracking dashboard to compare actual vs target recruitment
+- Allows different sites to have different recruitment targets for the same study
+
 ### Data Validation Rules
 1. **SiteforVisit must be valid** - cannot be empty or invalid placeholder
 2. **Each study must have exactly one Day 1 visit** - this is the baseline requirement
@@ -132,6 +164,9 @@ Study: "STUDY-2024-002", Day: 5, VisitName: "Month 12 Follow-up", SiteforVisit: 
 4. **Tolerance values** - should be non-negative integers
 5. **IntervalUnit and IntervalValue** - if IntervalUnit="month", IntervalValue must be a positive integer; if IntervalUnit is empty or "day", IntervalValue is ignored
 6. **IntervalUnit values** - must be "month", "day", or empty/blank (case-insensitive, but stored as lowercase)
+7. **StudyStatus values** - must be one of: "active", "contracted", "in_setup", "expression_of_interest" (case-insensitive, stored as lowercase)
+8. **RecruitmentTarget values** - must be a positive integer or NULL (negative values are rejected)
+9. **Date override fields** - FPFV, LPFV, LPLV must be valid dates or NULL/empty
 
 ### Example Rows
 

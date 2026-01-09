@@ -262,6 +262,41 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
                 df_clean[col] = ''
             warnings.append(f"Missing optional column '{col}', filled with defaults")
     
+    # NEW: Handle Gantt and recruitment tracking optional columns
+    # Date override fields (FPFV, LPFV, LPLV)
+    for date_col in ['FPFV', 'LPFV', 'LPLV']:
+        if date_col in df_clean.columns:
+            df_clean[date_col] = df_clean[date_col].apply(lambda x: clean_date_value(x))
+        else:
+            df_clean[date_col] = None
+    
+    # StudyStatus field
+    if 'StudyStatus' in df_clean.columns:
+        df_clean['StudyStatus'] = df_clean['StudyStatus'].fillna('active').astype(str).str.strip().str.lower()
+        # Validate status values
+        valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+        invalid_statuses = df_clean[~df_clean['StudyStatus'].isin(valid_statuses) & df_clean['StudyStatus'].notna()]
+        if not invalid_statuses.empty:
+            invalid_count = len(invalid_statuses)
+            warnings.append(f"⚠️ {invalid_count} trial(s) have invalid StudyStatus values. Valid values: {', '.join(valid_statuses)}. Defaulting to 'active'.")
+            df_clean.loc[~df_clean['StudyStatus'].isin(valid_statuses), 'StudyStatus'] = 'active'
+    else:
+        df_clean['StudyStatus'] = 'active'
+        warnings.append("Missing optional column 'StudyStatus', filled with default 'active'")
+    
+    # RecruitmentTarget field
+    if 'RecruitmentTarget' in df_clean.columns:
+        df_clean['RecruitmentTarget'] = df_clean['RecruitmentTarget'].apply(lambda x: clean_numeric_value(x, None) if pd.notna(x) and str(x).strip() not in ['', 'None', 'nan', 'null', 'NULL'] else None)
+        # Validate non-negative
+        negative_targets = df_clean[(df_clean['RecruitmentTarget'] < 0) & df_clean['RecruitmentTarget'].notna()]
+        if not negative_targets.empty:
+            warnings.append(f"⚠️ {len(negative_targets)} trial(s) have negative RecruitmentTarget values. Setting to NULL.")
+            df_clean.loc[df_clean['RecruitmentTarget'] < 0, 'RecruitmentTarget'] = None
+        # Convert to int where not null
+        df_clean['RecruitmentTarget'] = df_clean['RecruitmentTarget'].apply(lambda x: int(x) if pd.notna(x) else None)
+    else:
+        df_clean['RecruitmentTarget'] = None
+    
     # Validate data quality
     if len(df_clean) == 0:
         errors.append("No valid trial records found")

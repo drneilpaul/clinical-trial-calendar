@@ -19,7 +19,9 @@ from display_components import (
     render_calendar_start_selector, apply_calendar_start_filter,
     display_site_busy_calendar
 )
-from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
+from gantt_view import build_gantt_data, display_gantt_chart
+from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard, overlay_recruitment_on_gantt
+from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections, handle_study_settings_modal
 try:
     from modal_forms import handle_switch_patient_modal
     SWITCH_PATIENT_AVAILABLE = True
@@ -619,7 +621,7 @@ def display_action_buttons():
         # Login status is clear in sidebar, no need for info message
         return
     
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     
     with col1:
         if st.button("➕ Add New Patient", width="stretch",
@@ -635,6 +637,11 @@ def display_action_buttons():
         if st.button("📅 Record Site Event", width="stretch",
                      help="Record site-wide events (SIV, Monitor, Closeout) - not patient-specific"):
             st.session_state.show_study_event_form = True
+    
+    with col4:
+        if st.button("⚙️ Study Settings", width="stretch",
+                     help="Edit study status, recruitment targets, and date overrides"):
+            st.session_state.show_study_settings_form = True
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
@@ -912,6 +919,7 @@ def main():
         handle_study_event_modal()
         if SWITCH_PATIENT_AVAILABLE:
             handle_switch_patient_modal()
+        handle_study_settings_modal()
         show_download_sections()
 
         try:
@@ -1080,12 +1088,15 @@ def main():
                     st.session_state.show_scrollbars = show_scrollbars
             with col_options[3]:
                 # View selector
+                view_options = ["Standard", "Site Busy", "Gantt"]
+                current_view = st.session_state.get('calendar_view', 'Standard')
+                view_index = view_options.index(current_view) if current_view in view_options else 0
                 calendar_view = st.radio(
                     "View",
-                    options=["Standard", "Site Busy"],
-                    index=0 if st.session_state.get('calendar_view', 'Standard') == 'Standard' else 1,
+                    options=view_options,
+                    index=view_index,
                     horizontal=True,
-                    help="Standard: Patient-focused view | Site Busy: Site workload view",
+                    help="Standard: Patient-focused view | Site Busy: Site workload view | Gantt: Timeline view by site",
                     key="calendar_view_radio"
                 )
                 st.session_state.calendar_view = calendar_view
@@ -1309,6 +1320,28 @@ def main():
                 # Get site columns (exclude Date and Day)
                 site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
                 display_site_busy_calendar(site_busy_df, site_columns)
+            elif calendar_view == 'Gantt':
+                # Build and display Gantt chart
+                try:
+                    gantt_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
+                    
+                    # Option to show recruitment overlay
+                    show_recruitment_overlay = st.checkbox(
+                        "Show Recruitment Overlay",
+                        value=False,
+                        help="Overlay recruitment progress on Gantt chart"
+                    )
+                    
+                    if show_recruitment_overlay:
+                        recruitment_data = build_recruitment_data(patients_df, trials_df)
+                        gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
+                    
+                    display_gantt_chart(gantt_data, show_recruitment_overlay, 
+                                       build_recruitment_data(patients_df, trials_df) if show_recruitment_overlay else None)
+                except Exception as e:
+                    st.error(f"Error building Gantt chart: {e}")
+                    log_activity(f"Error building Gantt chart: {e}", level='error')
+                    st.exception(e)
             else:
                 display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
@@ -1354,6 +1387,17 @@ def main():
             )
 
             display_error_log_section()
+            
+            # Recruitment Tracking Section (separate from calendar views)
+            st.markdown("---")
+            st.subheader("📊 Recruitment Tracking")
+            try:
+                recruitment_data = build_recruitment_data(patients_df, trials_df)
+                display_recruitment_dashboard(recruitment_data)
+            except Exception as e:
+                st.error(f"Error building recruitment dashboard: {e}")
+                log_activity(f"Error building recruitment dashboard: {e}", level='error')
+                st.exception(e)
 
         except Exception as e:
             st.error(f"Error processing files: {e}")

@@ -88,8 +88,24 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
         if response.data:
             df = pd.DataFrame(response.data)
             # Database columns are now PascalCase, no renaming needed
+            
+            # Parse date fields if they exist
+            for date_col in ['FPFV', 'LPFV', 'LPLV']:
+                if date_col in df.columns:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            
+            # Ensure StudyStatus defaults to 'active' if missing
+            if 'StudyStatus' not in df.columns:
+                df['StudyStatus'] = 'active'
+            else:
+                df['StudyStatus'] = df['StudyStatus'].fillna('active')
+            
+            # Ensure RecruitmentTarget is numeric or None
+            if 'RecruitmentTarget' in df.columns:
+                df['RecruitmentTarget'] = pd.to_numeric(df['RecruitmentTarget'], errors='coerce')
+            
             return df
-        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType'])
+        return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget'])
     except Exception as e:
         return None
 
@@ -277,6 +293,50 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 else:
                     visit_type_value = 'patient'  # Default
             
+            # Handle date override fields (FPFV, LPFV, LPLV)
+            def parse_date_field(field_name):
+                field_value = getattr(row_tuple, field_name, None)
+                if pd.isna(field_value) or field_value == '' or str(field_value).strip() in ['None', 'nan', 'null', 'NULL']:
+                    return None
+                try:
+                    if isinstance(field_value, str):
+                        # Try parsing as date string
+                        from datetime import datetime
+                        parsed = pd.to_datetime(field_value, dayfirst=True, errors='coerce')
+                        if pd.notna(parsed):
+                            return str(parsed.date())
+                    elif hasattr(field_value, 'date'):
+                        return str(field_value.date())
+                    return None
+                except:
+                    return None
+            
+            # Handle StudyStatus field
+            study_status_value = getattr(row_tuple, 'StudyStatus', None)
+            if pd.isna(study_status_value) or str(study_status_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                study_status_value = 'active'  # Default status
+            else:
+                study_status_value = str(study_status_value).strip().lower()
+                # Validate status value
+                valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+                if study_status_value not in valid_statuses:
+                    log_activity(f"Invalid StudyStatus '{study_status_value}' for {row_tuple.Study}/{getattr(row_tuple, 'SiteforVisit', '')}, defaulting to 'active'", level='warning')
+                    study_status_value = 'active'
+            
+            # Handle RecruitmentTarget field
+            recruitment_target_value = getattr(row_tuple, 'RecruitmentTarget', None)
+            if pd.isna(recruitment_target_value) or str(recruitment_target_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                recruitment_target_value = None
+            else:
+                try:
+                    recruitment_target_value = int(float(recruitment_target_value))
+                    if recruitment_target_value < 0:
+                        log_activity(f"Invalid RecruitmentTarget '{recruitment_target_value}' (negative) for {row_tuple.Study}/{getattr(row_tuple, 'SiteforVisit', '')}, setting to NULL", level='warning')
+                        recruitment_target_value = None
+                except (ValueError, TypeError):
+                    log_activity(f"Invalid RecruitmentTarget '{recruitment_target_value}' for {row_tuple.Study}/{getattr(row_tuple, 'SiteforVisit', '')}, setting to NULL", level='warning')
+                    recruitment_target_value = None
+            
             record = {
                 'Study': str(row_tuple.Study),
                 'Day': int(row_tuple.Day),
@@ -289,7 +349,13 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 'IntervalUnit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
                 'IntervalValue': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
                 # VisitType column (now always included since database has it)
-                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient'
+                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient',
+                # New Gantt and recruitment tracking fields
+                'FPFV': parse_date_field('FPFV'),
+                'LPFV': parse_date_field('LPFV'),
+                'LPLV': parse_date_field('LPLV'),
+                'StudyStatus': study_status_value,
+                'RecruitmentTarget': recruitment_target_value
             }
             records.append(record)
         
@@ -628,6 +694,45 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 else:
                     visit_type_value = 'patient'  # Default
             
+            # Handle date override fields (FPFV, LPFV, LPLV)
+            def parse_date_field(field_name):
+                field_value = getattr(row_tuple, field_name, None)
+                if pd.isna(field_value) or field_value == '' or str(field_value).strip() in ['None', 'nan', 'null', 'NULL']:
+                    return None
+                try:
+                    if isinstance(field_value, str):
+                        from datetime import datetime
+                        parsed = pd.to_datetime(field_value, dayfirst=True, errors='coerce')
+                        if pd.notna(parsed):
+                            return str(parsed.date())
+                    elif hasattr(field_value, 'date'):
+                        return str(field_value.date())
+                    return None
+                except:
+                    return None
+            
+            # Handle StudyStatus field
+            study_status_value = getattr(row_tuple, 'StudyStatus', None)
+            if pd.isna(study_status_value) or str(study_status_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                study_status_value = 'active'  # Default status
+            else:
+                study_status_value = str(study_status_value).strip().lower()
+                valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+                if study_status_value not in valid_statuses:
+                    study_status_value = 'active'
+            
+            # Handle RecruitmentTarget field
+            recruitment_target_value = getattr(row_tuple, 'RecruitmentTarget', None)
+            if pd.isna(recruitment_target_value) or str(recruitment_target_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+                recruitment_target_value = None
+            else:
+                try:
+                    recruitment_target_value = int(float(recruitment_target_value))
+                    if recruitment_target_value < 0:
+                        recruitment_target_value = None
+                except (ValueError, TypeError):
+                    recruitment_target_value = None
+            
             record = {
                 'Study': str(row_tuple.Study),
                 'Day': int(getattr(row_tuple, 'Day', 0)),
@@ -640,7 +745,13 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 'IntervalUnit': (str(getattr(row_tuple, 'IntervalUnit', '')).lower().strip() if pd.notna(getattr(row_tuple, 'IntervalUnit', None)) else None),
                 'IntervalValue': (int(getattr(row_tuple, 'IntervalValue', 0)) if pd.notna(getattr(row_tuple, 'IntervalValue', None)) else None),
                 # VisitType column (now always included since database has it)
-                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient'
+                'VisitType': str(visit_type_value).lower() if visit_type_value else 'patient',
+                # New Gantt and recruitment tracking fields
+                'FPFV': parse_date_field('FPFV'),
+                'LPFV': parse_date_field('LPFV'),
+                'LPLV': parse_date_field('LPLV'),
+                'StudyStatus': study_status_value,
+                'RecruitmentTarget': recruitment_target_value
             }
             records.append(record)
         
@@ -710,7 +821,25 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
             monitor_mask = df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
             df.loc[monitor_mask, 'VisitType'] = 'monitor'
         
-        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType']
+        # Ensure new columns exist for export
+        if 'FPFV' not in df.columns:
+            df['FPFV'] = None
+        if 'LPFV' not in df.columns:
+            df['LPFV'] = None
+        if 'LPLV' not in df.columns:
+            df['LPLV'] = None
+        if 'StudyStatus' not in df.columns:
+            df['StudyStatus'] = 'active'  # Default
+        if 'RecruitmentTarget' not in df.columns:
+            df['RecruitmentTarget'] = None
+        
+        # Format date columns for export
+        for date_col in ['FPFV', 'LPFV', 'LPLV']:
+            if date_col in df.columns:
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce').dt.strftime('%d/%m/%Y')
+                df[date_col] = df[date_col].replace('NaT', '')
+        
+        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget']
         df = df[export_columns]
         
         return df
