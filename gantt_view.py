@@ -274,15 +274,28 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     today = date.today()
     today_datetime = datetime.combine(today, datetime.min.time())
     
-    # Add today's date vertical line
-    fig.add_vline(
+    # Add today's date vertical line using add_shape (works better with datetime axes)
+    fig.add_shape(
+        type="line",
+        x0=today_datetime,
+        x1=today_datetime,
+        y0=-0.5,
+        y1=len(y_labels) - 0.5,
+        line=dict(color="#e74c3c", width=2, dash="dash"),
+        layer="above"
+    )
+    
+    # Add "Today" annotation
+    fig.add_annotation(
         x=today_datetime,
-        line_dash="dash",
-        line_color="#e74c3c",
-        line_width=2,
-        annotation_text="Today",
-        annotation_position="top",
-        annotation=dict(font=dict(color="#e74c3c", size=12))
+        y=len(y_labels) - 0.5,
+        text="Today",
+        showarrow=False,
+        font=dict(color="#e74c3c", size=12),
+        bgcolor="white",
+        bordercolor="#e74c3c",
+        borderwidth=1,
+        borderpad=2
     )
     
     # Collect patient marker data
