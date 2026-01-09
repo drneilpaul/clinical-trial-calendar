@@ -2100,15 +2100,17 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
         st.info("Please report this error if Excel export fails")
 
 def display_site_busy_calendar(site_busy_df, site_columns):
-    """Display the site busy calendar view with styling
+    """Display the site busy calendar view with styling, scrolling, and dynamic row heights
     
     Args:
         site_busy_df: DataFrame with Date, Day, and site columns
         site_columns: List of site column names
     """
     import streamlit as st
+    import streamlit.components.v1 as components
     from datetime import date
-    from formatters import style_calendar_row, get_date_based_style
+    from formatters import get_date_based_style
+    import re
     
     st.subheader("Site Busy Calendar View")
     
@@ -2116,27 +2118,188 @@ def display_site_busy_calendar(site_busy_df, site_columns):
         st.info("No visits to display")
         return
     
+    # Check if scroll to today was requested
+    scroll_to_today = st.session_state.get('scroll_to_today', False)
+    if scroll_to_today:
+        st.session_state.scroll_to_today = False  # Reset flag after use
+    
     # Prepare display DataFrame
     display_df = site_busy_df.copy()
     display_df["Date"] = display_df["Date"].dt.strftime("%d/%m/%Y")  # UK format
     
-    # Apply styling
+    # Apply styling and generate HTML
     try:
         today = pd.to_datetime(date.today())
         
-        # Style the dataframe
-        styled_df = display_df.style.apply(
-            lambda row: style_site_busy_row(row, today, site_columns), axis=1
-        )
-        styled_df = styled_df.hide(axis='index')
+        # Generate HTML table with custom styling
+        html_table = _generate_site_busy_html(display_df, today, site_columns, scroll_to_today)
         
-        # Display with HTML to preserve line breaks
-        st.dataframe(styled_df, height=600, use_container_width=True, hide_index=True)
+        # Display HTML with scrolling support
+        components.html(html_table, height=800, scrolling=True)
         
     except Exception as e:
         st.error(f"Error displaying site busy calendar: {e}")
         # Fallback: display without styling
         st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
+
+def _generate_site_busy_html(display_df, today_date, site_columns, scroll_to_today=False):
+    """Generate HTML for site busy calendar with scrolling and dynamic row heights"""
+    import re
+    from datetime import date
+    
+    # Build HTML table manually for better control
+    html_parts = []
+    html_parts.append("""
+    <style>
+        .site-busy-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+        }
+        .site-busy-table th {
+            background-color: #1e40af;
+            color: white;
+            font-weight: bold;
+            padding: 8px 4px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border: 1px solid #ccc;
+        }
+        .site-busy-table td {
+            padding: 4px 6px;
+            border: 1px solid #ddd;
+            vertical-align: top;
+            white-space: pre-line;
+        }
+        .site-busy-table .date-col {
+            width: 90px;
+            min-width: 90px;
+            max-width: 90px;
+            text-align: center;
+        }
+        .site-busy-table .day-col {
+            width: 80px;
+            min-width: 80px;
+            max-width: 80px;
+            text-align: center;
+        }
+        .site-busy-table .site-col {
+            min-width: 200px;
+            padding: 8px;
+        }
+        .site-busy-table tr.weekend {
+            background-color: #e5e7eb;
+        }
+        .site-busy-table tr.today {
+            background-color: #dc2626;
+        }
+        .site-busy-table tr.today td {
+            color: white;
+            font-weight: bold;
+        }
+        .site-busy-container {
+            max-height: 800px;
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+    </style>
+    <div class="site-busy-container" id="site-busy-scroll">
+    <table class="site-busy-table">
+    <thead>
+    <tr>
+    """)
+    
+    # Add header row
+    for col in display_df.columns:
+        html_parts.append(f'<th>{col}</th>')
+    html_parts.append("</tr></thead><tbody>")
+    
+    # Add data rows
+    today_str = date.today().strftime("%d/%m/%Y")
+    for idx, row in display_df.iterrows():
+        date_str = str(row.get("Date", ""))
+        day_str = str(row.get("Day", ""))
+        
+        # Determine row class
+        row_class = ""
+        if date_str == today_str:
+            row_class = "today"
+        elif day_str in ["Saturday", "Sunday"]:
+            row_class = "weekend"
+        
+        # Calculate row height based on content
+        max_lines = 1
+        for col in site_columns:
+            cell_content = str(row.get(col, ""))
+            if cell_content and cell_content != "":
+                lines = cell_content.count("\n") + 1
+                max_lines = max(max_lines, lines)
+        
+        # Set min-height based on number of lines (approximately 25px per line)
+        min_height = max(30, max_lines * 25)
+        
+        html_parts.append(f'<tr class="{row_class}" style="min-height: {min_height}px;">')
+        
+        # Date column (narrow)
+        date_style = 'class="date-col"'
+        html_parts.append(f'<td {date_style}>{date_str}</td>')
+        
+        # Day column (narrow)
+        day_style = 'class="day-col"'
+        html_parts.append(f'<td {day_style}>{day_str}</td>')
+        
+        # Site columns (with content styling)
+        for col in site_columns:
+            cell_content = str(row.get(col, ""))
+            cell_style = 'class="site-col"'
+            
+            # Apply color coding based on content
+            if "✅" in cell_content and "📅" not in cell_content:
+                cell_style += ' style="background-color: #d4edda; color: #155724; font-weight: bold;"'
+            elif "📅" in cell_content and "(Proposed)" in cell_content:
+                cell_style += ' style="background-color: #fff3cd; color: #856404; font-weight: bold;"'
+            elif "❌" in cell_content and "DNA" in cell_content:
+                cell_style += ' style="background-color: #f8d7da; color: #721c24; font-weight: bold;"'
+            elif "📋" in cell_content:
+                cell_style += ' style="background-color: #e2e3e5; color: #383d41; font-weight: normal;"'
+            
+            # Escape HTML but preserve newlines
+            cell_content_escaped = cell_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            html_parts.append(f'<td {cell_style}>{cell_content_escaped}</td>')
+        
+        html_parts.append("</tr>")
+    
+    html_parts.append("</tbody></table></div>")
+    
+    # Add JavaScript for scrolling
+    html_parts.append(f"""
+    <script>
+        function scrollToToday() {{
+            const container = document.getElementById('site-busy-scroll');
+            const todayRow = container.querySelector('tr.today');
+            if (todayRow) {{
+                todayRow.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            }}
+        }}
+        
+        // Scroll to today on load or button click
+        {f"""
+        setTimeout(function() {{
+            scrollToToday();
+        }}, 500);
+        """ if scroll_to_today else """
+        // Auto-scroll to today on initial load
+        setTimeout(function() {{
+            scrollToToday();
+        }}, 600);
+        """}
+    </script>
+    """)
+    
+    return "".join(html_parts)
 
 def style_site_busy_row(row, today_date, site_columns):
     """Apply styling to site busy calendar rows"""
