@@ -272,10 +272,11 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     y_positions = list(range(len(y_labels)))
     
     today = date.today()
+    today_datetime = datetime.combine(today, datetime.min.time())
     
     # Add today's date vertical line
     fig.add_vline(
-        x=today,
+        x=today_datetime,
         line_dash="dash",
         line_color="#e74c3c",
         line_width=2,
@@ -374,8 +375,10 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     
     # Add patient recruitment markers as scatter plot
     if patient_marker_x:
+        # Convert date objects to datetime for Plotly
+        patient_marker_x_datetime = [datetime.combine(d, datetime.min.time()) if isinstance(d, date) else d for d in patient_marker_x]
         fig.add_trace(go.Scatter(
-            x=patient_marker_x,
+            x=patient_marker_x_datetime,
             y=patient_marker_y,
             mode='markers+text',
             marker=dict(
