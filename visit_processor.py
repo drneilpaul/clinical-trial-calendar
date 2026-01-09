@@ -11,7 +11,7 @@ def process_study_events(event_templates, actual_visits_df):
         return event_records
     
     study_events = actual_visits_df[
-        actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor'])
+        actual_visits_df.get('VisitType', 'patient').isin(['siv', 'monitor', 'event_proposed'])
     ]
     
     # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
@@ -19,7 +19,21 @@ def process_study_events(event_templates, actual_visits_df):
         # Validate required fields and skip if missing/invalid
         study = safe_string_conversion(getattr(event_tuple, 'Study', ''))
         visit_name = safe_string_conversion(getattr(event_tuple, 'VisitName', ''))
-        visit_type = safe_string_conversion(getattr(event_tuple, 'VisitType', 'siv')).lower()
+        visit_type_raw = safe_string_conversion(getattr(event_tuple, 'VisitType', 'siv')).lower()
+        
+        # Handle event_proposed - extract the underlying event type
+        is_proposed_event = visit_type_raw == 'event_proposed'
+        if is_proposed_event:
+            # For event_proposed, determine the underlying type from VisitName
+            visit_name_upper = visit_name.upper()
+            if 'SIV' in visit_name_upper or visit_name_upper == 'SIV':
+                visit_type = 'siv'
+            elif 'MONITOR' in visit_name_upper:
+                visit_type = 'monitor'
+            else:
+                visit_type = 'siv'  # Default to siv if unclear
+        else:
+            visit_type = visit_type_raw
         
         # Skip if essential fields are missing or invalid
         if not study or study.lower() in ['nan', 'none', ''] or pd.isna(getattr(event_tuple, 'Study', None)):
@@ -33,6 +47,19 @@ def process_study_events(event_templates, actual_visits_df):
         actual_date = getattr(event_tuple, 'ActualDate', None)
         if pd.isna(actual_date):
             continue
+        
+        # Check if date is in future (for proposed detection)
+        from datetime import date
+        today = date.today()
+        if isinstance(actual_date, str):
+            actual_date_obj = pd.to_datetime(actual_date, dayfirst=True)
+        else:
+            actual_date_obj = actual_date
+        actual_date_only = actual_date_obj.date() if hasattr(actual_date_obj, 'date') else pd.Timestamp(actual_date_obj).date()
+        is_future_date = actual_date_only > today
+        
+        # Proposed if explicitly event_proposed OR if date is in future
+        is_proposed = is_proposed_event or is_future_date
         
         # Study events need site information - try template first, then fallback to actual visit data
         payment = 0
@@ -80,8 +107,11 @@ def process_study_events(event_templates, actual_visits_df):
             log_activity(f"WARNING: Skipping study event '{visit_name}' for study '{study}' - no valid site found. Please ensure the event has a SiteforVisit in trial_schedules.", level='warning')
             continue
         
-        # All study events in actual_visits are completed
-        visit_status = f"✅ {visit_type.upper()}_{study}"
+        # Format visit status - proposed events get 📅 emoji and (Proposed) text
+        if is_proposed:
+            visit_status = f"📅 {visit_type.upper()}_{study} (Proposed)"
+        else:
+            visit_status = f"✅ {visit_type.upper()}_{study}"
         is_actual = True
         # payment already set from template (line 48)
         
@@ -94,13 +124,14 @@ def process_study_events(event_templates, actual_visits_df):
             "SiteofVisit": site,
             "PatientOrigin": site,
             "IsActual": is_actual,
-            "IsProposed": False,  # Study events are always actual when recorded
+            "IsProposed": is_proposed,  # Set to True for proposed events
             "IsScreenFail": False,
             "IsOutOfProtocol": False,
             "VisitDay": 0 if visit_type == 'siv' else 999,
             "VisitName": visit_name,
             "IsStudyEvent": True,
             "EventType": visit_type,
+            "VisitType": 'event_proposed' if is_proposed else visit_type,
         })
     
     # After the main loop, add summary logging

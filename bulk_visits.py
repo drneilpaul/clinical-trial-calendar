@@ -404,3 +404,233 @@ def parse_bulk_upload(uploaded_file, visits_df: pd.DataFrame, trials_df: pd.Data
 
     return {"records": records, "warnings": warnings, "errors": []}
 
+
+def build_proposed_visits_export(actual_visits_df: pd.DataFrame) -> Tuple[io.BytesIO, str]:
+    """
+    Export proposed visits and events for confirmation workflow.
+    
+    Args:
+        actual_visits_df: DataFrame containing actual visits from database
+        
+    Returns:
+        Tuple of (Excel file buffer, message string)
+    """
+    if actual_visits_df is None or actual_visits_df.empty:
+        return None, "No visits found in database."
+    
+    # Filter for proposed visits/events
+    proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
+    proposed_df = actual_visits_df[proposed_mask].copy()
+    
+    if proposed_df.empty:
+        return None, "No proposed visits or events found."
+    
+    # Prepare export data
+    export_data = []
+    for _, row in proposed_df.iterrows():
+        # Normalize date
+        actual_date = row.get('ActualDate', '')
+        if pd.notna(actual_date):
+            if isinstance(actual_date, str):
+                date_obj = pd.to_datetime(actual_date, dayfirst=True)
+            else:
+                date_obj = pd.Timestamp(actual_date)
+            formatted_date = date_obj.strftime('%d/%m/%Y')
+        else:
+            formatted_date = ''
+        
+        export_data.append({
+            'PatientID': str(row.get('PatientID', '')),
+            'Study': str(row.get('Study', '')),
+            'VisitName': str(row.get('VisitName', '')),
+            'ActualDate': formatted_date,
+            'VisitType': str(row.get('VisitType', '')),
+            'Notes': str(row.get('Notes', '')),
+            'Status': 'Proposed'  # Default status
+        })
+    
+    export_df = pd.DataFrame(export_data)
+    export_df = export_df.sort_values(['Study', 'PatientID', 'ActualDate']).reset_index(drop=True)
+    
+    # Create Excel file
+    output = io.BytesIO()
+    
+    with pd.ExcelWriter(output, engine=XLSX_ENGINE) as writer:
+        export_df.to_excel(writer, sheet_name="ProposedVisits", index=False)
+        
+        workbook = writer.book
+        worksheet = writer.sheets["ProposedVisits"]
+        
+        # Format headers
+        header_format = None
+        if XLSX_ENGINE == "xlsxwriter":
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+        
+        # Set column widths
+        col_widths = {
+            'PatientID': 20,
+            'Study': 25,
+            'VisitName': 25,
+            'ActualDate': 15,
+            'VisitType': 18,
+            'Notes': 40,
+            'Status': 15
+        }
+        
+        for col_idx, col_name in enumerate(export_df.columns):
+            if header_format is not None:
+                worksheet.write(0, col_idx, col_name, header_format)
+            else:
+                worksheet.write(0, col_idx, col_name)
+            
+            width = col_widths.get(col_name, 15)
+            worksheet.set_column(col_idx, col_idx, width)
+        
+        # Add data validation for Status column
+        status_col = export_df.columns.get_loc('Status')
+        status_options = ['Proposed', 'Confirmed']
+        worksheet.data_validation(
+            1, status_col,
+            len(export_df) + 1, status_col,
+            {
+                'validate': 'list',
+                'source': status_options,
+                'error_title': 'Invalid Status',
+                'error_message': 'Status must be either "Proposed" or "Confirmed".'
+            }
+        )
+        
+        # Format date column if using xlsxwriter
+        if XLSX_ENGINE == "xlsxwriter" and 'ActualDate' in export_df.columns:
+            date_col = export_df.columns.get_loc('ActualDate')
+            worksheet.set_column(date_col, date_col, col_widths['ActualDate'], date_format)
+    
+    output.seek(0)
+    count = len(export_df)
+    message = f"Exported {count} proposed visit(s)/event(s) for confirmation."
+    return output, message
+
+
+def parse_proposed_confirmation_upload(uploaded_file, actual_visits_df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Parse uploaded Excel file with proposed visit confirmations.
+    
+    Args:
+        uploaded_file: Uploaded Excel file
+        actual_visits_df: Current actual visits DataFrame from database
+        
+    Returns:
+        Dict with 'records' (list of updates), 'warnings', 'errors'
+    """
+    try:
+        suffix = uploaded_file.name.lower()
+        if suffix.endswith('.xlsx') or suffix.endswith('.xls'):
+            uploaded = pd.read_excel(uploaded_file)
+        else:
+            uploaded = pd.read_csv(uploaded_file)
+    except Exception as e:
+        return {"errors": [f"Failed to read file: {e}"], "records": [], "warnings": []}
+    
+    required_columns = {"PatientID", "Study", "VisitName", "ActualDate", "Status"}
+    missing = required_columns - set(uploaded.columns)
+    if missing:
+        return {"errors": [f"Missing required columns: {', '.join(sorted(missing))}"], "records": [], "warnings": []}
+    
+    warnings: List[str] = []
+    records: List[Dict[str, Any]] = []
+    
+    # Create lookup for existing proposed visits
+    if actual_visits_df is None or actual_visits_df.empty:
+        return {"errors": ["No visits found in database to update."], "records": [], "warnings": []}
+    
+    proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
+    proposed_visits = actual_visits_df[proposed_mask].copy()
+    
+    if proposed_visits.empty:
+        return {"errors": ["No proposed visits found in database to update."], "records": [], "warnings": []}
+    
+    # Normalize dates for matching
+    proposed_visits['ActualDate_normalized'] = pd.to_datetime(proposed_visits['ActualDate'], dayfirst=True, errors='coerce').dt.date
+    proposed_visits['key'] = (
+        proposed_visits['PatientID'].astype(str).str.strip() + "|" +
+        proposed_visits['Study'].astype(str).str.strip() + "|" +
+        proposed_visits['VisitName'].astype(str).str.strip() + "|" +
+        proposed_visits['ActualDate_normalized'].astype(str)
+    )
+    proposed_indexed = proposed_visits.set_index('key')
+    
+    used_keys = set()
+    
+    for row in uploaded.itertuples(index=False):
+        patient_id = str(getattr(row, 'PatientID', '')).strip()
+        study = str(getattr(row, 'Study', '')).strip()
+        visit_name = str(getattr(row, 'VisitName', '')).strip()
+        status = str(getattr(row, 'Status', '')).strip()
+        
+        # Parse date
+        actual_date_raw = getattr(row, 'ActualDate', '')
+        if pd.isna(actual_date_raw):
+            warnings.append(f"Missing ActualDate for {patient_id}/{study}/{visit_name}. Skipping.")
+            continue
+        
+        try:
+            if isinstance(actual_date_raw, (datetime.date, datetime.datetime)):
+                actual_date_obj = pd.Timestamp(actual_date_raw).date()
+            elif isinstance(actual_date_raw, str):
+                actual_date_obj = pd.to_datetime(actual_date_raw, dayfirst=True).date()
+            else:
+                actual_date_obj = pd.to_datetime(actual_date_raw).date()
+        except Exception as e:
+            warnings.append(f"Invalid ActualDate '{actual_date_raw}' for {patient_id}/{study}/{visit_name}: {e}. Skipping.")
+            continue
+        
+        # Only process if Status is "Confirmed"
+        if status.lower() != 'confirmed':
+            continue
+        
+        # Create key for lookup
+        key = f"{patient_id}|{study}|{visit_name}|{actual_date_obj}"
+        
+        if key in used_keys:
+            warnings.append(f"Duplicate row for {patient_id}/{study}/{visit_name} on {actual_date_obj}. Skipping.")
+            continue
+        
+        if key not in proposed_indexed.index:
+            warnings.append(f"Proposed visit not found: {patient_id}/{study}/{visit_name} on {actual_date_obj}. Skipping.")
+            continue
+        
+        proposed_row = proposed_indexed.loc[key]
+        current_visit_type = str(proposed_row.get('VisitType', '')).lower()
+        
+        # Determine new VisitType based on current type
+        if current_visit_type == 'patient_proposed':
+            new_visit_type = 'patient'
+        elif current_visit_type == 'event_proposed':
+            # Determine underlying event type from VisitName
+            visit_name_upper = visit_name.upper()
+            if 'SIV' in visit_name_upper or visit_name_upper == 'SIV':
+                new_visit_type = 'siv'
+            elif 'MONITOR' in visit_name_upper:
+                new_visit_type = 'monitor'
+            else:
+                new_visit_type = 'siv'  # Default
+        else:
+            warnings.append(f"Visit {patient_id}/{study}/{visit_name} is not a proposed visit. Skipping.")
+            continue
+        
+        # Create update record
+        record = {
+            'PatientID': patient_id,
+            'Study': study,
+            'VisitName': visit_name,
+            'ActualDate': actual_date_obj.strftime('%d/%m/%Y'),
+            'VisitType': new_visit_type,
+            'Notes': str(proposed_row.get('Notes', '')),
+            'action': 'update'  # Mark as update
+        }
+        records.append(record)
+        used_keys.add(key)
+    
+    return {"records": records, "warnings": warnings, "errors": []}
+

@@ -315,22 +315,36 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
             return False
         
         from helpers import get_visit_type_series
+        from datetime import date
         visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
+        today = date.today()
         
         records = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in actual_visits_df.itertuples(index=True):
             idx = row_tuple.Index
             actual_date = row_tuple.ActualDate
+            actual_date_obj = None
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
-                    actual_date = pd.to_datetime(actual_date, dayfirst=True)
-                actual_date_str = str(actual_date.date())
+                    actual_date_obj = pd.to_datetime(actual_date, dayfirst=True)
+                else:
+                    actual_date_obj = actual_date
+                actual_date_str = str(actual_date_obj.date())
             else:
                 actual_date_str = None
             
             visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
-                
+            
+            # Auto-detect proposed visits/events for future dates
+            if actual_date_obj is not None and actual_date_obj.date() > today:
+                # Check if it's a study event (siv/monitor) or patient visit
+                current_type = str(visit_type_value).lower()
+                if current_type in ['siv', 'monitor']:
+                    visit_type_value = 'event_proposed'
+                elif current_type not in ['patient_proposed', 'event_proposed']:
+                    visit_type_value = 'patient_proposed'
+            
             record = {
                 'PatientID': str(row_tuple.PatientID),
                 'Study': str(row_tuple.Study),
@@ -440,21 +454,35 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
                 log_activity(f"Visit with different date detected: {message}", level='info')
         
         from helpers import get_visit_type_series
+        from datetime import date
         visit_type_series = get_visit_type_series(visit_df, default='patient')
+        today = date.today()
         
         records = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in visit_df.itertuples(index=True):
             idx = row_tuple.Index
             actual_date = getattr(row_tuple, 'ActualDate', None)
+            actual_date_obj = None
             if pd.notna(actual_date):
                 if isinstance(actual_date, str):
-                    actual_date = pd.to_datetime(actual_date, dayfirst=True)
-                actual_date_str = str(actual_date.date()) if hasattr(actual_date, 'date') else str(actual_date)
+                    actual_date_obj = pd.to_datetime(actual_date, dayfirst=True)
+                else:
+                    actual_date_obj = actual_date
+                actual_date_str = str(actual_date_obj.date()) if hasattr(actual_date_obj, 'date') else str(actual_date_obj)
             else:
                 actual_date_str = None
             
             visit_type_value = visit_type_series.loc[idx] if idx in visit_type_series.index else 'patient'
+            
+            # Auto-detect proposed visits/events for future dates
+            if actual_date_obj is not None and actual_date_obj.date() > today:
+                # Check if it's a study event (siv/monitor) or patient visit
+                current_type = str(visit_type_value).lower()
+                if current_type in ['siv', 'monitor']:
+                    visit_type_value = 'event_proposed'
+                elif current_type not in ['patient_proposed', 'event_proposed']:
+                    visit_type_value = 'patient_proposed'
             
             record = {
                 'PatientID': str(row_tuple.PatientID),

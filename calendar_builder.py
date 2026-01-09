@@ -504,3 +504,197 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         log_activity(f"DEBUG: {actual_visits_in_calendar} actual visit markers placed in calendar", level='info')
     
     return calendar_df
+
+@timeit
+def build_site_busy_calendar(visits_df, trials_df=None, actual_visits_df=None, date_range=None):
+    """Build a site-busy calendar view showing all visits/events per site per day
+    
+    Args:
+        visits_df: DataFrame with all visits (actual, predicted, proposed)
+        trials_df: Optional DataFrame with trial schedules (for tolerance lookup)
+        actual_visits_df: Optional DataFrame with actual visits (for Notes/DNA detection)
+        date_range: Optional tuple (min_date, max_date) to limit date range
+    
+    Returns:
+        site_busy_df: DataFrame with Date, Day, and one column per site
+    """
+    from datetime import date
+    from helpers import log_activity
+    
+    if visits_df.empty:
+        log_activity("No visits to build site busy calendar", level='warning')
+        return pd.DataFrame(columns=['Date', 'Day'])
+    
+    # Determine date range
+    if date_range:
+        min_date, max_date = date_range
+    else:
+        min_date = visits_df["Date"].min() - timedelta(days=1)
+        max_date = visits_df["Date"].max() + timedelta(days=1)
+    
+    # Create calendar date range
+    calendar_dates = pd.date_range(start=min_date, end=max_date)
+    site_busy_df = pd.DataFrame({"Date": calendar_dates})
+    site_busy_df["Day"] = site_busy_df["Date"].dt.day_name()
+    
+    # Get unique sites from SiteofVisit
+    unique_sites = sorted([
+        site for site in visits_df["SiteofVisit"].dropna().unique()
+        if site and str(site) not in ['nan', 'Unknown Site', 'None', '', 'null', 'unknown site', 'UNKNOWN SITE', 'Default Site']
+    ])
+    
+    if not unique_sites:
+        log_activity("No valid sites found for site busy calendar", level='warning')
+        return site_busy_df
+    
+    # Initialize site columns
+    for site in unique_sites:
+        site_busy_df[site] = ""
+    
+    # Normalize dates for matching
+    visits_df = visits_df.copy()
+    visits_df["Date"] = pd.to_datetime(visits_df["Date"]).dt.normalize()
+    site_busy_df["Date"] = pd.to_datetime(site_busy_df["Date"]).dt.normalize()
+    
+    # Create date-to-index mapping
+    date_to_idx = {date: idx for idx, date in enumerate(site_busy_df['Date'])}
+    
+    # Create tolerance lookup from trials_df if available
+    tolerance_lookup = {}
+    if trials_df is not None and not trials_df.empty:
+        for _, trial in trials_df.iterrows():
+            key = (str(trial.get('Study', '')), str(trial.get('VisitName', '')))
+            tolerance_before = int(trial.get('ToleranceBefore', 0) or 0)
+            tolerance_after = int(trial.get('ToleranceAfter', 0) or 0)
+            tolerance_lookup[key] = (tolerance_before, tolerance_after)
+    
+    # Create Notes lookup from actual_visits_df if available (for DNA detection)
+    notes_lookup = {}
+    if actual_visits_df is not None and not actual_visits_df.empty:
+        for _, visit in actual_visits_df.iterrows():
+            key = (
+                str(visit.get('PatientID', '')),
+                str(visit.get('Study', '')),
+                str(visit.get('VisitName', '')),
+                pd.to_datetime(visit.get('ActualDate')).normalize() if pd.notna(visit.get('ActualDate')) else None
+            )
+            notes = str(visit.get('Notes', '') or '')
+            if key[3] is not None:
+                notes_lookup[key] = notes
+    
+    today = pd.Timestamp(date.today()).normalize()
+    
+    # Group visits by date and site
+    for visit_date, date_group in visits_df.groupby('Date'):
+        if visit_date not in date_to_idx:
+            continue
+        
+        idx = date_to_idx[visit_date]
+        
+        # Group by site
+        for site, site_group in date_group.groupby('SiteofVisit'):
+            if site not in unique_sites:
+                continue
+            
+            # Separate events from patient visits
+            events = []
+            patient_visits = []
+            
+            for _, visit in site_group.iterrows():
+                is_study_event = visit.get('IsStudyEvent', False)
+                if pd.isna(is_study_event):
+                    is_study_event = False
+                
+                if is_study_event:
+                    events.append(visit)
+                else:
+                    # Skip tolerance markers
+                    visit_display = str(visit.get('Visit', ''))
+                    if visit_display not in ['-', '+']:
+                        patient_visits.append(visit)
+            
+            # Format and combine visits
+            formatted_items = []
+            
+            # Format events first (at top of cell)
+            for event in events:
+                event_type = str(event.get('EventType', '')).upper()
+                study = str(event.get('Study', ''))
+                is_proposed = event.get('IsProposed', False)
+                
+                if is_proposed:
+                    formatted_items.append(f"📅 {event_type}_{study} (Proposed)")
+                else:
+                    formatted_items.append(f"✅ {event_type}_{study}")
+            
+            # Format patient visits
+            for visit in patient_visits:
+                label = format_visit_label_for_site_busy(
+                    visit, today, tolerance_lookup, notes_lookup
+                )
+                if label:
+                    formatted_items.append(label)
+            
+            # Combine all items with newlines
+            if formatted_items:
+                site_busy_df.at[idx, site] = "\n".join(formatted_items)
+    
+    return site_busy_df
+
+def format_visit_label_for_site_busy(visit_row, today, tolerance_lookup=None, notes_lookup=None):
+    """Format a visit label for site busy view
+    
+    Args:
+        visit_row: Series with visit data
+        today: Timestamp for today's date
+        tolerance_lookup: Dict mapping (Study, VisitName) -> (tolerance_before, tolerance_after)
+        notes_lookup: Dict mapping (PatientID, Study, VisitName, Date) -> Notes
+    
+    Returns:
+        Formatted label string
+    """
+    visit_name = str(visit_row.get('VisitName', ''))
+    study = str(visit_row.get('Study', ''))
+    patient_id = str(visit_row.get('PatientID', ''))
+    
+    if not visit_name or not study or not patient_id:
+        return None
+    
+    visit_date = pd.to_datetime(visit_row.get('Date')).normalize() if pd.notna(visit_row.get('Date')) else None
+    if visit_date is None:
+        return None
+    
+    is_actual = visit_row.get('IsActual', False)
+    is_proposed = visit_row.get('IsProposed', False)
+    
+    # Check for DNA in Notes
+    is_dna = False
+    if notes_lookup and visit_date < today and is_actual:
+        lookup_key = (patient_id, study, visit_name, visit_date)
+        notes = notes_lookup.get(lookup_key, '')
+        if 'DNA' in str(notes).upper():
+            is_dna = True
+    
+    # Format based on state
+    if is_proposed:
+        return f"📅 {visit_name} {study} {patient_id} (Proposed)"
+    elif is_actual and visit_date < today:
+        if is_dna:
+            return f"❌ {visit_name} {study} {patient_id} DNA"
+        else:
+            return f"✅ {visit_name} {study} {patient_id}"
+    elif not is_actual and visit_date < today:
+        return f"📋 {visit_name} {study} {patient_id} ?"
+    elif not is_actual and visit_date >= today:
+        # Future predicted - include tolerance if available
+        tolerance_str = ""
+        if tolerance_lookup:
+            key = (study, visit_name)
+            tolerance = tolerance_lookup.get(key)
+            if tolerance:
+                tolerance_before, tolerance_after = tolerance
+                if tolerance_before > 0 or tolerance_after > 0:
+                    tolerance_str = f" +{tolerance_after} -{tolerance_before}"
+        return f"📋 {visit_name} {study} {patient_id}{tolerance_str}"
+    else:
+        return f"✅ {visit_name} {study} {patient_id}"

@@ -182,6 +182,11 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
     visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
+    
+    # Check VisitType from actual_visit_data (may have patient_proposed)
+    actual_visit_type = str(actual_visit_data.get("VisitType", visit_type)).lower()
+    is_proposed_type = actual_visit_type == 'patient_proposed'
+    
     visit_date = actual_visit_data["ActualDate"]
     
     # Ensure it's a proper Timestamp and normalize to date only for calendar matching
@@ -199,13 +204,14 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     visit_date = pd.Timestamp(visit_date.date())  # Normalize to date only
     
-    # Check if this is a proposed visit (future date)
+    # Check if this is a proposed visit (future date or explicit patient_proposed type)
     # Ensure both dates are properly normalized for comparison
     today = pd.Timestamp(date.today()).normalize()
     # visit_date is already normalized above, ensure it's date-only
     visit_date = pd.Timestamp(visit_date.date()).normalize() if hasattr(visit_date, 'date') else pd.Timestamp(visit_date).normalize()
     
-    is_proposed = visit_date > today
+    # Proposed if explicitly marked as patient_proposed OR if date is in future
+    is_proposed = is_proposed_type or (visit_date > today)
     
     # Debug logging for proposed visit detection
     if is_proposed:
@@ -236,7 +242,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         is_out_of_protocol = False  # Always False - we don't check tolerance windows anymore
         
         if is_proposed:
-            # Proposed visit - format differently
+            # Proposed visit - format with 📅 emoji and (Proposed) text
             from helpers import log_activity
             if is_screen_fail:
                 visit_status = f"⚠️ Screen Fail {visit_name}"  # Shouldn't happen, but handle gracefully
@@ -245,7 +251,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
             elif is_died:
                 visit_status = f"⚠️ Died {visit_name}"  # Shouldn't happen, but handle gracefully
             else:
-                visit_status = f"❓ {visit_name} (Proposed)"
+                visit_status = f"📅 {visit_name} (Proposed)"
                 log_activity(f"  Formatting as proposed: {visit_status}", level='info')
         elif is_screen_fail:
             visit_status = f"⚠️ Screen Fail {visit_name}"
@@ -270,6 +276,9 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     # END CHANGED
     
     # Create main visit record
+    # Use actual_visit_type if it's patient_proposed, otherwise use visit_type from trial schedule
+    final_visit_type = actual_visit_type if is_proposed_type else visit_type
+    
     visit_record = {
         "Date": visit_date,
         "PatientID": patient_id,
@@ -286,7 +295,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "IsOutOfProtocol": is_out_of_protocol,
         "VisitDay": visit_day,
         "VisitName": visit_name,
-        "VisitType": visit_type
+        "VisitType": final_visit_type
     }
     
     # Simplified: No tolerance window records created for actual visits (proposed or not)
@@ -318,7 +327,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     # Normalize expected_date to date only for calendar matching
     scheduled_date = pd.Timestamp(pd.Timestamp(expected_date).date())
     
-    # Use patient-specific stoppage check (screen failure or withdrawal)
+    # Use patient-specific stoppage check (screen failure, withdrawal, or death)
     if stoppage_date is not None and scheduled_date > stoppage_date:
         return [], 1  # Return empty list and increment exclusion count
     
@@ -373,7 +382,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     """Process all visits for a single patient
     
     Args:
-        stoppages: Dictionary of patient+study keys to stoppage dates (screen failures or withdrawals)
+        stoppages: Dictionary of patient+study keys to stoppage dates (screen failures, withdrawals, or deaths)
     """
     from helpers import log_activity
     

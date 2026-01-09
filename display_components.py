@@ -427,6 +427,10 @@ def show_legend(actual_visits_df):
     - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
     - ⚠️ Died VisitName (Gray background with dark text) = Patient death (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
 
+    **Proposed Visits/Events:**
+    - 📅 VisitName (Proposed) (Light yellow/amber background) = Proposed Visit/Event (tentative booking, date in future - needs confirmation)
+    - These are planned but not yet confirmed - use bulk export/import to confirm them
+
     **Predicted Visits:**
     - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
     - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
@@ -446,6 +450,14 @@ def show_legend(actual_visits_df):
     - Light blue header = Patient origin site (who recruited patient)
     
     **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
+    
+    **Site Busy View:**
+    - Shows all visits/events per site per day in a simplified calendar format
+    - Events (SIV, Monitor) appear at the top of each cell, followed by patient visits
+    - Label format: VisitName Study PatientID [+tolerance for predicted visits]
+    - Multiple visits on the same day are stacked vertically in the cell
+    - Color coding matches the standard view (green=actual, yellow=proposed, gray=predicted, red=DNA)
+    - Tolerance windows (+2 -3) shown in label for future predicted visits only
     """ if actual_visits_df is not None else """
     **Legend:** 
     - VisitName (Gray) = Scheduled Visit
@@ -462,6 +474,14 @@ def show_legend(actual_visits_df):
     - Light blue header = Patient origin site (who recruited patient)
     
     **Note:** Day 1 visit is the baseline reference point for all visit scheduling.
+    
+    **Site Busy View:**
+    - Shows all visits/events per site per day in a simplified calendar format
+    - Events (SIV, Monitor) appear at the top of each cell, followed by patient visits
+    - Label format: VisitName Study PatientID [+tolerance for predicted visits]
+    - Multiple visits on the same day are stacked vertically in the cell
+    - Color coding: green=actual, yellow=proposed, gray=predicted, red=DNA
+    - Tolerance windows (+2 -3) shown in label for future predicted visits only
     """
     
     st.info(legend_text)
@@ -2078,3 +2098,109 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
         st.error(f"Error creating download options: {e}")
         # Fallback removed - Excel export is primary method
         st.info("Please report this error if Excel export fails")
+
+def display_site_busy_calendar(site_busy_df, site_columns):
+    """Display the site busy calendar view with styling
+    
+    Args:
+        site_busy_df: DataFrame with Date, Day, and site columns
+        site_columns: List of site column names
+    """
+    import streamlit as st
+    from datetime import date
+    from formatters import style_calendar_row, get_date_based_style
+    
+    st.subheader("Site Busy Calendar View")
+    
+    if site_busy_df.empty:
+        st.info("No visits to display")
+        return
+    
+    # Prepare display DataFrame
+    display_df = site_busy_df.copy()
+    display_df["Date"] = display_df["Date"].dt.strftime("%d/%m/%Y")  # UK format
+    
+    # Apply styling
+    try:
+        today = pd.to_datetime(date.today())
+        
+        # Style the dataframe
+        styled_df = display_df.style.apply(
+            lambda row: style_site_busy_row(row, today, site_columns), axis=1
+        )
+        styled_df = styled_df.hide(axis='index')
+        
+        # Display with HTML to preserve line breaks
+        st.dataframe(styled_df, height=600, use_container_width=True, hide_index=True)
+        
+    except Exception as e:
+        st.error(f"Error displaying site busy calendar: {e}")
+        # Fallback: display without styling
+        st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
+
+def style_site_busy_row(row, today_date, site_columns):
+    """Apply styling to site busy calendar rows"""
+    from formatters import get_date_based_style
+    
+    styles = []
+    
+    # Get date for this row
+    date_str = row.get("Date", "")
+    date_obj = None
+    try:
+        if date_str and str(date_str) != "":
+            date_obj = pd.to_datetime(date_str, format='%d/%m/%Y', errors='coerce')
+    except Exception:
+        pass
+    
+    for col_name, cell_value in row.items():
+        style = ""
+        
+        try:
+            # Apply date-based styling first
+            if date_obj is not None and not pd.isna(date_obj):
+                style = get_date_based_style(date_obj, today_date)
+            
+            # Apply visit-specific styling for site columns
+            if col_name in site_columns and str(cell_value) != "":
+                # Check for different visit states in cell content
+                cell_str = str(cell_value)
+                
+                # Check for proposed visits (light yellow)
+                if '📅' in cell_str and '(Proposed)' in cell_str:
+                    if style == "":
+                        style = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+                    else:
+                        # Combine with date styling
+                        style += ' color: #856404; font-weight: bold;'
+                
+                # Check for DNA visits (red/orange)
+                elif '❌' in cell_str and 'DNA' in cell_str:
+                    if style == "":
+                        style = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                    else:
+                        style += ' color: #721c24; font-weight: bold;'
+                
+                # Check for actual visits (green)
+                elif '✅' in cell_str and '📅' not in cell_str:
+                    if style == "":
+                        style = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                    else:
+                        style += ' color: #155724; font-weight: bold;'
+                
+                # Check for predicted visits (light gray)
+                elif '📋' in cell_str:
+                    if style == "":
+                        style = 'background-color: #e2e3e5; color: #383d41; font-weight: normal;'
+                    else:
+                        style += ' color: #383d41; font-weight: normal;'
+                
+                # Preserve line breaks with white-space
+                style += ' white-space: pre-line;'
+                
+        except Exception:
+            style = ""
+        
+        styles.append(style)
+    
+    return styles

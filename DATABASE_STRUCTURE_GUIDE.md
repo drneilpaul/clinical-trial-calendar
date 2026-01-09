@@ -64,7 +64,7 @@ Defines the visit schedule for each study, including visit names, timing, locati
 - **ToleranceAfter** (integer): Days after expected date that visit is allowed. Default: 0.
 - **IntervalUnit** (string): Unit for interval calculation - "month" or "day". Used when visits are scheduled monthly rather than daily.
 - **IntervalValue** (integer): Number of interval units. Used with IntervalUnit for month-based scheduling.
-- **VisitType** (string): Type of visit - "patient" (default), "extra" (optional add-on activity), "siv", or "monitor" for study-level events.
+- **VisitType** (string): Type of visit - "patient" (default), "extra" (optional add-on activity), "siv", "monitor", "patient_proposed" (tentative patient visit), or "event_proposed" (tentative study event) for study-level events.
 
 ### Month-Based vs Day-Based Scheduling
 
@@ -288,6 +288,51 @@ Study: "STUDY-2024-001"
 VisitName: "Monitor Visit 1"
 ActualDate: "15/04/2024"
 VisitType: "monitor"
+Notes: ""
+```
+
+#### F. PROPOSED VISITS AND EVENTS (Tentative Bookings)
+**Identification:**
+- **VisitType = "patient_proposed"** for patient visits with future dates
+- **VisitType = "event_proposed"** for study events (SIVs, Monitor) with future dates
+- **ActualDate is in the future** (greater than today's date)
+- These are tentative bookings that may change or not happen
+
+**Auto-Detection:**
+- When a visit/event is added with `ActualDate` > today → automatically set VisitType to `patient_proposed` or `event_proposed`
+- This happens automatically in:
+  - Modal forms when secretary adds visits/events via UI
+  - Database import functions when importing from CSV/Excel
+  - Bulk upload functions
+
+**Visual Indicators:**
+- Proposed visits/events display with 📅 emoji and "(Proposed)" text suffix
+- Example: `📅 V17 Remote (Proposed)` or `📅 SIV_STUDY (Proposed)`
+
+**Confirmation Workflow:**
+- Export proposed visits to Excel with "Status" column
+- Secretary marks items as "Confirmed" in Excel
+- Import back updates VisitType:
+  - `patient_proposed` → `patient`
+  - `event_proposed` → `siv` or `monitor` (based on VisitName)
+
+**Example Proposed Patient Visit:**
+```
+PatientID: "P001"
+Study: "STUDY-2024-001"
+VisitName: "V5"
+ActualDate: "15/06/2025"
+VisitType: "patient_proposed"
+Notes: ""
+```
+
+**Example Proposed Study Event:**
+```
+PatientID: "MONITOR_STUDY-2024-001"
+Study: "STUDY-2024-001"
+VisitName: "Monitor Visit 2"
+ActualDate: "20/08/2025"
+VisitType: "event_proposed"
 Notes: ""
 ```
 

@@ -732,6 +732,17 @@ def visit_entry_modal():
             if primary_visit_type in ['', 'nan', 'none']:
                 primary_visit_type = 'patient'
             
+            # Auto-detect proposed visit if date is in the future
+            from datetime import date
+            today = date.today()
+            visit_date_obj = visit_date if isinstance(visit_date, date) else pd.to_datetime(visit_date).date()
+            is_future_date = visit_date_obj > today
+            
+            # Set VisitType to patient_proposed if future date (unless already a special type)
+            if is_future_date and primary_visit_type == 'patient':
+                primary_visit_type = 'patient_proposed'
+                st.info(f"📅 This visit will be marked as **Proposed** since the date ({formatted_date}) is in the future.")
+            
             # Ensure Notes includes 'Withdrawn' if checkbox selected
             final_notes = notes if notes else ''
             if withdrawn_flag and 'Withdrawn' not in final_notes:
@@ -1017,6 +1028,21 @@ def study_event_entry_modal():
             visit_type = event_type.lower()
             pseudo_patient_id = f"{event_type.upper()}_{selected_study}"
             
+            # Auto-detect proposed event if date is in the future or status is "Proposed"
+            from datetime import date
+            today = date.today()
+            event_date_obj = event_date if isinstance(event_date, date) else pd.to_datetime(event_date).date()
+            is_future_date = event_date_obj > today
+            is_proposed_status = status.lower() == 'proposed'
+            
+            # Set VisitType to event_proposed if future date or status is Proposed
+            if is_future_date or is_proposed_status:
+                visit_type = 'event_proposed'
+                if is_future_date:
+                    st.info(f"📅 This event will be marked as **Proposed** since the date ({formatted_date}) is in the future.")
+                elif is_proposed_status:
+                    st.info(f"📅 This event is marked as **Proposed** based on the selected status.")
+            
             # Create new study event data
             new_event = {
                 'PatientID': pseudo_patient_id,
@@ -1042,15 +1068,17 @@ def study_event_entry_modal():
                         # This ensures the event will display properly on the calendar
                         # Event Name is always "SIV" or "Monitor" (matches Event Type)
                         try:
+                            # Determine underlying event type for template (siv or monitor, not event_proposed)
+                            template_event_type = event_type.lower()  # Use original event_type, not visit_type
                             template_df = pd.DataFrame([{
                                 'Study': selected_study,
-                                'Day': 0 if visit_type == 'siv' else 999,  # SIVs use Day 0, Monitors use 999
+                                'Day': 0 if template_event_type == 'siv' else 999,  # SIVs use Day 0, Monitors use 999
                                 'VisitName': event_name,  # Always "SIV" or "Monitor" (matches Event Type)
                                 'SiteforVisit': site,
                                 'Payment': 0,  # Default to 0, can be updated later
                                 'ToleranceBefore': 0,
                                 'ToleranceAfter': 0,
-                                'VisitType': visit_type
+                                'VisitType': template_event_type  # Use underlying type for template
                             }])
                             
                             # Try to append the template (will fail silently if duplicate exists, which is fine)

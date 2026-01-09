@@ -16,7 +16,8 @@ from display_components import (
     display_download_buttons, display_monthly_income_tables,
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
     display_site_income_by_fy, display_study_income_summary,
-    render_calendar_start_selector, apply_calendar_start_filter
+    render_calendar_start_selector, apply_calendar_start_filter,
+    display_site_busy_calendar
 )
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections
 try:
@@ -494,6 +495,114 @@ def setup_file_uploaders():
     
     st.sidebar.divider()
     
+    # Proposed Visits Confirmation - Admin only
+    if st.session_state.get('auth_level') == 'admin' and st.session_state.get('database_available', False):
+        with st.sidebar.expander("📅 Proposed Visits Confirmation", expanded=False):
+            st.caption("Export proposed visits/events for confirmation, then import back to update status")
+            
+            # Get actual visits to check for proposed items
+            if actual_visits_df is not None and not actual_visits_df.empty:
+                proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
+                proposed_count = proposed_mask.sum()
+                
+                if proposed_count > 0:
+                    st.info(f"📊 Found {proposed_count} proposed visit(s)/event(s)")
+                    
+                    # Export proposed visits
+                    from bulk_visits import build_proposed_visits_export
+                    export_buffer, export_message = build_proposed_visits_export(actual_visits_df)
+                    
+                    if export_buffer:
+                        st.download_button(
+                            "📥 Export Proposed Visits",
+                            data=export_buffer.getvalue(),
+                            file_name=f"proposed_visits_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Download Excel file with proposed visits. Mark Status as 'Confirmed' and upload back.",
+                            width="stretch"
+                        )
+                        st.caption(export_message)
+                    else:
+                        st.warning(export_message)
+                    
+                    st.divider()
+                    
+                    # Import confirmed visits
+                    st.markdown("**Import Confirmed Visits**")
+                    confirmed_file = st.file_uploader(
+                        "Upload Confirmed Visits Excel",
+                        type=['xlsx', 'xls'],
+                        help="Upload the Excel file with Status='Confirmed' to update proposed visits to confirmed",
+                        key="proposed_confirmation_upload"
+                    )
+                    
+                    if confirmed_file:
+                        from bulk_visits import parse_proposed_confirmation_upload
+                        import database as db
+                        
+                        result = parse_proposed_confirmation_upload(confirmed_file, actual_visits_df)
+                        
+                        if result.get('errors'):
+                            for error in result['errors']:
+                                st.error(f"❌ {error}")
+                        
+                        if result.get('warnings'):
+                            for warning in result['warnings']:
+                                st.warning(f"⚠️ {warning}")
+                        
+                        records = result.get('records', [])
+                        if records:
+                            # Prepare DataFrame for database update
+                            update_records = []
+                            for record in records:
+                                update_records.append({
+                                    'PatientID': record['PatientID'],
+                                    'Study': record['Study'],
+                                    'VisitName': record['VisitName'],
+                                    'ActualDate': record['ActualDate'],
+                                    'VisitType': record['VisitType'],
+                                    'Notes': record.get('Notes', '')
+                                })
+                            
+                            update_df = pd.DataFrame(update_records)
+                            
+                            # Use database function to update visits
+                            # First delete proposed visits, then insert confirmed ones
+                            try:
+                                import database as db
+                                client = db.get_supabase_client()
+                                if client:
+                                    # Delete proposed visits
+                                    for record in records:
+                                        try:
+                                            # Parse date for deletion
+                                            date_str = pd.to_datetime(record['ActualDate'], dayfirst=True).strftime('%Y-%m-%d')
+                                            client.table('actual_visits').delete().eq('PatientID', record['PatientID']).eq('Study', record['Study']).eq('VisitName', record['VisitName']).eq('ActualDate', date_str).execute()
+                                        except Exception as e:
+                                            log_activity(f"Error deleting proposed visit {record['PatientID']}/{record['Study']}/{record['VisitName']}: {e}", level='warning')
+                                    
+                                    # Insert confirmed visits using append function
+                                    success, message, code = db.append_visit_to_database(update_df)
+                                    
+                                    if success:
+                                        st.success(f"✅ Successfully confirmed {len(records)} visit(s)/event(s)")
+                                        log_activity(f"Confirmed {len(records)} proposed visits via bulk import", level='success')
+                                        trigger_data_refresh()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Error confirming visits: {message}")
+                                else:
+                                    st.error("❌ Database connection not available")
+                            except Exception as e:
+                                st.error(f"❌ Error updating visits: {e}")
+                                log_activity(f"Error confirming proposed visits: {e}", level='error')
+                else:
+                    st.info("No proposed visits/events found. All visits are confirmed.")
+            else:
+                st.info("Load data from database to see proposed visits.")
+    
+    st.sidebar.divider()
+    
     # Add button to show validation details in sidebar
     if st.session_state.get('validation_results') and not st.session_state.get('show_validation_details', False):
         if st.sidebar.button("🔍 Show Validation Details"):
@@ -924,7 +1033,7 @@ def main():
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
             # Calendar display options - moved calendar view selector to same line
-            col_options = st.columns([1, 1, 1, 1, 1, 2])
+            col_options = st.columns([1, 1, 1, 1, 1, 1, 1])
             with col_options[0]:
                 prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
                 hide_inactive = st.checkbox(
@@ -970,14 +1079,25 @@ def main():
                 else:
                     st.session_state.show_scrollbars = show_scrollbars
             with col_options[3]:
+                # View selector
+                calendar_view = st.radio(
+                    "View",
+                    options=["Standard", "Site Busy"],
+                    index=0 if st.session_state.get('calendar_view', 'Standard') == 'Standard' else 1,
+                    horizontal=True,
+                    help="Standard: Patient-focused view | Site Busy: Site workload view",
+                    key="calendar_view_radio"
+                )
+                st.session_state.calendar_view = calendar_view
+            with col_options[4]:
                 if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
                     st.session_state.scroll_to_today = True
                     st.rerun()
-            with col_options[4]:
+            with col_options[5]:
                 # Calendar range selector moved to same line - hide label for alignment
                 calendar_filter_option = render_calendar_start_selector(show_label=False)
                 calendar_start_date = calendar_filter_option.get("start")
-            with col_options[5]:
+            with col_options[6]:
                 # Build filter summary for expander header
                 active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                 active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
@@ -1168,7 +1288,29 @@ def main():
             compact_status = "enabled" if compact_mode else "disabled"
             if hide_inactive_status == "enabled" or compact_status == "enabled":
                 st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
-            display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
+            
+            # Display appropriate calendar view
+            calendar_view = st.session_state.get('calendar_view', 'Standard')
+            if calendar_view == 'Site Busy':
+                # Build site busy calendar
+                from calendar_builder import build_site_busy_calendar
+                # Determine date range for site busy calendar
+                date_range = None
+                if calendar_start_date:
+                    # Use calendar start date as min, keep max as None (will use visits_df max)
+                    date_range = (calendar_start_date, None)
+                
+                site_busy_df = build_site_busy_calendar(
+                    visits_df_filtered,
+                    trials_df=trials_df,
+                    actual_visits_df=actual_visits_df,
+                    date_range=date_range
+                )
+                # Get site columns (exclude Date and Day)
+                site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
+                display_site_busy_calendar(site_busy_df, site_columns)
+            else:
+                display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
             show_legend(actual_visits_df)
             
