@@ -528,6 +528,12 @@ def build_site_busy_calendar(visits_df, trials_df=None, actual_visits_df=None, d
     # Determine date range
     if date_range:
         min_date, max_date = date_range
+        # If max_date is None, use visits_df max date
+        if max_date is None:
+            max_date = visits_df["Date"].max() + timedelta(days=1)
+        # Ensure min_date is not None (shouldn't happen, but be safe)
+        if min_date is None:
+            min_date = visits_df["Date"].min() - timedelta(days=1)
     else:
         min_date = visits_df["Date"].min() - timedelta(days=1)
         max_date = visits_df["Date"].max() + timedelta(days=1)
