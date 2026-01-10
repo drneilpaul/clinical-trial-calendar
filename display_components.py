@@ -415,74 +415,109 @@ def display_site_income_by_fy(visits_df, trials_df):
     except Exception as e:
         st.error(f"Error displaying site income by financial year: {e}")
 
-def show_legend(actual_visits_df):
-    """Display legend for calendar interpretation"""
-    legend_text = """
-    **Legend with Color Coding:**
-
-    **Actual Visits:**
-    - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
-    - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
-    - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
-    - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
-    - ⚠️ Died VisitName (Gray background with dark text) = Patient death (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
-
-    **Proposed Visits/Events:**
-    - 📅 VisitName (Proposed) (Light yellow/amber background) = Proposed Visit/Event (tentative booking, date in future - needs confirmation)
-    - These are planned but not yet confirmed - use bulk export/import to confirm them
-
-    **Predicted Visits:**
-    - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
-    - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
-    - \\- (Light blue-gray, italic) = Before tolerance period
-    - \\+ (Light blue-gray, italic) = After tolerance period
-
-    **Date Formatting:**
-    - Red background = Today's date
-    - Light blue background = Month end (softer highlighting)
-    - Dark blue background = Financial year end (31 March)
-    - Gray background = Weekend
-    - Blue separator lines = Month boundaries (screen only)
+def show_legend(actual_visits_df, view='Standard'):
+    """Display legend for calendar interpretation - view-specific
     
-    **Three-Level Headers:**
-    - Dark blue header = Visit site (where visits are performed)
-    - Medium blue header = Study_PatientID
-    - Light blue header = Patient origin site (who recruited patient)
-    
-    **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
-    
-    **Site Busy View:**
-    - Shows all visits/events per site per day in a simplified calendar format
-    - Events (SIV, Monitor) appear at the top of each cell, followed by patient visits
-    - Label format: VisitName Study PatientID [+tolerance for predicted visits]
-    - Multiple visits on the same day are stacked vertically in the cell
-    - Color coding matches the standard view (green=actual, yellow=proposed, gray=predicted, red=DNA)
-    - Tolerance windows (+2 -3) shown in label for future predicted visits only
-    """ if actual_visits_df is not None else """
-    **Legend:** 
-    - VisitName (Gray) = Scheduled Visit
-    - - (Light blue-gray) = Before tolerance period
-    - + (Light blue-gray) = After tolerance period
-    - Light blue background = Month end (softer highlighting)
-    - Dark blue background = Financial year end (31 March)
-    - Gray background = Weekend
-    - Blue separator lines = Month boundaries (screen only)
-    
-    **Three-Level Headers:**
-    - Dark blue header = Visit site (where visits are performed)
-    - Medium blue header = Study_PatientID
-    - Light blue header = Patient origin site (who recruited patient)
-    
-    **Note:** Day 1 visit is the baseline reference point for all visit scheduling.
-    
-    **Site Busy View:**
-    - Shows all visits/events per site per day in a simplified calendar format
-    - Events (SIV, Monitor) appear at the top of each cell, followed by patient visits
-    - Label format: VisitName Study PatientID [+tolerance for predicted visits]
-    - Multiple visits on the same day are stacked vertically in the cell
-    - Color coding: green=actual, yellow=proposed, gray=predicted, red=DNA
-    - Tolerance windows (+2 -3) shown in label for future predicted visits only
+    Args:
+        actual_visits_df: DataFrame with actual visits (for determining if visits exist)
+        view: Current view ('Standard', 'Site Busy', or 'Gantt')
     """
+    if view == 'Site Busy':
+        legend_text = """
+        **Site Busy View Legend:**
+        
+        **Visit States:**
+        - ✅ VisitName Study PatientID (Green background) = Completed Visit (historical actual)
+        - ❌ VisitName Study PatientID DNA (Red background) = Did Not Attend
+        - 📋 VisitName Study PatientID ? (Light gray background) = Not Input Yet (past date, no actual visit recorded)
+        - 📋 VisitName Study PatientID +2 -3 (Light gray background) = Future Predicted Visit (with tolerance window)
+        - 📅 VisitName Study PatientID (Proposed) (Light yellow/amber background) = Proposed Visit/Event (tentative booking)
+        
+        **Study Events:**
+        - ✅ SIV_Study or ✅ MONITOR_Study (Green background) = Completed Event
+        - 📅 SIV_Study (Proposed) or 📅 MONITOR_Study (Proposed) (Light yellow background) = Proposed Event
+        
+        **Date Formatting:**
+        - Red background = Today's date
+        - Light blue background = Month end
+        - Dark blue background = Financial year end (31 March)
+        - Gray background = Weekend
+        
+        **Layout:**
+        - Events appear at the top of each cell, followed by patient visits
+        - Multiple visits on the same day are stacked vertically
+        - Rows automatically adjust height to fit content
+        """
+    elif view == 'Gantt':
+        legend_text = """
+        **Gantt View Legend:**
+        
+        **Timeline Bars:**
+        - Each patient's visit timeline is shown as horizontal bars
+        - Bars are color-coded by visit type and status
+        - Study events (SIV, Monitor) appear as separate markers
+        
+        **Colors:**
+        - Green = Completed visits
+        - Yellow = Proposed visits
+        - Gray = Predicted visits
+        - Red = DNA (Did Not Attend)
+        
+        **Recruitment Overlay (if enabled):**
+        - Shows recruitment progress and targets for each study
+        - Displays recruitment milestones and deadlines
+        """
+    else:  # Standard view
+        legend_text = """
+        **Standard View Legend:**
+        
+        **Actual Visits:**
+        - ✅ VisitName (Green background) = Completed Visit (within tolerance window)  
+        - 🔴 OUT OF PROTOCOL VisitName (Red background) = Completed Visit (outside tolerance window - protocol deviation)
+        - ⚠️ Screen Fail VisitName (Dark red background) = Screen failure (no future visits - only valid up to Day 1)
+        - ⚠️ Withdrawn VisitName (Yellow background) = Patient withdrawal (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
+        - ⚠️ Died VisitName (Gray background with dark text) = Patient death (no future routine visits - stops all scheduled visits, but Day 0 extras still count)
+
+        **Proposed Visits/Events:**
+        - 📅 VisitName (Proposed) (Light yellow/amber background) = Proposed Visit/Event (tentative booking, date in future - needs confirmation)
+        - These are planned but not yet confirmed - use bulk export/import to confirm them
+
+        **Predicted Visits:**
+        - 📋 VisitName (Predicted) (Gray background) = Predicted Visit (no actual visit recorded yet)
+        - 📅 VisitName (Planned) (Light gray background) = Planned Visit (actual visit also exists - shows original schedule)
+        - \\- (Light blue-gray, italic) = Before tolerance period
+        - \\+ (Light blue-gray, italic) = After tolerance period
+
+        **Date Formatting:**
+        - Red background = Today's date
+        - Light blue background = Month end (softer highlighting)
+        - Dark blue background = Financial year end (31 March)
+        - Gray background = Weekend
+        - Blue separator lines = Month boundaries (screen only)
+        
+        **Three-Level Headers:**
+        - Dark blue header = Visit site (where visits are performed)
+        - Medium blue header = Study_PatientID
+        - Light blue header = Patient origin site (who recruited patient)
+        
+        **Note:** Day 1 visit (baseline) establishes the timeline for all future visits regardless of timing - it's never a protocol deviation. Only visits after Day 1 can be marked as OUT OF PROTOCOL when outside tolerance windows.
+        """ if actual_visits_df is not None else """
+        **Standard View Legend:** 
+        - VisitName (Gray) = Scheduled Visit
+        - - (Light blue-gray) = Before tolerance period
+        - + (Light blue-gray) = After tolerance period
+        - Light blue background = Month end (softer highlighting)
+        - Dark blue background = Financial year end (31 March)
+        - Gray background = Weekend
+        - Blue separator lines = Month boundaries (screen only)
+        
+        **Three-Level Headers:**
+        - Dark blue header = Visit site (where visits are performed)
+        - Medium blue header = Study_PatientID
+        - Light blue header = Patient origin site (who recruited patient)
+        
+        **Note:** Day 1 visit is the baseline reference point for all visit scheduling.
+        """
     
     st.info(legend_text)
 

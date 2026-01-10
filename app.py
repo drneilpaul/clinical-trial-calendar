@@ -688,7 +688,13 @@ def main():
                         f"Check the Activity Log in the sidebar for details."
                     )
                 else:
-                    st.success("✅ Database validation passed - all data looks good!")
+                    # Use toast for non-persisting success message (auto-dismisses)
+                    try:
+                        st.toast("✅ Database validation passed - all data looks good!", icon="✅")
+                    except AttributeError:
+                        # Fallback for older Streamlit versions - use success but make it dismissible
+                        st.success("✅ Database validation passed - all data looks good!")
+                        # Note: In older Streamlit versions, success messages persist
                     
             except Exception as e:
                 st.error(f"Error during database validation: {e}")
@@ -1345,7 +1351,9 @@ def main():
             else:
                 display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
-            show_legend(actual_visits_df)
+            # Show view-specific legend
+            calendar_view = st.session_state.get('calendar_view', 'Standard')
+            show_legend(actual_visits_df, view=calendar_view)
             
             site_summary_df = extract_site_summary(patients_df, screen_failures)
             if not site_summary_df.empty and effective_sites:

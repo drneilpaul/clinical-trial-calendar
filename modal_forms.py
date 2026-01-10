@@ -1139,12 +1139,78 @@ def open_switch_patient_form():
     """Helper function to open switch patient study form"""
     st.session_state.show_switch_patient_form = True
 
+def get_study_site_combinations(trials_df: pd.DataFrame) -> List[Tuple[str, str]]:
+    """
+    Get sorted list of unique Study+Site combinations.
+    
+    Args:
+        trials_df: Trial schedules dataframe
+    
+    Returns:
+        List of (Study, Site) tuples, sorted by Study then Site
+    """
+    if 'SiteforVisit' not in trials_df.columns:
+        return []
+    
+    study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()
+    combinations = [(row['Study'], row['SiteforVisit']) for _, row in study_site_combos.iterrows()]
+    return sorted(combinations, key=lambda x: (x[0], x[1]))
+
+def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame, visits_df: pd.DataFrame) -> Dict[str, Optional]:
+    """
+    Calculate FPFV, LPFV, LPLV, and recruitment count from patient/visit data.
+    
+    Args:
+        study: Study name
+        site: Site name (PatientPractice for patients, SiteofVisit for visits)
+        patients_df: Patients dataframe
+        visits_df: Visits dataframe (with Date column)
+    
+    Returns:
+        dict with keys: 'fpfv', 'lpfv', 'lplv', 'recruitment_count'
+    """
+    # Get patients for this study+site
+    study_patients = patients_df[
+        (patients_df['Study'] == study) & 
+        (patients_df['PatientPractice'] == site)
+    ]
+    
+    fpfv = None
+    lpfv = None
+    recruitment_count = 0
+    
+    if not study_patients.empty and 'StartDate' in study_patients.columns:
+        start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
+        if not start_dates.empty:
+            fpfv = start_dates.min().date()
+            lpfv = start_dates.max().date()
+            recruitment_count = len(study_patients)
+    
+    # Get visits for this study+site
+    study_visits = visits_df[
+        (visits_df['Study'] == study) & 
+        (visits_df['SiteofVisit'] == site)
+    ]
+    
+    lplv = None
+    if not study_visits.empty and 'Date' in study_visits.columns:
+        visit_dates = pd.to_datetime(study_visits['Date'], errors='coerce').dropna()
+        if not visit_dates.empty:
+            lplv = visit_dates.max().date()
+    
+    return {
+        'fpfv': fpfv,
+        'lpfv': lpfv,
+        'lplv': lplv,
+        'recruitment_count': recruitment_count
+    }
+
 def handle_study_settings_modal():
-    """Handle study settings (status/targets) modal"""
+    """Handle study settings (status/targets) modal with navigation"""
     if st.session_state.get('show_study_settings_form', False) and not st.session_state.get('any_dialog_open', False):
         try:
             st.session_state.any_dialog_open = True
-            study_settings_modal()
+            study_settings_navigation_modal()
         except AttributeError:
             st.error("Modal dialogs require Streamlit 1.28+")
             st.session_state.show_study_settings_form = False
@@ -1158,9 +1224,9 @@ def open_study_settings_form():
     """Open study settings form"""
     st.session_state.show_study_settings_form = True
 
-@st.dialog("⚙️ Study Settings (Status & Recruitment)", width="large")
-def study_settings_modal():
-    """Modal form to edit study status and recruitment targets"""
+@st.dialog("⚙️ Study Settings", width="large")
+def study_settings_navigation_modal():
+    """Modal form to edit study status and recruitment targets with navigation"""
     try:
         # Load data
         trials_df = db.fetch_all_trial_schedules()
@@ -1172,34 +1238,63 @@ def study_settings_modal():
             return
         
         # Get unique study-site combinations
-        if 'SiteforVisit' not in trials_df.columns:
-            st.error("SiteforVisit column not found in trials data.")
+        combinations = get_study_site_combinations(trials_df)
+        if not combinations:
+            st.error("No study-site combinations found.")
             if st.button("✖ Close", width='stretch'):
                 st.session_state.show_study_settings_form = False
                 st.rerun()
             return
         
-        study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()
+        # Initialize or get current index
+        session_key = 'study_settings_current_index'
+        if session_key not in st.session_state:
+            st.session_state[session_key] = 0
         
-        # Study and Site selectors
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_study = st.selectbox(
-                "Select Study",
-                options=sorted(study_site_combos['Study'].unique()),
-                key="study_settings_study"
-            )
+        current_index = st.session_state[session_key]
+        if current_index >= len(combinations):
+            current_index = 0
+            st.session_state[session_key] = 0
         
-        with col2:
-            # Filter sites for selected study
-            study_sites = study_site_combos[study_site_combos['Study'] == selected_study]['SiteforVisit'].unique()
-            selected_site = st.selectbox(
-                "Select Site",
-                options=sorted(study_sites),
-                key="study_settings_site"
-            )
+        # Navigation buttons
+        col_nav1, col_nav2, col_nav3, col_nav4 = st.columns([1, 2, 1, 1])
         
-        # Get current values
+        with col_nav1:
+            if st.button("← Previous", disabled=(len(combinations) <= 1), use_container_width=True):
+                # Clear flags for current study before navigating
+                clear_key_base = f"clear_flags_{current_index}"
+                if clear_key_base in st.session_state:
+                    del st.session_state[clear_key_base]
+                st.session_state[session_key] = (current_index - 1) % len(combinations)
+                st.rerun()
+        
+        with col_nav2:
+            selected_study, selected_site = combinations[current_index]
+            st.markdown(f"**Study {current_index + 1} of {len(combinations)}**")
+            st.caption(f"{selected_study} at {selected_site}")
+        
+        with col_nav3:
+            if st.button("Next →", disabled=(len(combinations) <= 1), use_container_width=True):
+                # Clear flags for current study before navigating
+                clear_key_base = f"clear_flags_{current_index}"
+                if clear_key_base in st.session_state:
+                    del st.session_state[clear_key_base]
+                st.session_state[session_key] = (current_index + 1) % len(combinations)
+                st.rerun()
+        
+        with col_nav4:
+            if st.button("🔄 Reset", help="Reset to first study", use_container_width=True):
+                # Clear all flags
+                for i in range(len(combinations)):
+                    clear_key = f"clear_flags_{i}"
+                    if clear_key in st.session_state:
+                        del st.session_state[clear_key]
+                st.session_state[session_key] = 0
+                st.rerun()
+        
+        st.divider()
+        
+        # Get current override values from database
         current_trials = trials_df[
             (trials_df['Study'] == selected_study) & 
             (trials_df['SiteforVisit'] == selected_site)
@@ -1236,7 +1331,83 @@ def study_settings_modal():
                             elif var_name == 'current_lplv':
                                 current_lplv = date_val.date()
         
+        # Load patients and visits for calculated values
+        patients_df = db.fetch_all_patients()
+        if patients_df is None:
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+        
+        # Build visits_df from actual_visits and trial_schedules to get SiteofVisit
+        visits_df = pd.DataFrame(columns=['Study', 'SiteofVisit', 'Date'])
+        try:
+            actual_visits_df = db.fetch_all_actual_visits()
+            if actual_visits_df is not None and not actual_visits_df.empty:
+                # Get SiteforVisit from trial_schedules for each visit
+                visit_records = []
+                for _, visit in actual_visits_df.iterrows():
+                    visit_study = visit.get('Study')
+                    visit_name = visit.get('VisitName')
+                    visit_date = visit.get('ActualDate')
+                    
+                    if pd.notna(visit_date) and visit_study and visit_name:
+                        # Find SiteforVisit from trial_schedules
+                        matching_trials = trials_df[
+                            (trials_df['Study'] == visit_study) & 
+                            (trials_df['VisitName'] == visit_name)
+                        ]
+                        if not matching_trials.empty:
+                            site = matching_trials.iloc[0]['SiteforVisit']
+                            visit_records.append({
+                                'Study': visit_study,
+                                'SiteofVisit': site,
+                                'Date': pd.to_datetime(visit_date, errors='coerce')
+                            })
+                
+                if visit_records:
+                    visits_df = pd.DataFrame(visit_records)
+                    visits_df = visits_df[visits_df['Date'].notna()]
+        except Exception as e:
+            log_activity(f"Error building visits_df for calculated values: {e}", level='warning')
+            visits_df = pd.DataFrame(columns=['Study', 'SiteforVisit', 'Date'])
+        
+        # Get calculated values
+        calculated = get_calculated_study_values(selected_study, selected_site, patients_df, visits_df)
+        
+        # Display calculated values section
+        st.markdown("### 📊 Calculated Values (from patient/visit data)")
+        st.caption("These values are automatically calculated from your data. Override fields below take precedence.")
+        
+        calc_col1, calc_col2, calc_col3, calc_col4 = st.columns(4)
+        with calc_col1:
+            fpfv_display = calculated['fpfv'].strftime('%d/%m/%Y') if calculated['fpfv'] else "N/A"
+            st.info(f"**FPFV:**\n{fpfv_display}")
+        with calc_col2:
+            lpfv_display = calculated['lpfv'].strftime('%d/%m/%Y') if calculated['lpfv'] else "N/A"
+            st.info(f"**LPFV:**\n{lpfv_display}")
+        with calc_col3:
+            lplv_display = calculated['lplv'].strftime('%d/%m/%Y') if calculated['lplv'] else "N/A"
+            st.info(f"**LPLV:**\n{lplv_display}")
+        with calc_col4:
+            st.info(f"**Recruitment:**\n{calculated['recruitment_count']} patients")
+        
         st.divider()
+        
+        # Override fields section
+        st.markdown("### ✏️ Override Values (editable)")
+        st.caption("Set override values to manually adjust dates/targets. Leave blank to use calculated values.")
+        
+        # Initialize clear flags in session state
+        clear_key_base = f"clear_flags_{current_index}"
+        if clear_key_base not in st.session_state:
+            st.session_state[clear_key_base] = {
+                'status': False,
+                'target': False,
+                'fpfv': False,
+                'lpfv': False,
+                'lplv': False
+            }
+        
+        # Handle clear button clicks
+        clear_flags = st.session_state[clear_key_base]
         
         # Status selector
         status_options = ['active', 'contracted', 'in_setup', 'expression_of_interest']
@@ -1246,49 +1417,97 @@ def study_settings_modal():
             'in_setup': 'In Setup',
             'expression_of_interest': 'Expression of Interest'
         }
-        selected_status = st.selectbox(
-            "Study Status",
-            options=status_options,
-            index=status_options.index(current_status) if current_status in status_options else 0,
-            format_func=lambda x: status_labels[x],
-            key="study_settings_status"
-        )
+        
+        col_status1, col_status2 = st.columns([3, 1])
+        with col_status1:
+            status_index = 0
+            if not clear_flags['status'] and current_status in status_options:
+                status_index = status_options.index(current_status)
+            selected_status = st.selectbox(
+                "Study Status",
+                options=status_options,
+                index=status_index,
+                format_func=lambda x: status_labels[x],
+                key=f"study_settings_status_{current_index}"
+            )
+        with col_status2:
+            if st.button("Clear", key=f"clear_status_{current_index}", help="Reset to default (active)"):
+                clear_flags['status'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
         
         # Recruitment target
-        recruitment_target = st.number_input(
-            "Recruitment Target",
-            min_value=0,
-            value=int(current_target) if current_target else 0,
-            step=1,
-            help="Target number of patients for this study at this site",
-            key="study_settings_target"
-        )
-        if recruitment_target == 0:
-            recruitment_target = None
+        col_target1, col_target2 = st.columns([3, 1])
+        with col_target1:
+            target_value = 0
+            if not clear_flags['target'] and current_target:
+                target_value = int(current_target)
+            recruitment_target = st.number_input(
+                "Recruitment Target",
+                min_value=0,
+                value=target_value,
+                step=1,
+                help="Target number of patients for this study at this site",
+                key=f"study_settings_target_{current_index}"
+            )
+            if recruitment_target == 0:
+                recruitment_target = None
+        with col_target2:
+            if st.button("Clear", key=f"clear_target_{current_index}", help="Remove target (use NULL)"):
+                clear_flags['target'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
         
-        st.divider()
-        st.markdown("### Date Overrides (Optional)")
-        st.caption("Leave blank to use calculated dates from patient/visit data")
+        # Date overrides with clear buttons
+        st.markdown("#### Date Overrides")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
+        col_fpfv1, col_fpfv2 = st.columns([3, 1])
+        with col_fpfv1:
+            fpfv_value = None
+            if not clear_flags['fpfv']:
+                fpfv_value = current_fpfv
             fpfv_date = st.date_input(
                 "FPFV (First Patient First Visit)",
-                value=current_fpfv,
-                key="study_settings_fpfv"
+                value=fpfv_value,
+                key=f"study_settings_fpfv_{current_index}"
             )
-        with col2:
+        with col_fpfv2:
+            if st.button("Clear", key=f"clear_fpfv_{current_index}", help="Remove override"):
+                clear_flags['fpfv'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
+        
+        col_lpfv1, col_lpfv2 = st.columns([3, 1])
+        with col_lpfv1:
+            lpfv_value = None
+            if not clear_flags['lpfv']:
+                lpfv_value = current_lpfv
             lpfv_date = st.date_input(
                 "LPFV (Last Patient First Visit)",
-                value=current_lpfv,
-                key="study_settings_lpfv"
+                value=lpfv_value,
+                key=f"study_settings_lpfv_{current_index}"
             )
-        with col3:
+        with col_lpfv2:
+            if st.button("Clear", key=f"clear_lpfv_{current_index}", help="Remove override"):
+                clear_flags['lpfv'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
+        
+        col_lplv1, col_lplv2 = st.columns([3, 1])
+        with col_lplv1:
+            lplv_value = None
+            if not clear_flags['lplv']:
+                lplv_value = current_lplv
             lplv_date = st.date_input(
                 "LPLV (Last Patient Last Visit)",
-                value=current_lplv,
-                key="study_settings_lplv"
+                value=lplv_value,
+                key=f"study_settings_lplv_{current_index}"
             )
+        with col_lplv2:
+            if st.button("Clear", key=f"clear_lplv_{current_index}", help="Remove override"):
+                clear_flags['lplv'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
         
         st.divider()
         
@@ -1296,16 +1515,26 @@ def study_settings_modal():
         col_save, col_cancel = st.columns([1, 1])
         
         with col_save:
-            if st.button("💾 Save Changes", type="primary", width='stretch'):
+            if st.button("💾 Save Changes", type="primary", width='stretch', key=f"save_{current_index}"):
                 try:
-                    # Update all trial schedule rows for this study+site combination
-                    # We need to update the database directly
                     client = db.get_supabase_client()
                     if client is None:
                         st.error("Database connection unavailable")
                         return
                     
-                    # Update all rows for this study+site
+                    # Prepare update data - apply clear flags
+                    if clear_flags['status']:
+                        selected_status = 'active'
+                    if clear_flags['target']:
+                        recruitment_target = None
+                    if clear_flags['fpfv']:
+                        fpfv_date = None
+                    if clear_flags['lpfv']:
+                        lpfv_date = None
+                    if clear_flags['lplv']:
+                        lplv_date = None
+                    
+                    # Prepare update data - always include all fields (set to None to clear)
                     update_data = {
                         'StudyStatus': selected_status,
                         'RecruitmentTarget': recruitment_target,
@@ -1314,10 +1543,7 @@ def study_settings_modal():
                         'LPLV': str(lplv_date) if lplv_date else None
                     }
                     
-                    # Remove None values
-                    update_data = {k: v for k, v in update_data.items() if v is not None}
-                    
-                    # Update in database
+                    # Update in database (Supabase handles None as NULL)
                     result = client.table('trial_schedules').update(update_data).eq('Study', selected_study).eq('SiteforVisit', selected_site).execute()
                     
                     if result.data:
@@ -1328,8 +1554,19 @@ def study_settings_modal():
                         db.clear_database_cache()
                         trigger_data_refresh()
                         
-                        st.session_state.show_study_settings_form = False
-                        st.rerun()
+                        # Reset clear flags for this study
+                        if clear_key_base in st.session_state:
+                            st.session_state[clear_key_base] = {
+                                'status': False,
+                                'target': False,
+                                'fpfv': False,
+                                'lpfv': False,
+                                'lplv': False
+                            }
+                        
+                        # Optionally auto-advance to next study
+                        # st.session_state[session_key] = (current_index + 1) % len(combinations)
+                        # st.rerun()
                     else:
                         st.error("Failed to update settings. No rows were updated.")
                         
@@ -1338,7 +1575,7 @@ def study_settings_modal():
                     log_activity(f"Error saving study settings: {str(e)}", level='error')
         
         with col_cancel:
-            if st.button("✖ Cancel", width='stretch'):
+            if st.button("✖ Cancel", width='stretch', key=f"cancel_{current_index}"):
                 st.session_state.show_study_settings_form = False
                 st.rerun()
     
@@ -1348,6 +1585,12 @@ def study_settings_modal():
         if st.button("✖ Close", width='stretch'):
             st.session_state.show_study_settings_form = False
             st.rerun()
+
+# Keep old modal for backward compatibility (can be removed later)
+@st.dialog("⚙️ Study Settings (Status & Recruitment)", width="large")
+def study_settings_modal():
+    """Legacy modal - redirects to navigation modal"""
+    study_settings_navigation_modal()
 
 @st.dialog("🔄 Switch Patient Study", width="large")
 def switch_patient_study_modal():
