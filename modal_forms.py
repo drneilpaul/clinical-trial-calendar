@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import date, datetime, timedelta
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 from helpers import load_file, log_activity, get_visit_type_series, trigger_data_refresh
 import database as db
 
@@ -1157,7 +1157,7 @@ def get_study_site_combinations(trials_df: pd.DataFrame) -> List[Tuple[str, str]
     combinations = [(row['Study'], row['SiteforVisit']) for _, row in study_site_combos.iterrows()]
     return sorted(combinations, key=lambda x: (x[0], x[1]))
 
-def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame, visits_df: pd.DataFrame) -> Dict[str, Optional]:
+def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame, visits_df: pd.DataFrame) -> Dict[str, Any]:
     """
     Calculate FPFV, LPFV, LPLV, and recruitment count from patient/visit data.
     
