@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import date, datetime, timedelta
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 from helpers import load_file, log_activity, get_visit_type_series, trigger_data_refresh
 import database as db
 
