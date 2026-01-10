@@ -503,6 +503,7 @@ def setup_file_uploaders():
             st.caption("Export proposed visits/events for confirmation, then import back to update status")
             
             # Get actual visits to check for proposed items
+            actual_visits_df = st.session_state.get('actual_visits_df')
             if actual_visits_df is not None and not actual_visits_df.empty:
                 proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
                 proposed_count = proposed_mask.sum()
