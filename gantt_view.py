@@ -180,16 +180,34 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     gantt_rows = []
     patient_recruitment_data = {}
     
-    # Get unique sites from trials_df (SiteforVisit)
-    if 'SiteforVisit' not in trials_df.columns:
-        log_activity("No SiteforVisit column in trials_df, cannot build Gantt data", level='error')
+    # Get study+site combinations from both trial_schedules and study_site_details
+    # This ensures EOI studies without trial schedules are included
+    import database as db
+    study_details_df = db.fetch_all_study_site_details()
+    
+    # Build set of all study+site combinations
+    study_site_combinations = set()
+    
+    # Add from trial_schedules
+    if trials_df is not None and not trials_df.empty and 'SiteforVisit' in trials_df.columns:
+        for _, row in trials_df.iterrows():
+            study_site_combinations.add((row['Study'], row['SiteforVisit']))
+    
+    # Add from study_site_details (includes EOI studies without trial schedules)
+    if study_details_df is not None and not study_details_df.empty:
+        for _, row in study_details_df.iterrows():
+            study_site_combinations.add((row['Study'], row['SiteforVisit']))
+    
+    if not study_site_combinations:
+        log_activity("No study-site combinations found, cannot build Gantt data", level='error')
         return pd.DataFrame(columns=['Site', 'Study', 'StartDate', 'EndDate', 'LastEnrollment', 'Status', 'Duration', 'LPFVDate', 'SIVDate']), {}
     
-    unique_sites = trials_df['SiteforVisit'].dropna().unique()
-    unique_studies = trials_df['Study'].dropna().unique()
+    # Get unique sites from all combinations
+    unique_sites = sorted(set(site for _, site in study_site_combinations))
     
     for site in unique_sites:
-        site_studies = trials_df[trials_df['SiteforVisit'] == site]['Study'].unique()
+        # Get all studies for this site from our combinations
+        site_studies = sorted(set(study for study, s in study_site_combinations if s == site))
         
         for study in site_studies:
             dates = calculate_study_dates(study, site, patients_df, visits_df, trials_df)
@@ -205,7 +223,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
             
             # Extract SIV date (only for active/contracted studies, not EOI)
             siv_date = None
-            if dates['status'] not in ['expression_of_interest'] and actual_visits_df is not None:
+            if dates['status'] not in ['expression_of_interest', 'eoi_didnt_get'] and actual_visits_df is not None:
                 siv_date = extract_siv_dates(study, site, actual_visits_df)
             
             gantt_rows.append({
@@ -223,10 +241,10 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     gantt_df = pd.DataFrame(gantt_rows)
     
     # Filter out rows with no dates (studies with no patients/visits yet)
-    # But keep them if status is 'expression_of_interest' or 'in_setup'
+    # But keep them if status is 'expression_of_interest', 'eoi_didnt_get', or 'in_setup'
     gantt_df = gantt_df[
         (gantt_df['StartDate'].notna()) | 
-        (gantt_df['Status'].isin(['expression_of_interest', 'in_setup']))
+        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup']))
     ]
     
     return gantt_df, patient_recruitment_data
@@ -238,6 +256,7 @@ def get_status_color(status: str) -> str:
         'contracted': '#3498db',  # Blue
         'in_setup': '#f39c12',  # Orange/Yellow
         'expression_of_interest': '#95a5a6',  # Gray
+        'eoi_didnt_get': '#e74c3c',  # Red (didn't get contract)
         'in_followup': '#9b59b6'  # Purple (for follow-up phase)
     }
     return status_colors.get(status.lower(), '#95a5a6')
@@ -302,7 +321,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     # Filter out rows without dates for visualization (except EOI which may not have dates)
     gantt_filtered = gantt_data[
         (gantt_data['StartDate'].notna()) | 
-        (gantt_data['Status'] == 'expression_of_interest')
+        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get']))
     ].copy()
     
     if gantt_filtered.empty:
@@ -340,7 +359,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     # (EOI, contracted, in_setup are future/potential studies and should still be shown)
     gantt_filtered = gantt_filtered[
         (gantt_filtered['Study'].isin(studies_with_activity)) |
-        (gantt_filtered['Status'] == 'expression_of_interest') |
+        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])) |
         (gantt_filtered['Status'] == 'contracted') |
         (gantt_filtered['Status'] == 'in_setup')
     ].copy()
@@ -351,8 +370,8 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     
     # Sort: EOI at bottom, others grouped by Site, then by StartDate ascending (oldest first)
     # Separate EOI and non-EOI studies
-    eoi_studies = gantt_filtered[gantt_filtered['Status'] == 'expression_of_interest'].copy()
-    non_eoi_studies = gantt_filtered[gantt_filtered['Status'] != 'expression_of_interest'].copy()
+    eoi_studies = gantt_filtered[gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])].copy()
+    non_eoi_studies = gantt_filtered[~gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])].copy()
     
     # Sort non-EOI by Site first (to group same site together), then by StartDate ascending
     non_eoi_studies = non_eoi_studies.sort_values(['Site', 'StartDate'], na_position='last', kind='stable')
@@ -429,12 +448,23 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         start = row['StartDate']
         status = str(row.get('Status', 'active')).lower()
         
-        # Handle EOI studies without dates - use approximate dates or skip
+        # Handle EOI studies without dates - use approximate dates based on EOIDate or current date
         if pd.isna(start):
-            if status == 'expression_of_interest':
-                # EOI without dates - use a default short bar or skip visualization
-                # For now, skip visualization if no dates
-                continue
+            if status in ['expression_of_interest', 'eoi_didnt_get']:
+                # EOI without dates - try to use EOIDate if available, otherwise use current date
+                import database as db
+                study_details = db.fetch_study_site_details(row['Study'], row['Site'])
+                if study_details and study_details.get('EOIDate'):
+                    eoi_date = pd.to_datetime(study_details['EOIDate'], errors='coerce')
+                    if pd.notna(eoi_date):
+                        start = eoi_date.date()
+                        end = start + timedelta(days=90)  # 3 month bar for EOI
+                    else:
+                        start = date.today()
+                        end = start + timedelta(days=90)
+                else:
+                    start = date.today()
+                    end = start + timedelta(days=90)
             else:
                 continue
         
@@ -499,7 +529,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 line=dict(color=bar_border_color, width=bar_border_width),
                 layer="below"
             )
-        elif status == 'expression_of_interest':
+        elif status in ['expression_of_interest', 'eoi_didnt_get']:
             # EOI: Single gray bar (no split)
             fig.add_shape(
                 type="rect",

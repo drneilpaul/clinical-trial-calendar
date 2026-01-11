@@ -1354,7 +1354,9 @@ def study_settings_navigation_modal():
                             log_activity(f"Created new study: {new_study}/{new_site}", level='success')
                             db.clear_database_cache()
                             trigger_data_refresh()
+                            # Close modal and refresh to show new study
                             st.session_state['study_settings_add_new'] = False
+                            st.session_state['show_study_settings_form'] = False
                             st.rerun()
                         else:
                             st.error("Failed to create study. It may already exist.")
