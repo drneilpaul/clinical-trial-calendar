@@ -1261,7 +1261,7 @@ def study_settings_navigation_modal():
         col_nav1, col_nav2, col_nav3, col_nav4 = st.columns([1, 2, 1, 1])
         
         with col_nav1:
-            if st.button("← Previous", disabled=(len(combinations) <= 1), use_container_width=True):
+            if st.button("← Previous", disabled=(len(combinations) <= 1), width='stretch'):
                 # Clear flags for current study before navigating
                 clear_key_base = f"clear_flags_{current_index}"
                 if clear_key_base in st.session_state:
@@ -1275,7 +1275,7 @@ def study_settings_navigation_modal():
             st.caption(f"{selected_study} at {selected_site}")
         
         with col_nav3:
-            if st.button("Next →", disabled=(len(combinations) <= 1), use_container_width=True):
+            if st.button("Next →", disabled=(len(combinations) <= 1), width='stretch'):
                 # Clear flags for current study before navigating
                 clear_key_base = f"clear_flags_{current_index}"
                 if clear_key_base in st.session_state:
@@ -1284,7 +1284,7 @@ def study_settings_navigation_modal():
                 st.rerun()
         
         with col_nav4:
-            if st.button("🔄 Reset", help="Reset to first study", use_container_width=True):
+            if st.button("🔄 Reset", help="Reset to first study", width='stretch'):
                 # Clear all flags
                 for i in range(len(combinations)):
                     clear_key = f"clear_flags_{i}"

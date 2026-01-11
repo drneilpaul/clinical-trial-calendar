@@ -2175,7 +2175,7 @@ def display_site_busy_calendar(site_busy_df, site_columns):
     except Exception as e:
         st.error(f"Error displaying site busy calendar: {e}")
         # Fallback: display without styling
-        st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, height=600, width='stretch', hide_index=True)
 
 def _generate_site_busy_html(display_df, today_date, site_columns, scroll_to_today=False):
     """Generate HTML for site busy calendar with scrolling and dynamic row heights"""

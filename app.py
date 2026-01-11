@@ -1211,7 +1211,7 @@ def main():
                         st.markdown("")  # Spacing
                         
                         # Apply Filter button - form submit button (triggers rerun only on submit)
-                        submitted = st.form_submit_button("Apply Filter", type="primary", use_container_width=True)
+                        submitted = st.form_submit_button("Apply Filter", type="primary", width='stretch')
                         if submitted:
                             # Copy pending to active - form submission automatically triggers rerun
                             # Defensive check: ensure we have lists before calling .copy()
@@ -1344,7 +1344,7 @@ def main():
                         recruitment_data = build_recruitment_data(patients_df, trials_df)
                         gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
                     
-                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data)
+                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
                 except Exception as e:
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')

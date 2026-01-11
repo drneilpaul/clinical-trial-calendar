@@ -144,67 +144,119 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
         workbook = writer.book
         worksheet = writer.sheets["OverdueVisits"]
 
-        header_format = None
-        if XLSX_ENGINE == "xlsxwriter":
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
-            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
-        for col_num, value in enumerate(EXPORT_COLUMNS):
-            if header_format is not None:
-                worksheet.write(0, col_num, value, header_format)
-            else:
-                worksheet.write(0, col_num, value)
-
-        col_widths = {
-            "PatientID": 15,
-            "Study": 20,
-            "VisitName": 25,
-            "VisitDay": 10,
-            "ScheduledDate": 15,
-            "SiteofVisit": 15,
-            "VisitType": 12,
-            "ActualDate": 15,
-            "Outcome": 18,
-            "IsWithdrawn": 14,
-            "IsDied": 14,
-            "Notes": 30,
-            "ExtrasPerformed": 25
-        }
-        for idx, column in enumerate(EXPORT_COLUMNS):
-            width = col_widths.get(column, 15)
-            worksheet.set_column(idx, idx, width)
-
         actual_date_col = EXPORT_COLUMNS.index("ActualDate")
         outcome_col = EXPORT_COLUMNS.index("Outcome")
         extras_col = EXPORT_COLUMNS.index("ExtrasPerformed")
 
-        worksheet.data_validation(
-            1, actual_date_col,
-            len(export_df) + 1, actual_date_col,
-            {
-                'validate': 'date',
-                'criteria': 'between',
-                'minimum': datetime.date(2000, 1, 1),
-                'maximum': datetime.date(2100, 12, 31),
-                'error_title': 'Invalid Date',
-                'error_message': 'Enter a valid date (DD/MM/YYYY).'
-            }
-        )
-
-        worksheet.set_column(EXPORT_COLUMNS.index("ScheduledDate"), EXPORT_COLUMNS.index("ScheduledDate"), col_widths["ScheduledDate"])
         if XLSX_ENGINE == "xlsxwriter":
-            worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"], date_format)
-        else:
-            worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"])
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+            
+            # Write header with formatting
+            for col_num, value in enumerate(EXPORT_COLUMNS):
+                worksheet.write(0, col_num, value, header_format)
 
-        outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
-        worksheet.data_validation(
-            1, outcome_col,
-            len(export_df) + 1, outcome_col,
-            {
-                'validate': 'list',
-                'source': outcome_options
+            col_widths = {
+                "PatientID": 15,
+                "Study": 20,
+                "VisitName": 25,
+                "VisitDay": 10,
+                "ScheduledDate": 15,
+                "SiteofVisit": 15,
+                "VisitType": 12,
+                "ActualDate": 15,
+                "Outcome": 18,
+                "IsWithdrawn": 14,
+                "IsDied": 14,
+                "Notes": 30,
+                "ExtrasPerformed": 25
             }
-        )
+            for idx, column in enumerate(EXPORT_COLUMNS):
+                width = col_widths.get(column, 15)
+                worksheet.set_column(idx, idx, width)
+
+            worksheet.data_validation(
+                1, actual_date_col,
+                len(export_df) + 1, actual_date_col,
+                {
+                    'validate': 'date',
+                    'criteria': 'between',
+                    'minimum': datetime.date(2000, 1, 1),
+                    'maximum': datetime.date(2100, 12, 31),
+                    'error_title': 'Invalid Date',
+                    'error_message': 'Enter a valid date (DD/MM/YYYY).'
+                }
+            )
+
+            worksheet.set_column(EXPORT_COLUMNS.index("ScheduledDate"), EXPORT_COLUMNS.index("ScheduledDate"), col_widths["ScheduledDate"])
+            worksheet.set_column(actual_date_col, actual_date_col, col_widths["ActualDate"], date_format)
+
+            outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
+            worksheet.data_validation(
+                1, outcome_col,
+                len(export_df) + 1, outcome_col,
+                {
+                    'validate': 'list',
+                    'source': outcome_options
+                }
+            )
+        else:
+            # openpyxl: Set column widths
+            from openpyxl.styles import Font, PatternFill
+            from openpyxl.utils import get_column_letter
+            
+            # Format header row
+            header_fill = PatternFill(start_color='E0F2FE', end_color='E0F2FE', fill_type='solid')
+            header_font = Font(bold=True)
+            for col_num in range(1, len(EXPORT_COLUMNS) + 1):
+                cell = worksheet.cell(row=1, column=col_num)
+                cell.fill = header_fill
+                cell.font = header_font
+            
+            col_widths = {
+                "PatientID": 15,
+                "Study": 20,
+                "VisitName": 25,
+                "VisitDay": 10,
+                "ScheduledDate": 15,
+                "SiteofVisit": 15,
+                "VisitType": 12,
+                "ActualDate": 15,
+                "Outcome": 18,
+                "IsWithdrawn": 14,
+                "IsDied": 14,
+                "Notes": 30,
+                "ExtrasPerformed": 25
+            }
+            for idx, column in enumerate(EXPORT_COLUMNS):
+                width = col_widths.get(column, 15)
+                col_letter = get_column_letter(idx + 1)
+                worksheet.column_dimensions[col_letter].width = width
+
+            # Data validation for ActualDate
+            from openpyxl.worksheet.datavalidation import DataValidation
+            date_validation = DataValidation(
+                type="date",
+                operator="between",
+                formula1=datetime.date(2000, 1, 1),
+                formula2=datetime.date(2100, 12, 31),
+                error="Enter a valid date (DD/MM/YYYY).",
+                errorTitle="Invalid Date"
+            )
+            date_range = f"{get_column_letter(actual_date_col + 1)}2:{get_column_letter(actual_date_col + 1)}{len(export_df) + 1}"
+            date_validation.add(date_range)
+            worksheet.add_data_validation(date_validation)
+
+            # Data validation for Outcome
+            outcome_options = ['Happened', 'Did not happen', 'Cancelled', 'Unknown']
+            outcome_validation = DataValidation(
+                type="list",
+                formula1=f'"{",".join(outcome_options)}"',
+                allow_blank=True
+            )
+            outcome_range = f"{get_column_letter(outcome_col + 1)}2:{get_column_letter(outcome_col + 1)}{len(export_df) + 1}"
+            outcome_validation.add(outcome_range)
+            worksheet.add_data_validation(outcome_validation)
 
         if extras_by_study and XLSX_ENGINE == "xlsxwriter":
             helper = workbook.add_worksheet("ExtraOptions")
@@ -231,19 +283,34 @@ def build_overdue_predicted_export(visits_df: pd.DataFrame, trials_df: pd.DataFr
                             'error_message': f"Choose an extra defined for study {study}."
                         }
                     )
-        elif extras_by_study:
+        elif extras_by_study and XLSX_ENGINE == "openpyxl":
+            # For openpyxl, create helper sheet and use it for data validation
+            from openpyxl.utils import get_column_letter
+            helper = workbook.create_sheet("ExtraOptions")
+            helper.sheet_state = 'hidden'
+            helper.cell(row=1, column=1, value="Study")
+            helper.cell(row=1, column=2, value="Extras")
+            helper_row = 2
+            for study_name, extras in extras_by_study.items():
+                helper.cell(row=helper_row, column=1, value=study_name)
+                helper.cell(row=helper_row, column=2, value=",".join(extras))
+                helper_row += 1
+            
+            # Add data validation for extras per row
+            from openpyxl.worksheet.datavalidation import DataValidation
             for row_idx, row in export_df.iterrows():
                 study = row['Study']
                 extras = extras_by_study.get(study, [])
                 if extras:
-                    worksheet.data_validation(
-                        row_idx + 1, extras_col,
-                        row_idx + 1, extras_col,
-                        {
-                            'validate': 'list',
-                            'source': extras
-                        }
+                    extras_str = ",".join(extras)
+                    extras_validation = DataValidation(
+                        type="list",
+                        formula1=f'"{extras_str}"',
+                        allow_blank=True
                     )
+                    cell_ref = f"{get_column_letter(extras_col + 1)}{row_idx + 2}"
+                    extras_validation.add(cell_ref)
+                    worksheet.add_data_validation(extras_validation)
 
     output.seek(0)
     return output, ""
@@ -461,12 +528,6 @@ def build_proposed_visits_export(actual_visits_df: pd.DataFrame) -> Tuple[io.Byt
         workbook = writer.book
         worksheet = writer.sheets["ProposedVisits"]
         
-        # Format headers
-        header_format = None
-        if XLSX_ENGINE == "xlsxwriter":
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
-            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
-        
         # Set column widths
         col_widths = {
             'PatientID': 20,
@@ -478,28 +539,58 @@ def build_proposed_visits_export(actual_visits_df: pd.DataFrame) -> Tuple[io.Byt
             'Status': 15
         }
         
-        for col_idx, col_name in enumerate(export_df.columns):
-            if header_format is not None:
-                worksheet.write(0, col_idx, col_name, header_format)
-            else:
-                worksheet.write(0, col_idx, col_name)
-            
-            width = col_widths.get(col_name, 15)
-            worksheet.set_column(col_idx, col_idx, width)
-        
-        # Add data validation for Status column
         status_col = export_df.columns.get_loc('Status')
         status_options = ['Proposed', 'Confirmed']
-        worksheet.data_validation(
-            1, status_col,
-            len(export_df) + 1, status_col,
-            {
-                'validate': 'list',
-                'source': status_options,
-                'error_title': 'Invalid Status',
-                'error_message': 'Status must be either "Proposed" or "Confirmed".'
-            }
-        )
+        
+        if XLSX_ENGINE == "xlsxwriter":
+            # Format headers
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#e0f2fe'})
+            date_format = workbook.add_format({'num_format': 'dd/mm/yyyy'})
+            
+            # Write header with formatting
+            for col_idx, col_name in enumerate(export_df.columns):
+                worksheet.write(0, col_idx, col_name, header_format)
+                width = col_widths.get(col_name, 15)
+                worksheet.set_column(col_idx, col_idx, width)
+            
+            # Add data validation for Status column
+            worksheet.data_validation(
+                1, status_col,
+                len(export_df) + 1, status_col,
+                {
+                    'validate': 'list',
+                    'source': status_options,
+                    'error_title': 'Invalid Status',
+                    'error_message': 'Status must be either "Proposed" or "Confirmed".'
+                }
+            )
+        else:
+            # openpyxl: Format headers and set column widths
+            from openpyxl.styles import Font, PatternFill
+            from openpyxl.utils import get_column_letter
+            
+            header_fill = PatternFill(start_color='E0F2FE', end_color='E0F2FE', fill_type='solid')
+            header_font = Font(bold=True)
+            for col_idx, col_name in enumerate(export_df.columns):
+                cell = worksheet.cell(row=1, column=col_idx + 1)
+                cell.fill = header_fill
+                cell.font = header_font
+                width = col_widths.get(col_name, 15)
+                col_letter = get_column_letter(col_idx + 1)
+                worksheet.column_dimensions[col_letter].width = width
+            
+            # Add data validation for Status column
+            from openpyxl.worksheet.datavalidation import DataValidation
+            status_validation = DataValidation(
+                type="list",
+                formula1=f'"{",".join(status_options)}"',
+                allow_blank=True,
+                error="Status must be either \"Proposed\" or \"Confirmed\".",
+                errorTitle="Invalid Status"
+            )
+            status_range = f"{get_column_letter(status_col + 1)}2:{get_column_letter(status_col + 1)}{len(export_df) + 1}"
+            status_validation.add(status_range)
+            worksheet.add_data_validation(status_validation)
         
         # Format date column if using xlsxwriter
         if XLSX_ENGINE == "xlsxwriter" and 'ActualDate' in export_df.columns:
