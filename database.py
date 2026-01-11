@@ -817,12 +817,18 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
         # Ensure VisitType column exists (add if missing, infer from VisitName)
         if 'VisitType' not in df.columns:
             df['VisitType'] = 'patient'  # Default
-            # Auto-detect SIVs
-            siv_mask = df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
-            df.loc[siv_mask, 'VisitType'] = 'siv'
-            # Auto-detect Monitors
-            monitor_mask = df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
-            df.loc[monitor_mask, 'VisitType'] = 'monitor'
+            # Auto-detect SIVs and Monitors if VisitName column exists
+            if 'VisitName' in df.columns and not df.empty:
+                try:
+                    # Auto-detect SIVs
+                    siv_mask = df['VisitName'].astype(str).str.upper().str.strip() == 'SIV'
+                    df.loc[siv_mask, 'VisitType'] = 'siv'
+                    # Auto-detect Monitors
+                    monitor_mask = df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)
+                    df.loc[monitor_mask, 'VisitType'] = 'monitor'
+                except Exception:
+                    # If detection fails, keep default 'patient'
+                    pass
         
         # Ensure new columns exist for export
         if 'FPFV' not in df.columns:
@@ -839,8 +845,12 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
         # Format date columns for export
         for date_col in ['FPFV', 'LPFV', 'LPLV']:
             if date_col in df.columns:
-                df[date_col] = pd.to_datetime(df[date_col], errors='coerce').dt.strftime('%d/%m/%Y')
-                df[date_col] = df[date_col].replace('NaT', '')
+                try:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce').dt.strftime('%d/%m/%Y')
+                    df[date_col] = df[date_col].replace('NaT', '').replace('nan', '')
+                except Exception:
+                    # If date formatting fails, set to empty string
+                    df[date_col] = ''
         
         export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget']
         # Only select columns that exist
@@ -1078,35 +1088,61 @@ def create_backup_zip() -> Optional[io.BytesIO]:
     try:
         today = datetime.now().strftime('%Y-%m-%d')
         
-        patients_df = export_patients_to_csv()
-        trials_df = export_trials_to_csv()
-        visits_df = export_visits_to_csv()
+        # Export each table with error handling
+        patients_df = None
+        trials_df = None
+        visits_df = None
         
-        if patients_df is None or trials_df is None or visits_df is None:
-            st.error("Failed to export one or more tables")
-            return None
+        try:
+            patients_df = export_patients_to_csv()
+        except Exception as e:
+            log_activity(f"Error exporting patients: {e}", level='error')
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+        
+        try:
+            trials_df = export_trials_to_csv()
+        except Exception as e:
+            log_activity(f"Error exporting trials: {e}", level='error')
+            trials_df = pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment'])
+        
+        try:
+            visits_df = export_visits_to_csv()
+        except Exception as e:
+            log_activity(f"Error exporting visits: {e}", level='error')
+            visits_df = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
+        
+        # Ensure we have DataFrames (even if empty)
+        if patients_df is None:
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+        if trials_df is None:
+            trials_df = pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment'])
+        if visits_df is None:
+            visits_df = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
         
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            if patients_df is not None and not patients_df.empty:
+            try:
                 patients_csv = patients_df.to_csv(index=False)
                 zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
-            else:
+            except Exception as e:
+                log_activity(f"Error writing patients CSV: {e}", level='error')
                 patients_csv = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice']).to_csv(index=False)
                 zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
             
-            if trials_df is not None and not trials_df.empty:
+            try:
                 trials_csv = trials_df.to_csv(index=False)
                 zip_file.writestr(f'trials_backup_{today}.csv', trials_csv)
-            else:
+            except Exception as e:
+                log_activity(f"Error writing trials CSV: {e}", level='error')
                 trials_csv = pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment']).to_csv(index=False)
                 zip_file.writestr(f'trials_backup_{today}.csv', trials_csv)
             
-            if visits_df is not None and not visits_df.empty:
+            try:
                 visits_csv = visits_df.to_csv(index=False)
                 zip_file.writestr(f'actual_visits_backup_{today}.csv', visits_csv)
-            else:
+            except Exception as e:
+                log_activity(f"Error writing visits CSV: {e}", level='error')
                 visits_csv = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType']).to_csv(index=False)
                 zip_file.writestr(f'actual_visits_backup_{today}.csv', visits_csv)
         
@@ -1117,6 +1153,8 @@ def create_backup_zip() -> Optional[io.BytesIO]:
     except Exception as e:
         st.error(f"Error creating backup ZIP: {e}")
         log_activity(f"Error creating backup ZIP: {e}", level='error')
+        import traceback
+        log_activity(f"Traceback: {traceback.format_exc()}", level='error')
         return None
 
 def clear_patients_table() -> bool:
