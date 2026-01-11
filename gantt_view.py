@@ -742,7 +742,8 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             gridcolor='lightgray',
             tickmode='array',
             tickvals=y_positions,
-            ticktext=y_labels
+            ticktext=y_labels,
+            autorange='reversed'
         ),
         hovermode='closest',
         barmode='overlay'

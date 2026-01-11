@@ -1,0 +1,1 @@
+ALTER TABLE study_site_details DISABLE ROW LEVEL SECURITY;
