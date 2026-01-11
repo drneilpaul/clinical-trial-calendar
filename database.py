@@ -23,6 +23,7 @@ def clear_database_cache():
     _fetch_all_patients_cached.clear()
     _fetch_all_trial_schedules_cached.clear()
     _fetch_all_actual_visits_cached.clear()
+    _fetch_all_study_site_details_cached.clear()
 
 def test_database_connection() -> bool:
     """Test if database is accessible and tables exist"""
@@ -877,6 +878,193 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
     except Exception as e:
         st.error(f"Error exporting visits: {e}")
         return None
+
+# ============================================
+# Study Site Details Functions
+# ============================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
+    """Internal cached function to fetch all study site details from database"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return None
+        
+        response = client.table('study_site_details').select("*").execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            
+            # Parse date fields if they exist
+            for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+                if date_col in df.columns:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+            
+            # Ensure StudyStatus defaults to 'active' if missing
+            if 'StudyStatus' not in df.columns:
+                df['StudyStatus'] = 'active'
+            else:
+                df['StudyStatus'] = df['StudyStatus'].fillna('active')
+            
+            # Ensure RecruitmentTarget is numeric or None
+            if 'RecruitmentTarget' in df.columns:
+                df['RecruitmentTarget'] = pd.to_numeric(df['RecruitmentTarget'], errors='coerce')
+            
+            return df
+        return pd.DataFrame(columns=['Study', 'SiteforVisit', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
+    except Exception as e:
+        log_activity(f"Error fetching study site details: {e}", level='error')
+        return None
+
+def fetch_all_study_site_details() -> Optional[pd.DataFrame]:
+    """Fetch all study site details from database (with caching)"""
+    df = _fetch_all_study_site_details_cached()
+    if df is None:
+        log_activity("No study site details found in database", level='warning')
+    return df
+
+def fetch_study_site_details(study: str, site: str) -> Optional[Dict]:
+    """Fetch study site details for a specific study+site combination"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return None
+        
+        response = client.table('study_site_details').select("*").eq('Study', study).eq('SiteforVisit', site).execute()
+        
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        return None
+    except Exception as e:
+        log_activity(f"Error fetching study site details for {study}/{site}: {e}", level='error')
+        return None
+
+def create_study_site_details(study: str, site: str, details: Dict) -> bool:
+    """Create a new study+site entry in study_site_details table"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        # Prepare record with defaults
+        record = {
+            'Study': str(study).strip(),
+            'SiteforVisit': str(site).strip(),
+            'StudyStatus': details.get('StudyStatus', 'active'),
+            'RecruitmentTarget': details.get('RecruitmentTarget'),
+            'FPFV': str(details.get('FPFV')) if details.get('FPFV') else None,
+            'LPFV': str(details.get('LPFV')) if details.get('LPFV') else None,
+            'LPLV': str(details.get('LPLV')) if details.get('LPLV') else None,
+            'Description': details.get('Description'),
+            'EOIDate': str(details.get('EOIDate')) if details.get('EOIDate') else None,
+            'StudyURL': details.get('StudyURL'),
+            'DocumentLinks': details.get('DocumentLinks')
+        }
+        
+        # Remove None values to let database use defaults
+        record = {k: v for k, v in record.items() if v is not None}
+        
+        response = client.table('study_site_details').insert(record).execute()
+        
+        if response.data:
+            log_activity(f"Created study site details: {study}/{site}", level='success')
+            # Clear cache
+            _fetch_all_study_site_details_cached.clear()
+            return True
+        return False
+    except Exception as e:
+        log_activity(f"Error creating study site details for {study}/{site}: {e}", level='error')
+        return False
+
+def save_study_site_details(study: str, site: str, details: Dict) -> bool:
+    """Create or update (upsert) study site details"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        # Check if record exists
+        existing = fetch_study_site_details(study, site)
+        
+        # Prepare record
+        record = {
+            'Study': str(study).strip(),
+            'SiteforVisit': str(site).strip(),
+        }
+        
+        # Add fields that are provided
+        if 'StudyStatus' in details:
+            record['StudyStatus'] = details['StudyStatus']
+        if 'RecruitmentTarget' in details:
+            record['RecruitmentTarget'] = details['RecruitmentTarget'] if details['RecruitmentTarget'] is not None else None
+        if 'FPFV' in details:
+            record['FPFV'] = str(details['FPFV']) if details['FPFV'] else None
+        if 'LPFV' in details:
+            record['LPFV'] = str(details['LPFV']) if details['LPFV'] else None
+        if 'LPLV' in details:
+            record['LPLV'] = str(details['LPLV']) if details['LPLV'] else None
+        if 'Description' in details:
+            record['Description'] = details['Description']
+        if 'EOIDate' in details:
+            record['EOIDate'] = str(details['EOIDate']) if details['EOIDate'] else None
+        if 'StudyURL' in details:
+            record['StudyURL'] = details['StudyURL']
+        if 'DocumentLinks' in details:
+            record['DocumentLinks'] = details['DocumentLinks']
+        
+        if existing:
+            # Update existing record
+            response = client.table('study_site_details').update(record).eq('Study', study).eq('SiteforVisit', site).execute()
+            log_activity(f"Updated study site details: {study}/{site}", level='success')
+        else:
+            # Create new record
+            response = client.table('study_site_details').insert(record).execute()
+            log_activity(f"Created study site details: {study}/{site}", level='success')
+        
+        if response.data:
+            # Clear cache
+            _fetch_all_study_site_details_cached.clear()
+            return True
+        return False
+    except Exception as e:
+        log_activity(f"Error saving study site details for {study}/{site}: {e}", level='error')
+        return False
+
+def update_study_site_details(study: str, site: str, **kwargs) -> bool:
+    """Update specific fields in study_site_details"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        # Prepare update record
+        update_data = {}
+        
+        # Handle date fields
+        for date_field in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+            if date_field in kwargs:
+                update_data[date_field] = str(kwargs[date_field]) if kwargs[date_field] else None
+        
+        # Handle other fields
+        for field in ['StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']:
+            if field in kwargs:
+                update_data[field] = kwargs[field]
+        
+        if not update_data:
+            return False
+        
+        response = client.table('study_site_details').update(update_data).eq('Study', study).eq('SiteforVisit', site).execute()
+        
+        if response.data:
+            log_activity(f"Updated study site details: {study}/{site}", level='success')
+            # Clear cache
+            _fetch_all_study_site_details_cached.clear()
+            return True
+        return False
+    except Exception as e:
+        log_activity(f"Error updating study site details for {study}/{site}: {e}", level='error')
+        return False
 
 def create_backup_zip() -> Optional[io.BytesIO]:
     """Create a ZIP file containing all three database tables as CSVs"""

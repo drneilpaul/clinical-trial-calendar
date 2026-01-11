@@ -1229,22 +1229,141 @@ def open_study_settings_form():
 def study_settings_navigation_modal():
     """Modal form to edit study status and recruitment targets with navigation"""
     try:
-        # Load data
+        # Load data - try study_site_details first, fallback to trial_schedules
+        study_details_df = db.fetch_all_study_site_details()
         trials_df = db.fetch_all_trial_schedules()
-        if trials_df is None or trials_df.empty:
-            st.error("No trial schedules found. Please upload trials data first.")
-            if st.button("✖ Close", width='stretch'):
-                st.session_state.show_study_settings_form = False
-                st.rerun()
-            return
         
-        # Get unique study-site combinations
-        combinations = get_study_site_combinations(trials_df)
+        # Get unique study-site combinations from both sources (merge to include all)
+        combinations_set = set()
+        
+        # Add from study_site_details (preferred source)
+        if study_details_df is not None and not study_details_df.empty:
+            for _, row in study_details_df.iterrows():
+                combinations_set.add((row['Study'], row['SiteforVisit']))
+        
+        # Add from trial_schedules (for backward compatibility - studies without details yet)
+        if trials_df is not None and not trials_df.empty:
+            trial_combinations = get_study_site_combinations(trials_df)
+            for combo in trial_combinations:
+                combinations_set.add(combo)
+        
+        # Convert to sorted list
+        combinations = sorted(list(combinations_set), key=lambda x: (x[0], x[1]))
+        
         if not combinations:
             st.error("No study-site combinations found.")
             if st.button("✖ Close", width='stretch'):
                 st.session_state.show_study_settings_form = False
                 st.rerun()
+            return
+        
+        # Check if we're in "Add New Study" mode
+        add_new_mode = st.session_state.get('study_settings_add_new', False)
+        
+        # Add New Study button at the top
+        if not add_new_mode:
+            if st.button("➕ Add New Study", type="primary", width='stretch'):
+                st.session_state['study_settings_add_new'] = True
+                st.rerun()
+            st.divider()
+        
+        # Handle Add New Study mode
+        if add_new_mode:
+            st.markdown("### ➕ Add New Study")
+            
+            # Form for new study
+            new_study = st.text_input("Study Name *", key="new_study_name", help="Enter the study name/code")
+            
+            # Get available sites from trials_df or allow manual entry
+            available_sites = []
+            if trials_df is not None and not trials_df.empty and 'SiteforVisit' in trials_df.columns:
+                available_sites = sorted(trials_df['SiteforVisit'].dropna().unique().tolist())
+            
+            if available_sites:
+                new_site = st.selectbox("Site *", options=available_sites, key="new_study_site")
+            else:
+                new_site = st.text_input("Site *", key="new_study_site", help="Enter the site name")
+            
+            # Status selector with new option
+            status_options_new = ['active', 'contracted', 'in_setup', 'expression_of_interest', 'eoi_didnt_get']
+            status_labels_new = {
+                'active': 'Active',
+                'contracted': 'Contracted',
+                'in_setup': 'In Setup',
+                'expression_of_interest': 'Expression of Interest',
+                'eoi_didnt_get': 'EOI - Didn\'t Get'
+            }
+            new_status = st.selectbox(
+                "Study Status",
+                options=status_options_new,
+                index=3,  # Default to expression_of_interest for new studies
+                format_func=lambda x: status_labels_new[x],
+                key="new_study_status"
+            )
+            
+            new_target = st.number_input(
+                "Recruitment Target",
+                min_value=0,
+                value=0,
+                step=1,
+                help="Target number of patients (0 = no target)",
+                key="new_study_target"
+            )
+            if new_target == 0:
+                new_target = None
+            
+            new_description = st.text_area(
+                "Description",
+                help="Study description/information",
+                key="new_study_description",
+                height=100
+            )
+            
+            new_eoi_date = st.date_input(
+                "EOI Date",
+                value=None,
+                help="Date when Expression of Interest was submitted",
+                key="new_study_eoi_date"
+            )
+            
+            # Date overrides
+            st.markdown("#### Date Overrides (Optional)")
+            new_fpfv = st.date_input("FPFV", value=None, key="new_study_fpfv")
+            new_lpfv = st.date_input("LPFV", value=None, key="new_study_lpfv")
+            new_lplv = st.date_input("LPLV", value=None, key="new_study_lplv")
+            
+            col_save_new, col_cancel_new = st.columns([1, 1])
+            with col_save_new:
+                if st.button("💾 Create Study", type="primary", width='stretch', key="save_new_study"):
+                    if not new_study or not new_site:
+                        st.error("Study name and Site are required")
+                    else:
+                        # Create new study entry
+                        details = {
+                            'StudyStatus': new_status,
+                            'RecruitmentTarget': new_target,
+                            'Description': new_description if new_description else None,
+                            'EOIDate': new_eoi_date if new_eoi_date else None,
+                            'FPFV': new_fpfv if new_fpfv else None,
+                            'LPFV': new_lpfv if new_lpfv else None,
+                            'LPLV': new_lplv if new_lplv else None
+                        }
+                        
+                        if db.create_study_site_details(new_study, new_site, details):
+                            st.success(f"✅ Successfully created {new_study} at {new_site}")
+                            log_activity(f"Created new study: {new_study}/{new_site}", level='success')
+                            db.clear_database_cache()
+                            trigger_data_refresh()
+                            st.session_state['study_settings_add_new'] = False
+                            st.rerun()
+                        else:
+                            st.error("Failed to create study. It may already exist.")
+            
+            with col_cancel_new:
+                if st.button("✖ Cancel", width='stretch', key="cancel_new_study"):
+                    st.session_state['study_settings_add_new'] = False
+                    st.rerun()
+            
             return
         
         # Initialize or get current index
@@ -1295,42 +1414,60 @@ def study_settings_navigation_modal():
         
         st.divider()
         
-        # Get current override values from database
-        current_trials = trials_df[
-            (trials_df['Study'] == selected_study) & 
-            (trials_df['SiteforVisit'] == selected_site)
-        ]
-        
+        # Get current values from study_site_details (preferred) or fallback to trial_schedules
         current_status = 'active'
-        if not current_trials.empty and 'StudyStatus' in current_trials.columns:
-            status_values = current_trials['StudyStatus'].dropna().unique()
-            if len(status_values) > 0:
-                current_status = str(status_values[0]).lower()
-        
         current_target = None
-        if not current_trials.empty and 'RecruitmentTarget' in current_trials.columns:
-            target_values = current_trials['RecruitmentTarget'].dropna().unique()
-            if len(target_values) > 0:
-                current_target = int(target_values[0]) if pd.notna(target_values[0]) else None
-        
-        # Date overrides
         current_fpfv = None
         current_lpfv = None
         current_lplv = None
+        current_description = None
+        current_eoi_date = None
         
-        if not current_trials.empty:
-            for date_col, var_name in [('FPFV', 'current_fpfv'), ('LPFV', 'current_lpfv'), ('LPLV', 'current_lplv')]:
-                if date_col in current_trials.columns:
-                    date_values = current_trials[date_col].dropna()
-                    if not date_values.empty:
-                        date_val = pd.to_datetime(date_values.iloc[0], errors='coerce')
-                        if pd.notna(date_val):
-                            if var_name == 'current_fpfv':
-                                current_fpfv = date_val.date()
-                            elif var_name == 'current_lpfv':
-                                current_lpfv = date_val.date()
-                            elif var_name == 'current_lplv':
-                                current_lplv = date_val.date()
+        # Try to get from study_site_details first
+        study_details = db.fetch_study_site_details(selected_study, selected_site)
+        
+        if study_details:
+            current_status = study_details.get('StudyStatus', 'active')
+            current_target = study_details.get('RecruitmentTarget')
+            if study_details.get('FPFV'):
+                current_fpfv = pd.to_datetime(study_details['FPFV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['FPFV'], errors='coerce')) else None
+            if study_details.get('LPFV'):
+                current_lpfv = pd.to_datetime(study_details['LPFV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['LPFV'], errors='coerce')) else None
+            if study_details.get('LPLV'):
+                current_lplv = pd.to_datetime(study_details['LPLV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['LPLV'], errors='coerce')) else None
+            current_description = study_details.get('Description')
+            if study_details.get('EOIDate'):
+                current_eoi_date = pd.to_datetime(study_details['EOIDate'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['EOIDate'], errors='coerce')) else None
+        else:
+            # Fallback to trial_schedules for backward compatibility
+            current_trials = trials_df[
+                (trials_df['Study'] == selected_study) & 
+                (trials_df['SiteforVisit'] == selected_site)
+            ] if trials_df is not None and not trials_df.empty else pd.DataFrame()
+            
+            if not current_trials.empty and 'StudyStatus' in current_trials.columns:
+                status_values = current_trials['StudyStatus'].dropna().unique()
+                if len(status_values) > 0:
+                    current_status = str(status_values[0]).lower()
+            
+            if not current_trials.empty and 'RecruitmentTarget' in current_trials.columns:
+                target_values = current_trials['RecruitmentTarget'].dropna().unique()
+                if len(target_values) > 0:
+                    current_target = int(target_values[0]) if pd.notna(target_values[0]) else None
+            
+            if not current_trials.empty:
+                for date_col, var_name in [('FPFV', 'current_fpfv'), ('LPFV', 'current_lpfv'), ('LPLV', 'current_lplv')]:
+                    if date_col in current_trials.columns:
+                        date_values = current_trials[date_col].dropna()
+                        if not date_values.empty:
+                            date_val = pd.to_datetime(date_values.iloc[0], errors='coerce')
+                            if pd.notna(date_val):
+                                if var_name == 'current_fpfv':
+                                    current_fpfv = date_val.date()
+                                elif var_name == 'current_lpfv':
+                                    current_lpfv = date_val.date()
+                                elif var_name == 'current_lplv':
+                                    current_lplv = date_val.date()
         
         # Load patients and visits for calculated values
         patients_df = db.fetch_all_patients()
@@ -1393,8 +1530,8 @@ def study_settings_navigation_modal():
         st.divider()
         
         # Override fields section
-        st.markdown("### ✏️ Override Values (editable)")
-        st.caption("Set override values to manually adjust dates/targets. Leave blank to use calculated values.")
+        st.markdown("### ✏️ Study Information (editable)")
+        st.caption("Set study information, status, and override values. Leave blank to use calculated values.")
         
         # Initialize clear flags in session state
         clear_key_base = f"clear_flags_{current_index}"
@@ -1404,19 +1541,41 @@ def study_settings_navigation_modal():
                 'target': False,
                 'fpfv': False,
                 'lpfv': False,
-                'lplv': False
+                'lplv': False,
+                'description': False,
+                'eoi_date': False
             }
         
         # Handle clear button clicks
         clear_flags = st.session_state[clear_key_base]
         
-        # Status selector
-        status_options = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+        # Description field
+        st.markdown("#### Study Description")
+        description_value = ""
+        if not clear_flags['description'] and current_description:
+            description_value = current_description
+        description = st.text_area(
+            "Description",
+            value=description_value,
+            help="Study description/information (shown on hover, etc.)",
+            key=f"study_settings_description_{current_index}",
+            height=100
+        )
+        if st.button("Clear Description", key=f"clear_description_{current_index}", help="Clear description"):
+            clear_flags['description'] = True
+            st.session_state[clear_key_base] = clear_flags
+            st.rerun()
+        
+        st.divider()
+        
+        # Status selector (updated to include eoi_didnt_get)
+        status_options = ['active', 'contracted', 'in_setup', 'expression_of_interest', 'eoi_didnt_get']
         status_labels = {
             'active': 'Active',
             'contracted': 'Contracted',
             'in_setup': 'In Setup',
-            'expression_of_interest': 'Expression of Interest'
+            'expression_of_interest': 'Expression of Interest',
+            'eoi_didnt_get': 'EOI - Didn\'t Get'
         }
         
         col_status1, col_status2 = st.columns([3, 1])
@@ -1504,9 +1663,28 @@ def study_settings_navigation_modal():
                 value=lplv_value,
                 key=f"study_settings_lplv_{current_index}"
             )
-        with col_lplv2:
+        with         col_lplv2:
             if st.button("Clear", key=f"clear_lplv_{current_index}", help="Remove override"):
                 clear_flags['lplv'] = True
+                st.session_state[clear_key_base] = clear_flags
+                st.rerun()
+        
+        # EOI Date field
+        st.markdown("#### EOI Information")
+        col_eoi1, col_eoi2 = st.columns([3, 1])
+        with col_eoi1:
+            eoi_value = None
+            if not clear_flags['eoi_date']:
+                eoi_value = current_eoi_date
+            eoi_date = st.date_input(
+                "EOI Date",
+                value=eoi_value,
+                help="Date when Expression of Interest was submitted",
+                key=f"study_settings_eoi_date_{current_index}"
+            )
+        with col_eoi2:
+            if st.button("Clear", key=f"clear_eoi_date_{current_index}", help="Remove EOI date"):
+                clear_flags['eoi_date'] = True
                 st.session_state[clear_key_base] = clear_flags
                 st.rerun()
         
@@ -1534,20 +1712,24 @@ def study_settings_navigation_modal():
                         lpfv_date = None
                     if clear_flags['lplv']:
                         lplv_date = None
+                    if clear_flags['description']:
+                        description = None
+                    if clear_flags['eoi_date']:
+                        eoi_date = None
                     
-                    # Prepare update data - always include all fields (set to None to clear)
-                    update_data = {
+                    # Prepare update data for study_site_details
+                    details = {
                         'StudyStatus': selected_status,
                         'RecruitmentTarget': recruitment_target,
-                        'FPFV': str(fpfv_date) if fpfv_date else None,
-                        'LPFV': str(lpfv_date) if lpfv_date else None,
-                        'LPLV': str(lplv_date) if lplv_date else None
+                        'FPFV': fpfv_date if fpfv_date else None,
+                        'LPFV': lpfv_date if lpfv_date else None,
+                        'LPLV': lplv_date if lplv_date else None,
+                        'Description': description if description else None,
+                        'EOIDate': eoi_date if eoi_date else None
                     }
                     
-                    # Update in database (Supabase handles None as NULL)
-                    result = client.table('trial_schedules').update(update_data).eq('Study', selected_study).eq('SiteforVisit', selected_site).execute()
-                    
-                    if result.data:
+                    # Save to study_site_details table (creates if doesn't exist, updates if exists)
+                    if db.save_study_site_details(selected_study, selected_site, details):
                         st.success(f"✅ Successfully updated settings for {selected_study} at {selected_site}")
                         log_activity(f"Updated study settings: {selected_study}/{selected_site} - Status: {selected_status}, Target: {recruitment_target}", level='success')
                         
@@ -1562,14 +1744,16 @@ def study_settings_navigation_modal():
                                 'target': False,
                                 'fpfv': False,
                                 'lpfv': False,
-                                'lplv': False
+                                'lplv': False,
+                                'description': False,
+                                'eoi_date': False
                             }
                         
                         # Optionally auto-advance to next study
                         # st.session_state[session_key] = (current_index + 1) % len(combinations)
                         # st.rerun()
                     else:
-                        st.error("Failed to update settings. No rows were updated.")
+                        st.error("Failed to update settings. Please try again.")
                         
                 except Exception as e:
                     st.error(f"Error saving settings: {str(e)}")

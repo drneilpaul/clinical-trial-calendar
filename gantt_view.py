@@ -70,43 +70,56 @@ def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame,
         site: Site name (SiteforVisit)
         patients_df: Patients dataframe
         visits_df: Visits dataframe (with Date column)
-        trials_df: Trial schedules dataframe (may contain FPFV/LPFV/LPLV overrides)
+        trials_df: Trial schedules dataframe (for backward compatibility, but prefers study_site_details)
     
     Returns:
         dict with keys: 'start_date', 'end_date', 'last_enrollment', 'status', 'lpfv_date'
     """
     today = date.today()
     
-    # Get status and date overrides from trials_df
-    study_trials = trials_df[(trials_df['Study'] == study) & (trials_df['SiteforVisit'] == site)]
+    # Try to get status and date overrides from study_site_details first
+    import database as db
+    study_details = db.fetch_study_site_details(study, site)
     
     # Get status (default to 'active' if not found)
     status = 'active'
-    if not study_trials.empty and 'StudyStatus' in study_trials.columns:
-        status_values = study_trials['StudyStatus'].dropna().unique()
-        if len(status_values) > 0:
-            status = str(status_values[0]).lower()
-    
-    # Get date overrides
     fpfv_override = None
     lpfv_override = None
     lplv_override = None
     
-    if not study_trials.empty:
-        if 'FPFV' in study_trials.columns:
-            fpfv_values = study_trials['FPFV'].dropna()
-            if not fpfv_values.empty:
-                fpfv_override = pd.to_datetime(fpfv_values.iloc[0]).date() if pd.notna(fpfv_values.iloc[0]) else None
+    if study_details:
+        # Use study_site_details (preferred)
+        status = study_details.get('StudyStatus', 'active')
+        if study_details.get('FPFV'):
+            fpfv_override = pd.to_datetime(study_details['FPFV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['FPFV'], errors='coerce')) else None
+        if study_details.get('LPFV'):
+            lpfv_override = pd.to_datetime(study_details['LPFV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['LPFV'], errors='coerce')) else None
+        if study_details.get('LPLV'):
+            lplv_override = pd.to_datetime(study_details['LPLV'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['LPLV'], errors='coerce')) else None
+    else:
+        # Fallback to trial_schedules for backward compatibility
+        study_trials = trials_df[(trials_df['Study'] == study) & (trials_df['SiteforVisit'] == site)] if trials_df is not None and not trials_df.empty else pd.DataFrame()
         
-        if 'LPFV' in study_trials.columns:
-            lpfv_values = study_trials['LPFV'].dropna()
-            if not lpfv_values.empty:
-                lpfv_override = pd.to_datetime(lpfv_values.iloc[0]).date() if pd.notna(lpfv_values.iloc[0]) else None
+        if not study_trials.empty and 'StudyStatus' in study_trials.columns:
+            status_values = study_trials['StudyStatus'].dropna().unique()
+            if len(status_values) > 0:
+                status = str(status_values[0]).lower()
         
-        if 'LPLV' in study_trials.columns:
-            lplv_values = study_trials['LPLV'].dropna()
-            if not lplv_values.empty:
-                lplv_override = pd.to_datetime(lplv_values.iloc[0]).date() if pd.notna(lplv_values.iloc[0]) else None
+        if not study_trials.empty:
+            if 'FPFV' in study_trials.columns:
+                fpfv_values = study_trials['FPFV'].dropna()
+                if not fpfv_values.empty:
+                    fpfv_override = pd.to_datetime(fpfv_values.iloc[0]).date() if pd.notna(fpfv_values.iloc[0]) else None
+            
+            if 'LPFV' in study_trials.columns:
+                lpfv_values = study_trials['LPFV'].dropna()
+                if not lpfv_values.empty:
+                    lpfv_override = pd.to_datetime(lpfv_values.iloc[0]).date() if pd.notna(lpfv_values.iloc[0]) else None
+            
+            if 'LPLV' in study_trials.columns:
+                lplv_values = study_trials['LPLV'].dropna()
+                if not lplv_values.empty:
+                    lplv_override = pd.to_datetime(lplv_values.iloc[0]).date() if pd.notna(lplv_values.iloc[0]) else None
     
     # Calculate dates from patient/visit data if overrides not available
     # BUT: LPFV should ONLY come from override, never calculated from patient dates

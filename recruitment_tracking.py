@@ -15,33 +15,61 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
     
     Args:
         patients_df: Patients dataframe (with PatientPractice column)
-        trials_df: Trial schedules dataframe (with RecruitmentTarget and SiteforVisit)
+        trials_df: Trial schedules dataframe (for getting Study+Site combinations, but prefers study_site_details for targets)
     
     Returns:
         DataFrame with columns: Study, Site, Target, Actual, Progress, Status
     """
+    import database as db
     recruitment_rows = []
     
-    # Get unique study-site combinations from trials_df
-    if 'SiteforVisit' not in trials_df.columns:
-        log_activity("No SiteforVisit column in trials_df, cannot build recruitment data", level='error')
-        return pd.DataFrame(columns=['Study', 'Site', 'Target', 'Actual', 'Progress', 'Status'])
+    # Get unique study-site combinations - try study_site_details first, fallback to trials_df
+    study_details_df = db.fetch_all_study_site_details()
     
-    # Group by Study + SiteforVisit to get unique combinations
-    study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()
+    if study_details_df is not None and not study_details_df.empty:
+        # Use study_site_details as primary source
+        study_site_combos = study_details_df[['Study', 'SiteforVisit']].drop_duplicates()
+    elif 'SiteforVisit' in trials_df.columns:
+        # Fallback to trials_df
+        study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()[['Study', 'SiteforVisit']]
+    else:
+        log_activity("No SiteforVisit column in trials_df and no study_site_details, cannot build recruitment data", level='error')
+        return pd.DataFrame(columns=['Study', 'Site', 'Target', 'Actual', 'Progress', 'Status'])
     
     for _, row in study_site_combos.iterrows():
         study = row['Study']
         site = row['SiteforVisit']
         
-        # Get target from trials_df (should be same for all rows with same Study+SiteforVisit)
+        # Get target and status from study_site_details (preferred) or fallback to trials_df
         target = None
-        if 'RecruitmentTarget' in trials_df.columns:
+        study_status = 'active'
+        
+        if study_details_df is not None and not study_details_df.empty:
+            # Try to get from study_site_details
+            study_detail = study_details_df[
+                (study_details_df['Study'] == study) & 
+                (study_details_df['SiteforVisit'] == site)
+            ]
+            if not study_detail.empty:
+                target = study_detail.iloc[0].get('RecruitmentTarget')
+                if pd.notna(target):
+                    target = int(target) if target else None
+                study_status = study_detail.iloc[0].get('StudyStatus', 'active')
+        
+        # Fallback to trials_df if not found in study_site_details
+        if target is None and 'RecruitmentTarget' in trials_df.columns:
             target_rows = trials_df[(trials_df['Study'] == study) & (trials_df['SiteforVisit'] == site)]
             if not target_rows.empty:
                 target_values = target_rows['RecruitmentTarget'].dropna().unique()
                 if len(target_values) > 0:
                     target = int(target_values[0]) if pd.notna(target_values[0]) else None
+        
+        if study_status == 'active' and 'StudyStatus' in trials_df.columns:
+            status_rows = trials_df[(trials_df['Study'] == study) & (trials_df['SiteforVisit'] == site)]
+            if not status_rows.empty:
+                status_values = status_rows['StudyStatus'].dropna().unique()
+                if len(status_values) > 0:
+                    study_status = str(status_values[0]).lower()
         
         # Calculate actual recruitment count
         actual = 0
@@ -66,15 +94,6 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
                 status = 'near_target'
             else:
                 status = 'under_target'
-        
-        # Get study status
-        study_status = 'active'
-        if 'StudyStatus' in trials_df.columns:
-            status_rows = trials_df[(trials_df['Study'] == study) & (trials_df['SiteforVisit'] == site)]
-            if not status_rows.empty:
-                status_values = status_rows['StudyStatus'].dropna().unique()
-                if len(status_values) > 0:
-                    study_status = str(status_values[0]).lower()
         
         recruitment_rows.append({
             'Study': study,
