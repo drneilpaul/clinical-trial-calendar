@@ -312,8 +312,9 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         end = row['EndDate'] if pd.notna(row['EndDate']) else start + timedelta(days=30)  # Default 30 days if no end
         lpfv_date = row.get('LPFVDate') if 'LPFVDate' in row else None
         
-        # Get base color based on status
-        base_color = get_status_color(row['Status'])
+        # Get base color based on status (with fallback to 'active' if Status is missing)
+        status = row.get('Status', 'active')
+        base_color = get_status_color(status)
         followup_color = get_status_color('in_followup')
         
         # Split bar at LPFV if it exists and is within the date range
@@ -376,7 +377,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             hovertemplate=(
                 f"<b>{row['Study']}</b><br>"
                 f"Site: {row['Site']}<br>"
-                f"Status: {row['Status']}<br>"
+                f"Status: {status}<br>"
                 f"Start: {start.strftime('%d/%m/%Y')}<br>"
                 f"End: {end.strftime('%d/%m/%Y') if pd.notna(row['EndDate']) else 'TBD'}<br>"
                 f"Last Enrollment: {row['LastEnrollment'].strftime('%d/%m/%Y') if pd.notna(row['LastEnrollment']) else 'N/A'}<br>"
@@ -430,7 +431,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         barmode='overlay'
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     # Show legend
     st.markdown("### Status Legend")
@@ -453,4 +454,4 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         'Status': lambda x: (x == 'active').sum()
     }).rename(columns={'Study': 'Total Studies', 'Status': 'Active Studies'})
     capacity_df = capacity_df.reset_index()
-    st.dataframe(capacity_df, use_container_width=True, hide_index=True)
+    st.dataframe(capacity_df, width='stretch', hide_index=True)

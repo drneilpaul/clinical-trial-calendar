@@ -185,7 +185,7 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     styled_df = display_df.style.apply(style_row, axis=1)
     st.dataframe(
         styled_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             'Study': st.column_config.TextColumn('Study', width='medium'),
@@ -235,7 +235,7 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
             xaxis=dict(tickangle=-45)
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("No studies with targets available for chart display.")
     
@@ -262,9 +262,12 @@ def overlay_recruitment_on_gantt(gantt_data: pd.DataFrame, recruitment_data: pd.
     Returns:
         Enhanced gantt_data with recruitment columns
     """
+    # Rename 'Status' to 'RecruitmentStatus' to avoid conflict with study Status column
+    recruitment_data_renamed = recruitment_data.rename(columns={'Status': 'RecruitmentStatus'})
+    
     # Merge recruitment data into gantt data
     enhanced_gantt = gantt_data.merge(
-        recruitment_data[['Study', 'Site', 'Target', 'Actual', 'Progress', 'Status']],
+        recruitment_data_renamed[['Study', 'Site', 'Target', 'Actual', 'Progress', 'RecruitmentStatus']],
         on=['Study', 'Site'],
         how='left'
     )
