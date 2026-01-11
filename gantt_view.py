@@ -146,12 +146,9 @@ def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame,
             if not visit_dates.empty:
                 end_date = visit_dates.max().date()
     
-    # Auto-detect "in_followup" status if past LPFV but before LPLV
+    # Store LPFV date for bar splitting (don't change status based on phase)
+    # Status remains as set (active, contracted, etc.) - phase is handled in display logic
     lpfv_date = last_enrollment
-    if status == 'active' and lpfv_date:
-        phase = detect_study_phase(lpfv_date, end_date, today)
-        if phase == 'in_followup':
-            status = 'in_followup'
     
     return {
         'start_date': start_date,
@@ -175,7 +172,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     
     Returns:
         Tuple of:
-        - DataFrame with columns: Site, Study, StartDate, EndDate, LastEnrollment, Status, Duration, LPFVDate
+        - DataFrame with columns: Site, Study, StartDate, EndDate, LastEnrollment, Status, Duration, LPFVDate, SIVDate
         - Dict mapping (Study, Site) -> List of (recruitment_date, patient_number) tuples
     """
     gantt_rows = []
@@ -184,7 +181,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     # Get unique sites from trials_df (SiteforVisit)
     if 'SiteforVisit' not in trials_df.columns:
         log_activity("No SiteforVisit column in trials_df, cannot build Gantt data", level='error')
-        return pd.DataFrame(columns=['Site', 'Study', 'StartDate', 'EndDate', 'LastEnrollment', 'Status', 'Duration', 'LPFVDate']), {}
+        return pd.DataFrame(columns=['Site', 'Study', 'StartDate', 'EndDate', 'LastEnrollment', 'Status', 'Duration', 'LPFVDate', 'SIVDate']), {}
     
     unique_sites = trials_df['SiteforVisit'].dropna().unique()
     unique_studies = trials_df['Study'].dropna().unique()
@@ -204,6 +201,11 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
             recruitment_list = get_patient_recruitment_data(study, site, patients_df)
             patient_recruitment_data[(study, site)] = recruitment_list
             
+            # Extract SIV date (only for active/contracted studies, not EOI)
+            siv_date = None
+            if dates['status'] not in ['expression_of_interest'] and actual_visits_df is not None:
+                siv_date = extract_siv_dates(study, site, actual_visits_df)
+            
             gantt_rows.append({
                 'Site': site,
                 'Study': study,
@@ -212,7 +214,8 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
                 'LastEnrollment': dates['last_enrollment'],
                 'Status': dates['status'],
                 'Duration': duration,
-                'LPFVDate': dates['lpfv_date']
+                'LPFVDate': dates['lpfv_date'],
+                'SIVDate': siv_date
             })
     
     gantt_df = pd.DataFrame(gantt_rows)
@@ -229,13 +232,52 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
 def get_status_color(status: str) -> str:
     """Get color for study status"""
     status_colors = {
-        'active': '#2ecc71',  # Green
+        'active': '#2ecc71',  # Green (for recruitment phase)
         'contracted': '#3498db',  # Blue
         'in_setup': '#f39c12',  # Orange/Yellow
         'expression_of_interest': '#95a5a6',  # Gray
-        'in_followup': '#9b59b6'  # Purple
+        'in_followup': '#9b59b6'  # Purple (for follow-up phase)
     }
     return status_colors.get(status.lower(), '#95a5a6')
+
+def extract_siv_dates(study: str, site: str, actual_visits_df: Optional[pd.DataFrame]) -> Optional[date]:
+    """
+    Extract SIV (Site Initiation Visit) date for a study at a specific site.
+    
+    Args:
+        study: Study name
+        site: Site name (SiteforVisit)
+        actual_visits_df: Actual visits dataframe
+    
+    Returns:
+        SIV date or None if not found
+    """
+    if actual_visits_df is None or actual_visits_df.empty:
+        return None
+    
+    # Filter for SIV events for this study
+    siv_visits = actual_visits_df[
+        (actual_visits_df['Study'] == study) &
+        (actual_visits_df.get('VisitType', '').astype(str).str.lower() == 'siv')
+    ]
+    
+    if siv_visits.empty:
+        return None
+    
+    # Get SiteforVisit from actual_visits if available, or match by site
+    # SIVs may not have SiteforVisit in actual_visits, so we check if it matches
+    if 'SiteforVisit' in siv_visits.columns:
+        site_matched = siv_visits[siv_visits['SiteforVisit'] == site]
+        if not site_matched.empty:
+            siv_visits = site_matched
+    
+    # Get the earliest SIV date (in case there are multiple)
+    if 'ActualDate' in siv_visits.columns:
+        siv_dates = pd.to_datetime(siv_visits['ActualDate'], errors='coerce').dropna()
+        if not siv_dates.empty:
+            return siv_dates.min().date()
+    
+    return None
 
 def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict[Tuple[str, str], List[Tuple[date, int]]],
                        show_recruitment_overlay: bool = False, 
@@ -253,15 +295,32 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         st.info("No Gantt data available to display.")
         return
     
-    # Filter out rows without dates for visualization
-    gantt_filtered = gantt_data[gantt_data['StartDate'].notna()].copy()
+    # Filter out rows without dates for visualization (except EOI which may not have dates)
+    gantt_filtered = gantt_data[
+        (gantt_data['StartDate'].notna()) | 
+        (gantt_data['Status'] == 'expression_of_interest')
+    ].copy()
     
     if gantt_filtered.empty:
         st.info("No studies with date information available for Gantt chart.")
         return
     
-    # Sort by site and start date
-    gantt_filtered = gantt_filtered.sort_values(['Site', 'StartDate'])
+    # Sort: EOI at bottom, others by StartDate ascending (oldest first)
+    # Within same StartDate, group by Site (same site studies appear together)
+    # Separate EOI and non-EOI studies
+    eoi_studies = gantt_filtered[gantt_filtered['Status'] == 'expression_of_interest'].copy()
+    non_eoi_studies = gantt_filtered[gantt_filtered['Status'] != 'expression_of_interest'].copy()
+    
+    # Sort non-EOI by StartDate ascending (oldest first), then by Site for grouping
+    # Use stable sort to preserve site grouping when dates are equal
+    non_eoi_studies = non_eoi_studies.sort_values(['StartDate', 'Site'], na_position='last', kind='stable')
+    
+    # Sort EOI by StartDate if available, otherwise keep original order
+    if not eoi_studies.empty:
+        eoi_studies = eoi_studies.sort_values(['StartDate', 'Site'], na_position='last', kind='stable')
+    
+    # Combine: non-EOI first, then EOI at bottom
+    gantt_filtered = pd.concat([non_eoi_studies, eoi_studies], ignore_index=True)
     
     # Create figure using timeline approach with shapes
     fig = go.Figure()
@@ -298,32 +357,55 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         borderpad=2
     )
     
-    # Collect patient marker data
+    # Collect patient marker data and SIV marker data
     patient_marker_x = []
     patient_marker_y = []
     patient_marker_text = []
+    siv_marker_x = []
+    siv_marker_y = []
+    
+    # Track previous site for visual grouping and get date range
+    prev_site = None
+    site_changes = []  # Track where site changes occur for separators
+    min_date = None
+    max_date = None
     
     # Add shapes for Gantt bars (split at LPFV if exists)
     for idx, (_, row) in enumerate(gantt_filtered.iterrows()):
         start = row['StartDate']
+        status = str(row.get('Status', 'active')).lower()
+        
+        # Handle EOI studies without dates - use approximate dates or skip
         if pd.isna(start):
-            continue
+            if status == 'expression_of_interest':
+                # EOI without dates - use a default short bar or skip visualization
+                # For now, skip visualization if no dates
+                continue
+            else:
+                continue
         
-        end = row['EndDate'] if pd.notna(row['EndDate']) else start + timedelta(days=30)  # Default 30 days if no end
+        end = row['EndDate'] if pd.notna(row['EndDate']) else start + timedelta(days=365)  # Default 1 year if no end
         lpfv_date = row.get('LPFVDate') if 'LPFVDate' in row else None
+        siv_date = row.get('SIVDate') if 'SIVDate' in row else None
         
-        # Get base color based on status (with fallback to 'active' if Status is missing)
-        status = row.get('Status', 'active')
+        # Track date range for separator lines
+        if min_date is None or start < min_date:
+            min_date = start
+        if max_date is None or end > max_date:
+            max_date = end
+        
+        # Get base color based on status
         base_color = get_status_color(status)
-        followup_color = get_status_color('in_followup')
+        recruitment_color = '#2ecc71'  # Green for recruitment phase
+        followup_color = '#9b59b6'  # Purple for follow-up phase
         
-        # Split bar at LPFV if it exists and is within the date range
-        if lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date <= end:
-            # First segment: StartDate to LPFV (recruitment phase)
+        # Determine bar drawing logic based on status
+        if status == 'contracted':
+            # Contracted: Single blue bar (no split)
             fig.add_shape(
                 type="rect",
                 x0=start,
-                x1=lpfv_date,
+                x1=end,
                 y0=idx - 0.4,
                 y1=idx + 0.4,
                 fillcolor=base_color,
@@ -331,21 +413,66 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 line=dict(color=base_color, width=1),
                 layer="below"
             )
-            
-            # Second segment: LPFV to EndDate (follow-up phase)
+        elif status == 'expression_of_interest':
+            # EOI: Single gray bar (no split)
             fig.add_shape(
                 type="rect",
-                x0=lpfv_date,
+                x0=start,
                 x1=end,
                 y0=idx - 0.4,
                 y1=idx + 0.4,
-                fillcolor=followup_color,
+                fillcolor=base_color,
                 opacity=0.7,
-                line=dict(color=followup_color, width=1),
+                line=dict(color=base_color, width=1),
                 layer="below"
             )
+        elif status == 'active':
+            # Active studies: Split at LPFV if exists (green recruitment, purple follow-up)
+            # Even if LPFV is in future, show recruitment phase up to LPFV
+            if lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date:
+                # First segment: StartDate to LPFV (recruitment phase - green)
+                # Show this even if LPFV is in future (helps with planning)
+                recruitment_end = min(lpfv_date, end)  # Don't exceed end date
+                fig.add_shape(
+                    type="rect",
+                    x0=start,
+                    x1=recruitment_end,
+                    y0=idx - 0.4,
+                    y1=idx + 0.4,
+                    fillcolor=recruitment_color,
+                    opacity=0.7,
+                    line=dict(color=recruitment_color, width=1),
+                    layer="below"
+                )
+                
+                # Second segment: LPFV to EndDate (follow-up phase - purple) - only if LPFV has passed
+                if lpfv_date < today and lpfv_date < end:
+                    fig.add_shape(
+                        type="rect",
+                        x0=lpfv_date,
+                        x1=end,
+                        y0=idx - 0.4,
+                        y1=idx + 0.4,
+                        fillcolor=followup_color,
+                        opacity=0.7,
+                        line=dict(color=followup_color, width=1),
+                        layer="below"
+                    )
+            else:
+                # No LPFV: Single green bar (assume recruiting till end)
+                fig.add_shape(
+                    type="rect",
+                    x0=start,
+                    x1=end,
+                    y0=idx - 0.4,
+                    y1=idx + 0.4,
+                    fillcolor=recruitment_color,
+                    opacity=0.7,
+                    line=dict(color=recruitment_color, width=1),
+                    layer="below"
+                )
         else:
-            # Single bar (no LPFV or LPFV outside range)
+            # Other statuses (in_setup, etc.): Single bar with status color
             fig.add_shape(
                 type="rect",
                 x0=start,
@@ -355,6 +482,31 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 fillcolor=base_color,
                 opacity=0.7,
                 line=dict(color=base_color, width=1),
+                layer="below"
+            )
+        
+        # Add SIV marker if exists (only for active/contracted studies)
+        if siv_date and pd.notna(siv_date) and status in ['active', 'contracted']:
+            # SIV usually appears before FPFV, so show marker ahead of bar
+            siv_marker_x.append(siv_date)
+            siv_marker_y.append(idx)
+        
+        # Track site changes for visual grouping
+        current_site = row['Site']
+        if prev_site is not None and current_site != prev_site:
+            site_changes.append(idx)
+        prev_site = current_site
+    
+    # Add visual separators between site groups
+    if min_date and max_date:
+        for change_idx in site_changes:
+            fig.add_shape(
+                type="line",
+                x0=datetime.combine(min_date, datetime.min.time()),
+                x1=datetime.combine(max_date, datetime.min.time()),
+                y0=change_idx - 0.5,
+                y1=change_idx - 0.5,
+                line=dict(color="#d0d0d0", width=1, dash="dot"),
                 layer="below"
             )
         
@@ -409,6 +561,26 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             showlegend=False
         ))
     
+    # Add SIV markers as icons before FPFV
+    if siv_marker_x:
+        # Convert date objects to datetime for Plotly
+        siv_marker_x_datetime = [datetime.combine(d, datetime.min.time()) if isinstance(d, date) else d for d in siv_marker_x]
+        fig.add_trace(go.Scatter(
+            x=siv_marker_x_datetime,
+            y=siv_marker_y,
+            mode='markers',
+            marker=dict(
+                size=12,
+                symbol='star',
+                color='#e67e22',  # Orange color for SIV
+                line=dict(color='white', width=1),
+                opacity=0.9
+            ),
+            name='SIV',
+            hovertemplate='SIV (Site Initiation Visit)<br>Date: %{x|%d/%m/%Y}<extra></extra>',
+            showlegend=True
+        ))
+    
     # Update layout
     fig.update_layout(
         title="Gantt Chart: Studies by Site",
@@ -435,17 +607,19 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     
     # Show legend
     st.markdown("### Status Legend")
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>●</span> Active", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>●</span> Active (Recruitment)", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"<span style='color: #3498db; font-weight: bold;'>●</span> Contracted", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #9b59b6; font-weight: bold;'>●</span> Active (Follow-Up)", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #3498db; font-weight: bold;'>●</span> Contracted", unsafe_allow_html=True)
     with col4:
-        st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
     with col5:
-        st.markdown(f"<span style='color: #9b59b6; font-weight: bold;'>●</span> In Follow-Up", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
+    with col6:
+        st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
     
     # Show capacity summary
     st.markdown("### Site Capacity Summary")
