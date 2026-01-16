@@ -1060,7 +1060,8 @@ def main():
                 view_col, filter_col = st.columns([1, 1])
             else:
                 view_col, *other_cols = st.columns([1, 1, 1, 1, 1, 1, 1])
-            
+                filter_col = None  # Initialize for non-Gantt views
+
             with view_col:
                 calendar_view = st.radio(
                     "View",
@@ -1071,9 +1072,13 @@ def main():
                     key="calendar_view_radio"
                 )
                 st.session_state.calendar_view = calendar_view
-            
+
             # Determine which controls to show based on selected view
             is_gantt_view = calendar_view == 'Gantt'
+
+            # CRITICAL FIX: If view changed, rerun to rebuild columns with correct layout
+            if is_gantt_view != is_gantt_view_before:
+                st.rerun()
             
             col_idx = 0
             if not is_gantt_view:
@@ -1144,6 +1149,10 @@ def main():
                 calendar_start_date = None
             
             # Filter Calendar - always visible
+            # CRITICAL FIX: Ensure filter_col exists for Gantt view (defensive check)
+            if is_gantt_view and filter_col is None:
+                st.error("Layout mismatch detected. Please refresh the page.")
+                st.stop()
             filter_col_to_use = filter_col if is_gantt_view else other_cols[5]
             with filter_col_to_use:
                 # Build filter summary for expander header
