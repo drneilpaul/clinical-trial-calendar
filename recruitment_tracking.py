@@ -106,7 +106,27 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
         })
     
     recruitment_df = pd.DataFrame(recruitment_rows)
+    # Ensure Target column uses nullable integer type (Int64) to avoid mixed type issues
+    if 'Target' in recruitment_df.columns:
+        recruitment_df['Target'] = recruitment_df['Target'].astype('Int64')
     return recruitment_df
+
+def normalize_target_column_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize 'Target' column to string type for safe PyArrow serialization.
+    
+    Args:
+        df: DataFrame that may contain a 'Target' column
+        
+    Returns:
+        DataFrame with 'Target' column converted to string type if present
+    """
+    if 'Target' in df.columns:
+        df = df.copy()
+        df['Target'] = df['Target'].apply(
+            lambda x: str(int(x)) if pd.notna(x) else "No target"
+        ).astype(str)
+    return df
 
 def get_progress_color(status: str) -> str:
     """Get color for recruitment progress status"""
@@ -187,9 +207,10 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     display_df['Progress'] = display_df['Progress'].apply(
         lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
     )
+    # Convert Target to string type to avoid PyArrow serialization errors
     display_df['Target'] = display_df['Target'].apply(
-        lambda x: int(x) if pd.notna(x) else "No target"
-    )
+        lambda x: str(int(x)) if pd.notna(x) else "No target"
+    ).astype(str)
     
     # Add color coding
     def style_row(row):

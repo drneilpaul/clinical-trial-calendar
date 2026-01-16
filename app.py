@@ -1048,56 +1048,20 @@ def main():
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
             # Calendar display options - moved calendar view selector to same line
-            col_options = st.columns([1, 1, 1, 1, 1, 1, 1])
-            with col_options[0]:
-                prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
-                hide_inactive = st.checkbox(
-                    "Hide inactive patients",
-                    value=prev_hide_inactive,
-                    help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
-                    key="hide_inactive_checkbox"
-                )
-                # Check if value changed and clear cache if so
-                if hide_inactive != prev_hide_inactive:
-                    clear_build_calendar_cache()
-                    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
-                    st.session_state.hide_inactive_patients = hide_inactive
-                    st.rerun()
-                else:
-                    st.session_state.hide_inactive_patients = hide_inactive
-            with col_options[1]:
-                prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
-                compact_mode = st.checkbox(
-                    "Compact view",
-                    value=prev_compact_mode,
-                    help="Narrow columns with vertical headers and icons",
-                    key="compact_mode_checkbox"
-                )
-                # Check if value changed and trigger rerun
-                if compact_mode != prev_compact_mode:
-                    st.session_state.compact_calendar_mode = compact_mode
-                    st.rerun()
-                else:
-                    st.session_state.compact_calendar_mode = compact_mode
-            with col_options[2]:
-                prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
-                show_scrollbars = st.checkbox(
-                    "Show scrollbars",
-                    value=prev_show_scrollbars,
-                    help="Always show vertical and horizontal scrollbars (useful on Windows)",
-                    key="show_scrollbars_checkbox"
-                )
-                # Check if value changed and trigger rerun
-                if show_scrollbars != prev_show_scrollbars:
-                    st.session_state.show_scrollbars = show_scrollbars
-                    st.rerun()
-                else:
-                    st.session_state.show_scrollbars = show_scrollbars
-            with col_options[3]:
-                # View selector
-                view_options = ["Standard", "Site Busy", "Gantt"]
-                current_view = st.session_state.get('calendar_view', 'Standard')
-                view_index = view_options.index(current_view) if current_view in view_options else 0
+            # Get current view first to conditionally show/hide controls
+            view_options = ["Standard", "Site Busy", "Gantt"]
+            current_view = st.session_state.get('calendar_view', 'Site Busy')
+            view_index = view_options.index(current_view) if current_view in view_options else 1
+            
+            # Render view selector first to get the selected view
+            # Create columns: for Gantt we need 2 (view + filter), for others we need 7 (all controls)
+            is_gantt_view_before = current_view == 'Gantt'
+            if is_gantt_view_before:
+                view_col, filter_col = st.columns([1, 1])
+            else:
+                view_col, *other_cols = st.columns([1, 1, 1, 1, 1, 1, 1])
+            
+            with view_col:
                 calendar_view = st.radio(
                     "View",
                     options=view_options,
@@ -1107,15 +1071,81 @@ def main():
                     key="calendar_view_radio"
                 )
                 st.session_state.calendar_view = calendar_view
-            with col_options[4]:
-                if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
-                    st.session_state.scroll_to_today = True
-                    st.rerun()
-            with col_options[5]:
-                # Calendar range selector moved to same line - hide label for alignment
-                calendar_filter_option = render_calendar_start_selector(show_label=False)
-                calendar_start_date = calendar_filter_option.get("start")
-            with col_options[6]:
+            
+            # Determine which controls to show based on selected view
+            is_gantt_view = calendar_view == 'Gantt'
+            
+            col_idx = 0
+            if not is_gantt_view:
+                col_options = other_cols[:6]  # Use remaining 6 columns for non-Gantt controls
+                with col_options[col_idx]:
+                    prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
+                    hide_inactive = st.checkbox(
+                        "Hide inactive patients",
+                        value=prev_hide_inactive,
+                        help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
+                        key="hide_inactive_checkbox"
+                    )
+                    # Check if value changed and clear cache if so
+                    if hide_inactive != prev_hide_inactive:
+                        clear_build_calendar_cache()
+                        st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                        st.session_state.hide_inactive_patients = hide_inactive
+                        st.rerun()
+                    else:
+                        st.session_state.hide_inactive_patients = hide_inactive
+                col_idx += 1
+                
+                with col_options[col_idx]:
+                    prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
+                    compact_mode = st.checkbox(
+                        "Compact view",
+                        value=prev_compact_mode,
+                        help="Narrow columns with vertical headers and icons",
+                        key="compact_mode_checkbox"
+                    )
+                    # Check if value changed and trigger rerun
+                    if compact_mode != prev_compact_mode:
+                        st.session_state.compact_calendar_mode = compact_mode
+                        st.rerun()
+                    else:
+                        st.session_state.compact_calendar_mode = compact_mode
+                col_idx += 1
+                
+                with col_options[col_idx]:
+                    prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
+                    show_scrollbars = st.checkbox(
+                        "Show scrollbars",
+                        value=prev_show_scrollbars,
+                        help="Always show vertical and horizontal scrollbars (useful on Windows)",
+                        key="show_scrollbars_checkbox"
+                    )
+                    # Check if value changed and trigger rerun
+                    if show_scrollbars != prev_show_scrollbars:
+                        st.session_state.show_scrollbars = show_scrollbars
+                        st.rerun()
+                    else:
+                        st.session_state.show_scrollbars = show_scrollbars
+                col_idx += 1
+                
+                with col_options[col_idx]:
+                    if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
+                        st.session_state.scroll_to_today = True
+                        st.rerun()
+                col_idx += 1
+                
+                with col_options[col_idx]:
+                    # Calendar range selector moved to same line - hide label for alignment
+                    calendar_filter_option = render_calendar_start_selector(show_label=False)
+                    calendar_start_date = calendar_filter_option.get("start")
+                col_idx += 1
+            else:
+                # For Gantt view, calendar_start_date is not used, but set to None to avoid errors
+                calendar_start_date = None
+            
+            # Filter Calendar - always visible
+            filter_col_to_use = filter_col if is_gantt_view else other_cols[5]
+            with filter_col_to_use:
                 # Build filter summary for expander header
                 active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                 active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
@@ -1308,7 +1338,7 @@ def main():
                 st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
             
             # Display appropriate calendar view
-            calendar_view = st.session_state.get('calendar_view', 'Standard')
+            calendar_view = st.session_state.get('calendar_view', 'Site Busy')
             if calendar_view == 'Site Busy':
                 # Build site busy calendar
                 from calendar_builder import build_site_busy_calendar
@@ -1353,7 +1383,7 @@ def main():
                 display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
             # Show view-specific legend
-            calendar_view = st.session_state.get('calendar_view', 'Standard')
+            calendar_view = st.session_state.get('calendar_view', 'Site Busy')
             show_legend(actual_visits_df, view=calendar_view)
             
             site_summary_df = extract_site_summary(patients_df, screen_failures)

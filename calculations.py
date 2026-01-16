@@ -64,10 +64,13 @@ def _prepare_financial_data_impl(visits_df):
     financial_df['MonthYear'] = financial_df['Date'].dt.to_period('M')
     financial_df['Quarter'] = financial_df['Date'].dt.quarter
     financial_df['Year'] = financial_df['Date'].dt.year
-    # Handle NaN values before converting to int
-    financial_df['QuarterYear'] = (
-        financial_df['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
-        financial_df['Quarter'].fillna(0).astype(int).astype(str)
+    # Handle NaN values: filter out invalid dates before creating QuarterYear to avoid "0-Q0" strings
+    # Only create QuarterYear for rows with valid dates
+    valid_date_mask = financial_df['Year'].notna() & financial_df['Quarter'].notna()
+    financial_df['QuarterYear'] = None
+    financial_df.loc[valid_date_mask, 'QuarterYear'] = (
+        financial_df.loc[valid_date_mask, 'Year'].astype(int).astype(str) + '-Q' + 
+        financial_df.loc[valid_date_mask, 'Quarter'].astype(int).astype(str)
     )
     
     # OPTIMIZED: Use vectorized financial year calculation (much faster than apply)

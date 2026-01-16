@@ -303,11 +303,12 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, stoppage_date):
+def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, stoppage_date, processing_messages=None):
     """Process a single scheduled (predicted) visit
     
     Args:
         stoppage_date: Date of screen failure, withdrawal, or death (stops future visits)
+        processing_messages: Optional list to append error/warning messages to
     """
     visit_day = int(visit["Day"])
     visit_name = str(visit["VisitName"])
@@ -343,6 +344,9 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         error_msg = f"❌ DATA ERROR: Scheduled visit '{visit_name}' for patient {patient_id} has invalid SiteforVisit: '{site}'"
         from helpers import log_activity
         log_activity(error_msg, level='error')
+        # Add to processing messages so user is notified
+        if processing_messages is not None:
+            processing_messages.append(error_msg)
         # Return empty list to skip this visit rather than using a default
         return [], 0
     
@@ -565,7 +569,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 else:
                     # Process scheduled visit with full tolerance windows
                     scheduled_records, exclusions = process_scheduled_visit(
-                        patient_id, study, patient_origin, visit, baseline_date, stoppage_date
+                        patient_id, study, patient_origin, visit, baseline_date, stoppage_date, processing_messages
                     )
                     visit_records.extend(scheduled_records)
                     screen_fail_exclusions += exclusions
