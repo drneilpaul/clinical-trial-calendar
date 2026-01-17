@@ -798,7 +798,7 @@ def export_patients_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_patients()
         if df is None or df.empty:
-        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
+            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
         
         for col in ['PatientPractice', 'SiteSeenAt']:
             if col not in df.columns:
