@@ -314,6 +314,17 @@ def patient_entry_modal():
             help="Which practice recruited this patient?",
             label_visibility="collapsed"
         )
+        
+        st.markdown("**Seen At***")
+        seen_site_options = ["Ashfields", "Kiltearn"]
+        seen_site_default = seen_site_options.index(recruitment_site) if recruitment_site in seen_site_options else 0
+        site_seen_at = st.selectbox(
+            "Seen At*",
+            options=seen_site_options,
+            index=seen_site_default,
+            help="Where the patient will be seen for visits",
+            label_visibility="collapsed"
+        )
     
     # Show calculated information
     if selected_study and start_date:
@@ -373,7 +384,8 @@ def patient_entry_modal():
                 'StartDate': formatted_date,
                 'Site': recruitment_site,  # Which practice recruited them
                 # OriginSite column removed - using PatientPractice only
-                'PatientPractice': recruitment_site  # Same value, for compatibility
+                'PatientPractice': recruitment_site,  # Recruitment site
+                'SiteSeenAt': site_seen_at  # Visit location
             }
             
             # Handle database or file mode
@@ -1163,17 +1175,16 @@ def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame
     
     Args:
         study: Study name
-        site: Site name (PatientPractice for patients, SiteofVisit for visits)
+        site: Contract site name (ContractSite)
         patients_df: Patients dataframe
         visits_df: Visits dataframe (with Date column)
     
     Returns:
         dict with keys: 'fpfv', 'lpfv', 'lplv', 'recruitment_count'
     """
-    # Get patients for this study+site
+    # ContractSite counts all patients in the study, regardless of visit location
     study_patients = patients_df[
-        (patients_df['Study'] == study) & 
-        (patients_df['PatientPractice'] == site)
+        (patients_df['Study'] == study)
     ]
     
     fpfv = None
@@ -1187,10 +1198,9 @@ def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame
             lpfv = start_dates.max().date()
             recruitment_count = len(study_patients)
     
-    # Get visits for this study+site
+    # Get visits for this study (regardless of visit location)
     study_visits = visits_df[
-        (visits_df['Study'] == study) & 
-        (visits_df['SiteofVisit'] == site)
+        (visits_df['Study'] == study)
     ]
     
     lplv = None
@@ -1238,8 +1248,9 @@ def study_settings_navigation_modal():
         
         # Add from study_site_details (preferred source)
         if study_details_df is not None and not study_details_df.empty:
+            site_col = 'ContractSite' if 'ContractSite' in study_details_df.columns else 'SiteforVisit'
             for _, row in study_details_df.iterrows():
-                combinations_set.add((row['Study'], row['SiteforVisit']))
+                combinations_set.add((row['Study'], row[site_col]))
         
         # Add from trial_schedules (for backward compatibility - studies without details yet)
         if trials_df is not None and not trials_df.empty:
@@ -1280,9 +1291,9 @@ def study_settings_navigation_modal():
                 available_sites = sorted(trials_df['SiteforVisit'].dropna().unique().tolist())
             
             if available_sites:
-                new_site = st.selectbox("Site *", options=available_sites, key="new_study_site")
+                new_site = st.selectbox("Contract Site *", options=available_sites, key="new_study_site")
             else:
-                new_site = st.text_input("Site *", key="new_study_site", help="Enter the site name")
+                new_site = st.text_input("Contract Site *", key="new_study_site", help="Enter the contract holder site name")
             
             # Status selector with new option
             status_options_new = ['active', 'contracted', 'in_setup', 'expression_of_interest', 'eoi_didnt_get']
@@ -1474,7 +1485,7 @@ def study_settings_navigation_modal():
         # Load patients and visits for calculated values
         patients_df = db.fetch_all_patients()
         if patients_df is None:
-            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
         
         # Build visits_df from actual_visits and trial_schedules to get SiteofVisit
         visits_df = pd.DataFrame(columns=['Study', 'SiteofVisit', 'Date'])

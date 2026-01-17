@@ -1427,10 +1427,11 @@ def main():
             - **PatientID** - Unique patient identifier
             - **Study** - Study name/code
             - **StartDate** - Patient enrollment date (DD/MM/YYYY)
+            - **PatientPractice** - Recruitment site (where patient comes from)
+            - **SiteSeenAt** - Visit location (where patient is seen)
             
             Optional columns:
-            - **Site** / **PatientPractice** - Patient's home practice
-            - **PatientSite** / **OriginSite** - Alternative site columns
+            - **Site** / **PatientSite** / **OriginSite** - Legacy origin site columns
             """)
         
         with col2:
@@ -1441,7 +1442,7 @@ def main():
             - **Study** - Study name/code (must match Patients file)
             - **Day** - Visit day number (Day 1 = baseline)
             - **VisitName** - Visit identifier
-            - **SiteforVisit** - Where visit takes place
+            - **SiteforVisit** - Contract holder (ContractSite) for the study
             
             Optional columns:
             - **Payment** / **Income** - Visit payment amount

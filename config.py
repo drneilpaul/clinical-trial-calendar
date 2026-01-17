@@ -64,10 +64,11 @@ def get_file_structure_info():
     return """
     **Patients File:**
     - PatientID, Study, StartDate
-    - Site/PatientPractice (optional - for patient origin)
+    - PatientPractice (recruitment site)
+    - SiteSeenAt (visit location)
     
     **Trials File:**
-    - Study, Day, VisitName, SiteforVisit
+    - Study, Day, VisitName, SiteforVisit (ContractSite)
     - Income/Payment, ToleranceBefore, ToleranceAfter (optional)
     
     **Actual Visits File (Optional):**
