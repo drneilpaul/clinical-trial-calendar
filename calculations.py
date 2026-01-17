@@ -42,7 +42,7 @@ def _prepare_financial_data_impl(visits_df):
         # If filtering results in empty df, create empty df with required columns and proper structure
         empty_df = pd.DataFrame()
         # Add all the required columns that the rest of the code expects
-        for col in ['Date', 'Visit', 'Study', 'Payment', 'SiteofVisit', 'PatientOrigin', 
+        for col in ['Date', 'Visit', 'Study', 'Payment', 'SiteofVisit', 'ContractSite', 'PatientOrigin', 
                    'IsActual', 'IsScreenFail', 'IsWithdrawn', 'IsDied', 'IsOutOfProtocol', 'VisitDay', 'VisitName',
                    'MonthYear', 'Quarter', 'Year', 'QuarterYear', 'FinancialYear']:
             empty_df[col] = pd.Series(dtype='object')
@@ -499,8 +499,11 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         actual_visits = fy_visits[is_actual & ~is_proposed & date_past]
         predicted_visits = fy_visits[fy_visits.get('IsActual', False) == False]
         
+        # Prefer ContractSite for financial attribution if present
+        site_income_col = 'ContractSite' if 'ContractSite' in fy_visits.columns else 'SiteofVisit'
+        
         # Calculate actual income by site - handle NaN values safely
-        actual_income = actual_visits.groupby('SiteofVisit').agg({
+        actual_income = actual_visits.groupby(site_income_col).agg({
             'Payment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
@@ -509,7 +512,7 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         }).reset_index()
         
         # Calculate predicted income by site - handle NaN values safely
-        predicted_income = predicted_visits.groupby('SiteofVisit').agg({
+        predicted_income = predicted_visits.groupby(site_income_col).agg({
             'Payment': lambda x: x.fillna(0).sum(),
             'VisitName': 'count'
         }).rename(columns={
@@ -521,13 +524,17 @@ def calculate_actual_and_predicted_income_by_site(visits_df, trials_df):
         site_income = pd.merge(
             actual_income, 
             predicted_income, 
-            on='SiteofVisit', 
+            on=site_income_col, 
             how='outer'
         ).fillna(0)
         
         # Calculate totals
         site_income['Total Income'] = site_income['Actual Income'] + site_income['Predicted Income']
         site_income['Total Visits'] = site_income['Actual Visits'] + site_income['Predicted Visits']
+        
+        # Normalize column name for display
+        if site_income_col != 'SiteofVisit':
+            site_income = site_income.rename(columns={site_income_col: 'ContractSite'})
         
         # Sort by total income descending
         site_income = site_income.sort_values('Total Income', ascending=False)
@@ -653,8 +660,10 @@ def calculate_site_realization_breakdown(visits_df, trials_df):
         from datetime import date
         today = pd.to_datetime(date.today()).normalize()
         
-        for site in fy_visits['SiteofVisit'].unique():
-            site_visits = fy_visits[fy_visits['SiteofVisit'] == site]
+        site_income_col = 'ContractSite' if 'ContractSite' in fy_visits.columns else 'SiteofVisit'
+        
+        for site in fy_visits[site_income_col].unique():
+            site_visits = fy_visits[fy_visits[site_income_col] == site]
             
             # CRITICAL: Exclude proposed visits from completed income (only count past actual visits)
             is_actual = site_visits.get('IsActual', False) == True

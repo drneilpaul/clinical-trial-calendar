@@ -172,7 +172,7 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     
     return patient_actual_visits, actual_visits_used, unmatched_visits
 
-def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_data, 
+def process_actual_visit(patient_id, study, patient_origin, patient_seen_at, visit, actual_visit_data, 
                         baseline_date, stoppage_date, processing_messages, out_of_window_visits, skipped_counter=None):
     """Process a single actual visit
     
@@ -262,11 +262,11 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         else:
             visit_status = f"✅ {visit_name}"
     
-    # CHANGED: Validate site exists and is valid, don't default
-    site = visit.get("SiteforVisit")
+    # CHANGED: Use patient SiteSeenAt for visit location
+    site = patient_seen_at
     
     if pd.isna(site) or site in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'Default Site']:
-        error_msg = f"❌ DATA ERROR: Visit '{visit_name}' for patient {patient_id} has invalid SiteforVisit: '{site}'"
+        error_msg = f"❌ DATA ERROR: Visit '{visit_name}' for patient {patient_id} has invalid SiteSeenAt: '{site}'"
         from helpers import log_activity
         log_activity(error_msg, level='error')
         # Return None to skip this visit rather than using a default
@@ -279,6 +279,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     # Use actual_visit_type if it's patient_proposed, otherwise use visit_type from trial schedule
     final_visit_type = actual_visit_type if is_proposed_type else visit_type
     
+    contract_site = visit.get("ContractSite") or visit.get("SiteforVisit")
     visit_record = {
         "Date": visit_date,
         "PatientID": patient_id,
@@ -286,6 +287,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
         "Study": study,
         "Payment": payment,
         "SiteofVisit": site,
+        "ContractSite": contract_site,
         "PatientOrigin": patient_origin,
         "IsActual": True,
         "IsProposed": is_proposed,  # Add IsProposed flag
@@ -303,7 +305,7 @@ def process_actual_visit(patient_id, study, patient_origin, visit, actual_visit_
     
     return visit_record, tolerance_records
 
-def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_date, stoppage_date):
+def process_scheduled_visit(patient_id, study, patient_origin, patient_seen_at, visit, baseline_date, stoppage_date):
     """Process a single scheduled (predicted) visit
     
     Args:
@@ -336,11 +338,11 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     except:
         payment = 0.0
     
-    # CHANGED: Validate site exists and is valid, don't default
-    site = visit.get("SiteforVisit")
+    # CHANGED: Use patient SiteSeenAt for visit location
+    site = patient_seen_at
     
     if pd.isna(site) or site in ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'Default Site']:
-        error_msg = f"❌ DATA ERROR: Scheduled visit '{visit_name}' for patient {patient_id} has invalid SiteforVisit: '{site}'"
+        error_msg = f"❌ DATA ERROR: Scheduled visit '{visit_name}' for patient {patient_id} has invalid SiteSeenAt: '{site}'"
         from helpers import log_activity
         log_activity(error_msg, level='error')
         # Return empty list to skip this visit rather than using a default
@@ -353,6 +355,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
     visit_display = f"📋 {visit_name} (Predicted)"
     
     # Create main scheduled visit record
+    contract_site = visit.get("ContractSite") or visit.get("SiteforVisit")
     main_record = {
         "Date": scheduled_date,
         "PatientID": patient_id,
@@ -360,6 +363,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, visit, baseline_d
         "Study": study,
         "Payment": payment,
         "SiteofVisit": site,
+        "ContractSite": contract_site,
         "PatientOrigin": patient_origin,
         "IsActual": False,
         "IsProposed": False,  # Predicted visits are never proposed
@@ -393,6 +397,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     study = str(patient["Study"])
     start_date = patient["StartDate"]
     patient_origin = str(patient.get("PatientPractice", "Unknown Site"))
+    patient_seen_at = patient.get("SiteSeenAt") or patient_origin
     
     log_activity(f"Processing patient {patient_id} (Study: {study}, StartDate: {start_date}, Origin: {patient_origin})", level='info')
     
@@ -487,11 +492,12 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         visit_name = str(visit_tuple.VisitName)
         visit_day = int(visit_tuple.Day)
         # Convert tuple to dict-like for compatibility
-        visit = {
+            visit = {
             "Day": visit_tuple.Day,
             "VisitName": visit_tuple.VisitName,
             "Payment": getattr(visit_tuple, 'Payment', 0),
             "SiteforVisit": getattr(visit_tuple, 'SiteforVisit', ''),
+                "ContractSite": getattr(visit_tuple, 'SiteforVisit', ''),
             "ToleranceBefore": getattr(visit_tuple, 'ToleranceBefore', 0),
             "ToleranceAfter": getattr(visit_tuple, 'ToleranceAfter', 0),
             "IntervalUnit": getattr(visit_tuple, 'IntervalUnit', None),
@@ -505,7 +511,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
-                patient_id, study, patient_origin, visit, actual_visit_data,
+                patient_id, study, patient_origin, patient_seen_at, visit, actual_visit_data,
                 baseline_date, stoppage_date, processing_messages, out_of_window_visits, skipped_invalid_dates
             )
             # Skip if visit was invalid (None returned)
@@ -565,7 +571,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 else:
                     # Process scheduled visit with full tolerance windows
                     scheduled_records, exclusions = process_scheduled_visit(
-                        patient_id, study, patient_origin, visit, baseline_date, stoppage_date
+                        patient_id, study, patient_origin, patient_seen_at, visit, baseline_date, stoppage_date
                     )
                     visit_records.extend(scheduled_records)
                     screen_fail_exclusions += exclusions
@@ -589,8 +595,8 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 )
                 continue
             
-            # For unmatched visits, try to find site from trial schedule first
-            visit_site = None
+            # For unmatched visits, use patient SiteSeenAt as visit location
+            visit_site = patient_seen_at
             
             # Look for this visit in the trial schedule (case-insensitive, partial match)
             trial_matches = study_visits[
@@ -600,18 +606,17 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             if not trial_matches.empty:
                 # Found in trial schedule - use its SiteforVisit
                 trial_visit = trial_matches.iloc[0]
-                visit_site = trial_visit["SiteforVisit"]
+                contract_site = trial_visit.get("SiteforVisit")
                 payment = trial_visit.get("Payment", 0.0)
                 visit_day = trial_visit["Day"]
                 
             else:
-                # Truly unmatched - cannot determine visit site
-                # DO NOT use patient_origin as it's where they were recruited, not where visit happened
+                # Truly unmatched - still use patient SiteSeenAt for visit location
                 
                 from helpers import log_activity
                 log_activity(
                     f"⚠️ Skipping unmatched visit '{visit_name}' for patient {patient_id} - "
-                    f"not in trial schedule and cannot safely determine SiteofVisit",
+                    f"not in trial schedule and cannot safely determine ContractSite",
                     level='error'
                 )
                 continue  # Skip this visit entirely rather than misassigning the site
@@ -654,6 +659,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 "Study": study,
                 "Payment": payment,
                 "SiteofVisit": str(visit_site).strip(),
+                "ContractSite": contract_site,
                 "PatientOrigin": patient_origin,
                 "IsActual": True,
                 "IsProposed": is_unmatched_proposed,  # Add IsProposed flag

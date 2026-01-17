@@ -295,7 +295,7 @@ def prepare_trials_data(trials_df):
     # NEW: Validate SiteforVisit before processing
     if 'SiteforVisit' not in trials_df.columns:
         error_msg = "❌ DATA INTEGRITY ERROR: SiteforVisit column is missing from trials data. "
-        error_msg += "All trial visits must specify where they are performed. "
+        error_msg += "All trial visits must specify the contract holder. "
         error_msg += "This should have been caught by validation - please check your data files."
         log_activity(error_msg, level='error')
         raise ValueError(error_msg)
@@ -314,7 +314,7 @@ def prepare_trials_data(trials_df):
         error_msg += f"Affected studies: {', '.join(map(str, invalid_studies))}"
         if len(trials_df[invalid_mask]['Study'].unique()) > 5:
             error_msg += f" and {len(trials_df[invalid_mask]['Study'].unique()) - 5} more"
-        error_msg += ". All visits must specify where they are performed (Ashfields, Kiltearn, etc)."
+        error_msg += ". All visits must specify the contract holder (Ashfields, Kiltearn, etc)."
         log_activity(error_msg, level='error')
         raise ValueError(error_msg)
     # END NEW VALIDATION
@@ -400,6 +400,24 @@ def prepare_patients_data(patients_df, trials_df):
     
     if _get_processing_debug():
         log_activity(f"PatientPractice values: {patients_df['PatientPractice'].unique()}", level='info')
+
+    # Ensure SiteSeenAt exists (visit location). Default to PatientPractice if missing.
+    if 'SiteSeenAt' not in patients_df.columns:
+        log_activity("SiteSeenAt missing in patients data; defaulting to PatientPractice", level='warning')
+        patients_df['SiteSeenAt'] = patients_df['PatientPractice']
+    else:
+        patients_df['SiteSeenAt'] = safe_string_conversion(patients_df['SiteSeenAt'], "")
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+        invalid_mask = patients_df['SiteSeenAt'].isin(invalid_sites)
+        if invalid_mask.any():
+            invalid_patients = patients_df[invalid_mask]['PatientID'].tolist()
+            error_msg = f"❌ DATA INTEGRITY ERROR: {len(invalid_patients)} patient(s) have invalid SiteSeenAt. "
+            error_msg += f"Invalid patients: {', '.join(map(str, invalid_patients[:10]))}"
+            if len(invalid_patients) > 10:
+                error_msg += f" and {len(invalid_patients) - 10} more"
+            error_msg += ". All patients must have visit site (SiteSeenAt)."
+            log_activity(error_msg, level='error')
+            raise ValueError(error_msg)
     
     return patients_df
 
@@ -506,7 +524,8 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             "PatientID": patient_tuple.PatientID,
             "Study": patient_tuple.Study,
             "StartDate": patient_tuple.StartDate,
-            "PatientPractice": getattr(patient_tuple, 'PatientPractice', '')
+            "PatientPractice": getattr(patient_tuple, 'PatientPractice', ''),
+            "SiteSeenAt": getattr(patient_tuple, 'SiteSeenAt', None)
         }
         
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(

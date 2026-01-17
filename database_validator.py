@@ -81,6 +81,23 @@ class DatabaseValidator:
             # Check site value distribution
             site_counts = patients_df['PatientPractice'].value_counts()
             self.info.append(f"📊 Patient recruitment: {dict(site_counts)}")
+
+        # Check 1b: Valid SiteSeenAt (visit location)
+        if 'SiteSeenAt' not in patients_df.columns:
+            self.warnings.append("⚠️ SiteSeenAt column missing from patients table (visit location)")
+        else:
+            invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+            patients_df['_TempSeenAt'] = patients_df['SiteSeenAt'].fillna('').astype(str).str.strip()
+            invalid_mask = patients_df['_TempSeenAt'].isin(invalid_sites)
+            if invalid_mask.any():
+                invalid_patients = patients_df[invalid_mask]['PatientID'].tolist()
+                self.errors.append(
+                    f"❌ {len(invalid_patients)} patient(s) missing SiteSeenAt (visit site): "
+                    f"{', '.join(map(str, invalid_patients[:5]))}"
+                    + (f" and {len(invalid_patients) - 5} more" if len(invalid_patients) > 5 else "")
+                )
+            else:
+                self.info.append(f"✅ All {len(patients_df)} patients have valid visit sites")
         
         # Check 2: Valid StartDate
         if 'StartDate' not in patients_df.columns:
@@ -124,9 +141,9 @@ class DatabaseValidator:
         
         log_activity(f"🔍 Validating {len(trials_df)} trial schedule records...", level='info')
         
-        # Check 1: Valid SiteforVisit
+        # Check 1: Valid SiteforVisit (contract holder)
         if 'SiteforVisit' not in trials_df.columns:
-            self.errors.append("❌ CRITICAL: SiteforVisit column missing from trials table")
+            self.errors.append("❌ CRITICAL: SiteforVisit column missing from trials table (contract holder)")
         else:
             invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE', 'Default Site']
             trials_df['_TempSite'] = trials_df['SiteforVisit'].fillna('').astype(str).str.strip()
@@ -136,7 +153,7 @@ class DatabaseValidator:
                 invalid_count = invalid_mask.sum()
                 invalid_trials = trials_df[invalid_mask][['Study', 'VisitName']].head(5)
                 self.errors.append(
-                    f"❌ {invalid_count} trial visit(s) missing SiteforVisit: "
+                    f"❌ {invalid_count} trial visit(s) missing SiteforVisit (contract holder): "
                     f"{invalid_trials.to_dict('records')}"
                 )
             else:
@@ -201,7 +218,7 @@ class DatabaseValidator:
                 invalid_event_sites = study_events['_TempSite'].isin(invalid_sites).sum()
                 if invalid_event_sites > 0:
                     self.errors.append(
-                        f"❌ {invalid_event_sites} study event(s) (SIV/Monitor) missing valid SiteforVisit"
+                        f"❌ {invalid_event_sites} study event(s) (SIV/Monitor) missing valid SiteforVisit (contract holder)"
                     )
                 else:
                     self.info.append(f"✅ All {len(study_events)} study events have valid sites")

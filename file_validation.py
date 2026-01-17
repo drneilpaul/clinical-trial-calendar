@@ -103,7 +103,7 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     errors = []
     warnings = []
     
-    # Required columns - ADD PatientPractice to this list
+    # Required columns - PatientPractice is recruitment site
     required_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
@@ -130,7 +130,7 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         if invalid_dates > 0:
             warnings.append(f"{invalid_dates} patients have invalid start dates")
     
-    # NEW SECTION: Validate PatientPractice is present and valid
+    # NEW SECTION: Validate PatientPractice is present and valid (recruitment site)
     if 'PatientPractice' in df_clean.columns:
         df_clean['PatientPractice'] = df_clean['PatientPractice'].fillna('').astype(str).str.strip()
         
@@ -150,6 +150,29 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
             
             error_msg = f"❌ {invalid_count} patient(s) missing required PatientPractice (recruitment site). "
             error_msg += f"Invalid rows: {', '.join(row_details[:5])}"  # Show first 5
+            if len(row_details) > 5:
+                error_msg += f" and {len(row_details) - 5} more"
+            errors.append(error_msg)
+
+    # NEW SECTION: Handle SiteSeenAt (visit location)
+    if 'SiteSeenAt' not in df_clean.columns:
+        # Default to PatientPractice for backward compatibility
+        df_clean['SiteSeenAt'] = df_clean['PatientPractice']
+        warnings.append("Missing optional column 'SiteSeenAt' (visit site), defaulted to PatientPractice")
+    else:
+        df_clean['SiteSeenAt'] = df_clean['SiteSeenAt'].fillna('').astype(str).str.strip()
+        invalid_sites = ['', 'nan', 'None', 'null', 'NULL', 'Unknown Site', 'unknown site', 'UNKNOWN SITE']
+        invalid_mask = df_clean['SiteSeenAt'].isin(invalid_sites)
+        invalid_count = invalid_mask.sum()
+        if invalid_count > 0:
+            invalid_rows = df_clean[invalid_mask]
+            row_details = []
+            for idx, row in invalid_rows.iterrows():
+                row_num = idx + 2
+                patient_id = row.get('PatientID', 'Unknown')
+                row_details.append(f"Row {row_num} (Patient {patient_id})")
+            error_msg = f"❌ {invalid_count} patient(s) missing required SiteSeenAt (visit site). "
+            error_msg += f"Invalid rows: {', '.join(row_details[:5])}"
             if len(row_details) > 5:
                 error_msg += f" and {len(row_details) - 5} more"
             errors.append(error_msg)
@@ -236,7 +259,7 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
                 visit = row.get('VisitName', 'Unknown')
                 row_details.append(f"Row {row_num} ({study}/{visit})")
             
-            error_msg = f"❌ {invalid_count} trial visit(s) missing required SiteforVisit (where visit is performed). "
+            error_msg = f"❌ {invalid_count} trial visit(s) missing required SiteforVisit (contract holder). "
             error_msg += f"Invalid rows: {', '.join(row_details[:5])}"  # Show first 5
             if len(row_details) > 5:
                 error_msg += f" and {len(row_details) - 5} more"

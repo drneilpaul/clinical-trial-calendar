@@ -122,6 +122,7 @@ def process_study_events(event_templates, actual_visits_df):
             "Study": study,
             "Payment": payment,
             "SiteofVisit": site,
+            "ContractSite": site,
             "PatientOrigin": site,
             "IsActual": is_actual,
             "IsProposed": is_proposed,  # Set to True for proposed events

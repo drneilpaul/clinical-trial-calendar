@@ -27,18 +27,27 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
     study_details_df = db.fetch_all_study_site_details()
     
     if study_details_df is not None and not study_details_df.empty:
-        # Use study_site_details as primary source
-        study_site_combos = study_details_df[['Study', 'SiteforVisit']].drop_duplicates()
+        # Use study_site_details as primary source (ContractSite is canonical)
+        if 'ContractSite' in study_details_df.columns:
+            study_site_combos = study_details_df[['Study', 'ContractSite']].drop_duplicates()
+            study_site_combos = study_site_combos.rename(columns={'ContractSite': 'Site'})
+        elif 'ContractedSite' in study_details_df.columns:
+            study_site_combos = study_details_df[['Study', 'ContractedSite']].drop_duplicates()
+            study_site_combos = study_site_combos.rename(columns={'ContractedSite': 'Site'})
+        else:
+            study_site_combos = study_details_df[['Study', 'SiteforVisit']].drop_duplicates()
+            study_site_combos = study_site_combos.rename(columns={'SiteforVisit': 'Site'})
     elif 'SiteforVisit' in trials_df.columns:
         # Fallback to trials_df
         study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()[['Study', 'SiteforVisit']]
+        study_site_combos = study_site_combos.rename(columns={'SiteforVisit': 'Site'})
     else:
         log_activity("No SiteforVisit column in trials_df and no study_site_details, cannot build recruitment data", level='error')
         return pd.DataFrame(columns=['Study', 'Site', 'Target', 'Actual', 'Progress', 'Status'])
     
     for _, row in study_site_combos.iterrows():
         study = row['Study']
-        site = row['SiteforVisit']
+        site = row['Site']
         
         # Get target and status from study_site_details (preferred) or fallback to trials_df
         target = None
@@ -46,10 +55,21 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
         
         if study_details_df is not None and not study_details_df.empty:
             # Try to get from study_site_details
-            study_detail = study_details_df[
-                (study_details_df['Study'] == study) & 
-                (study_details_df['SiteforVisit'] == site)
-            ]
+            if 'ContractSite' in study_details_df.columns:
+                study_detail = study_details_df[
+                    (study_details_df['Study'] == study) & 
+                    (study_details_df['ContractSite'] == site)
+                ]
+            elif 'ContractedSite' in study_details_df.columns:
+                study_detail = study_details_df[
+                    (study_details_df['Study'] == study) & 
+                    (study_details_df['ContractedSite'] == site)
+                ]
+            else:
+                study_detail = study_details_df[
+                    (study_details_df['Study'] == study) & 
+                    (study_details_df['SiteforVisit'] == site)
+                ]
             if not study_detail.empty:
                 target = study_detail.iloc[0].get('RecruitmentTarget')
                 if pd.notna(target):
@@ -73,10 +93,10 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
         
         # Calculate actual recruitment count
         actual = 0
-        if 'PatientPractice' in patients_df.columns:
+        # ContractSite counts all patients in the study, regardless of where they were seen
+        if 'Study' in patients_df.columns:
             study_patients = patients_df[
-                (patients_df['Study'] == study) & 
-                (patients_df['PatientPractice'] == site)
+                (patients_df['Study'] == study)
             ]
             actual = len(study_patients)
         

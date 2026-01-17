@@ -62,7 +62,7 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
                 df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
             
             return df
-        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
     except Exception as e:
         return None
 
@@ -203,6 +203,18 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
             st.error(f"❌ Data validation failed: {len(invalid_patients)} patient(s) missing recruitment site: {', '.join(map(str, invalid_patients[:5]))}")
             return False
         
+        # Validate SiteSeenAt (visit location) - default to PatientPractice if missing
+        if 'SiteSeenAt' not in patients_df.columns:
+            patients_df['SiteSeenAt'] = patients_df['PatientPractice']
+        patients_df['SiteSeenAt'] = patients_df['SiteSeenAt'].fillna('').astype(str).str.strip()
+        invalid_seen_mask = patients_df['SiteSeenAt'].isin(invalid_sites)
+        if invalid_seen_mask.any():
+            invalid_patients = patients_df[invalid_seen_mask]['PatientID'].tolist()
+            error_msg = f"Cannot save patients with missing SiteSeenAt: {invalid_patients}"
+            log_activity(error_msg, level='error')
+            st.error(f"❌ Data validation failed: {len(invalid_patients)} patient(s) missing visit site: {', '.join(map(str, invalid_patients[:5]))}")
+            return False
+        
         # END NEW VALIDATION
         
         records = []
@@ -224,7 +236,8 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
                 'PatientID': str(row_tuple.PatientID),
                 'Study': str(row_tuple.Study),
                 'StartDate': str(start_date) if start_date else None,
-                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', ''))
+                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', '')),
+                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', '')))
             }
             records.append(record)
         
@@ -251,7 +264,7 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             for issue in payment_validation['issues']:
                 log_activity(f"Payment data issue: {issue}", level='warning')
         
-        # NEW: Validate all trials have valid SiteforVisit BEFORE attempting to save
+        # NEW: Validate all trials have valid SiteforVisit (contract holder) BEFORE attempting to save
         if 'SiteforVisit' not in trials_df_clean.columns:
             log_activity("ERROR: SiteforVisit column missing from trials data", level='error')
             return False
@@ -263,9 +276,9 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
         
         if invalid_mask.any():
             invalid_trials = trials_df_clean[invalid_mask][['Study', 'VisitName']].values.tolist()
-            error_msg = f"Cannot save trials with missing SiteforVisit: {invalid_trials}"
+            error_msg = f"Cannot save trials with missing SiteforVisit (contract holder): {invalid_trials}"
             log_activity(error_msg, level='error')
-            st.error(f"❌ Data validation failed: {len(invalid_trials)} trial(s) missing visit site")
+            st.error(f"❌ Data validation failed: {len(invalid_trials)} trial(s) missing contract site")
             return False
         
         # END NEW VALIDATION
@@ -454,6 +467,14 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
             log_activity("ERROR: Patient has invalid PatientPractice", level='error')
             st.error("❌ Cannot add patient: Recruitment site must be specified (Ashfields or Kiltearn)")
             return False
+        # Validate SiteSeenAt (visit location)
+        if 'SiteSeenAt' not in patient_df.columns:
+            patient_df['SiteSeenAt'] = patient_df['PatientPractice']
+        patient_df['SiteSeenAt'] = patient_df['SiteSeenAt'].fillna('').astype(str).str.strip()
+        if patient_df['SiteSeenAt'].iloc[0] in invalid_sites:
+            log_activity("ERROR: Patient has invalid SiteSeenAt", level='error')
+            st.error("❌ Cannot add patient: Visit site must be specified (Ashfields or Kiltearn)")
+            return False
         # END NEW VALIDATION
         
         records = []
@@ -475,7 +496,8 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
                 'PatientID': str(row_tuple.PatientID),
                 'Study': str(row_tuple.Study),
                 'StartDate': str(start_date) if start_date else None,
-                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', ''))
+                'PatientPractice': str(getattr(row_tuple, 'PatientPractice', '')),
+                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', '')))
             }
             records.append(record)
         
@@ -776,16 +798,16 @@ def export_patients_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_patients()
         if df is None or df.empty:
-            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
         
-        for col in ['PatientPractice']:
+        for col in ['PatientPractice', 'SiteSeenAt']:
             if col not in df.columns:
                 df[col] = ''
         
         if 'StartDate' in df.columns:
             df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce').dt.strftime('%d/%m/%Y')
         
-        export_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice']
+        export_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt']
         # Only select columns that exist
         available_columns = [col for col in export_columns if col in df.columns]
         df = df[available_columns]
@@ -915,16 +937,26 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
             # Log actual columns for debugging
             log_activity(f"study_site_details columns from database: {list(df.columns)}", level='info')
 
-            # Standardize column name - handle both ContractedSite and SiteforVisit (case-insensitive)
-            # Create lowercase column mapping for case-insensitive search
+            # Standardize column name - handle ContractSite variants (case-insensitive)
+            # ContractSite is the canonical contract holder field
             col_lower_map = {col.lower(): col for col in df.columns}
 
-            if 'contractedsite' in col_lower_map and 'siteforvisit' not in col_lower_map:
+            if 'contractsite' in col_lower_map:
+                actual_col = col_lower_map['contractsite']
+                if actual_col != 'ContractSite':
+                    df = df.rename(columns={actual_col: 'ContractSite'})
+                    log_activity(f"Renamed {actual_col} to ContractSite", level='info')
+            elif 'contractedsite' in col_lower_map:
                 actual_col = col_lower_map['contractedsite']
-                df = df.rename(columns={actual_col: 'SiteforVisit'})
-                log_activity(f"Renamed {actual_col} to SiteforVisit", level='info')
-            elif 'siteforvisit' not in col_lower_map and 'contractedsite' not in col_lower_map:
-                log_activity(f"WARNING: Neither SiteforVisit nor ContractedSite found in study_site_details. Columns: {list(df.columns)}", level='warning')
+                df = df.rename(columns={actual_col: 'ContractSite'})
+                log_activity(f"Renamed {actual_col} to ContractSite", level='info')
+            elif 'siteforvisit' in col_lower_map:
+                # Backward compatibility: treat SiteforVisit as ContractSite if present
+                actual_col = col_lower_map['siteforvisit']
+                df = df.rename(columns={actual_col: 'ContractSite'})
+                log_activity(f"Renamed {actual_col} to ContractSite (legacy SiteforVisit)", level='info')
+            else:
+                log_activity(f"WARNING: ContractSite not found in study_site_details. Columns: {list(df.columns)}", level='warning')
 
             # Parse date fields if they exist
             for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
@@ -942,8 +974,8 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
                 df['RecruitmentTarget'] = pd.to_numeric(df['RecruitmentTarget'], errors='coerce')
 
             return df
-        # Return empty DataFrame with SiteforVisit (normalized column name used internally)
-        return pd.DataFrame(columns=['Study', 'SiteforVisit', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
+        # Return empty DataFrame with ContractSite (normalized column name used internally)
+        return pd.DataFrame(columns=['Study', 'ContractSite', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
     except Exception as e:
         log_activity(f"Error fetching study site details: {e}", level='error')
         return None
@@ -962,7 +994,7 @@ def fetch_study_site_details(study: str, site: str) -> Optional[Dict]:
         if client is None:
             return None
         
-        response = client.table('study_site_details').select("*").eq('Study', study).eq('ContractedSite', site).execute()
+        response = client.table('study_site_details').select("*").eq('Study', study).eq('ContractSite', site).execute()
         
         if response.data and len(response.data) > 0:
             return response.data[0]
@@ -981,7 +1013,7 @@ def create_study_site_details(study: str, site: str, details: Dict) -> bool:
         # Prepare record with defaults
         record = {
             'Study': str(study).strip(),
-            'ContractedSite': str(site).strip(),
+            'ContractSite': str(site).strip(),
             'StudyStatus': details.get('StudyStatus', 'active'),
             'RecruitmentTarget': details.get('RecruitmentTarget'),
             'FPFV': str(details.get('FPFV')) if details.get('FPFV') else None,
@@ -1021,7 +1053,7 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
         # Prepare record
         record = {
             'Study': str(study).strip(),
-            'ContractedSite': str(site).strip(),
+            'ContractSite': str(site).strip(),
         }
         
         # Add fields that are provided
@@ -1046,7 +1078,7 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
         
         if existing:
             # Update existing record
-            response = client.table('study_site_details').update(record).eq('Study', study).eq('ContractedSite', site).execute()
+            response = client.table('study_site_details').update(record).eq('Study', study).eq('ContractSite', site).execute()
             log_activity(f"Updated study site details: {study}/{site}", level='success')
         else:
             # Create new record
@@ -1085,7 +1117,7 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
         if not update_data:
             return False
         
-        response = client.table('study_site_details').update(update_data).eq('Study', study).eq('ContractedSite', site).execute()
+        response = client.table('study_site_details').update(update_data).eq('Study', study).eq('ContractSite', site).execute()
         
         if response.data:
             log_activity(f"Updated study site details: {study}/{site}", level='success')
@@ -1112,7 +1144,7 @@ def create_backup_zip() -> Optional[io.BytesIO]:
             patients_df = export_patients_to_csv()
         except Exception as e:
             log_activity(f"Error exporting patients: {e}", level='error')
-            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
         
         try:
             trials_df = export_trials_to_csv()
@@ -1128,7 +1160,7 @@ def create_backup_zip() -> Optional[io.BytesIO]:
         
         # Ensure we have DataFrames (even if empty)
         if patients_df is None:
-            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice'])
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
         if trials_df is None:
             trials_df = pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment'])
         if visits_df is None:
@@ -1142,7 +1174,7 @@ def create_backup_zip() -> Optional[io.BytesIO]:
                 zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
             except Exception as e:
                 log_activity(f"Error writing patients CSV: {e}", level='error')
-                patients_csv = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice']).to_csv(index=False)
+                patients_csv = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt']).to_csv(index=False)
                 zip_file.writestr(f'patients_backup_{today}.csv', patients_csv)
             
             try:

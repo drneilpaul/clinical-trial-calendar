@@ -374,8 +374,8 @@ def display_site_income_by_fy(visits_df, trials_df):
         from calculations import calculate_actual_and_predicted_income_by_site
         from formatters import format_currency
         
-        st.subheader("💰 Site Income by Financial Year")
-        st.caption("Income earned by site performing the work (where visits happen)")
+        st.subheader("💰 Contract Site Income by Financial Year")
+        st.caption("Income attributed to contract holder (ContractSite)")
         
         # Get the site income data
         site_income_df = calculate_actual_and_predicted_income_by_site(visits_df, trials_df)
@@ -395,6 +395,7 @@ def display_site_income_by_fy(visits_df, trials_df):
         # Rename columns for better display
         display_df = display_df.rename(columns={
             'SiteofVisit': 'Site',
+            'ContractSite': 'Site',
             'Actual Visits': 'Completed Visits',
             'Predicted Visits': 'Scheduled Visits',
             'Total Visits': 'Total Visits'

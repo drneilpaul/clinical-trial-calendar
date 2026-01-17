@@ -33,15 +33,15 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
     
     Args:
         study: Study name
-        site: Site name (PatientPractice)
+        site: Contract site name (for grouping only)
         patients_df: Patients dataframe
     
     Returns:
         List of tuples: [(recruitment_date, patient_number), ...] sorted by date
     """
+    # ContractSite is the grouping key; count all patients in the study
     study_patients = patients_df[
-        (patients_df['Study'] == study) & 
-        (patients_df['PatientPractice'] == site)
+        (patients_df['Study'] == study)
     ]
     
     if study_patients.empty or 'StartDate' not in study_patients.columns:
@@ -61,13 +61,13 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
 def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame, 
                          visits_df: pd.DataFrame, trials_df: pd.DataFrame) -> Dict[str, Optional[date]]:
     """
-    Calculate study dates (start, end, last enrollment) for a study at a specific site.
+    Calculate study dates (start, end, last enrollment) for a study at a specific contract site.
     Prefers calculated dates, but uses FPFV/LPFV/LPLV overrides if available.
     Auto-detects "in_followup" status if past LPFV but before LPLV.
     
     Args:
         study: Study name
-        site: Site name (SiteforVisit)
+        site: Contract site name
         patients_df: Patients dataframe
         visits_df: Visits dataframe (with Date column)
         trials_df: Trial schedules dataframe (for backward compatibility, but prefers study_site_details)
@@ -129,8 +129,7 @@ def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame,
     # Calculate start date (FPFV) from patients if override not set
     if start_date is None:
         study_patients = patients_df[
-            (patients_df['Study'] == study) & 
-            (patients_df['PatientPractice'] == site)
+            (patients_df['Study'] == study)
         ]
         if not study_patients.empty and 'StartDate' in study_patients.columns:
             start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
@@ -140,8 +139,7 @@ def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame,
     # Calculate end date (LPLV) from visits if override not set
     if end_date is None:
         study_visits = visits_df[
-            (visits_df['Study'] == study) & 
-            (visits_df['SiteofVisit'] == site)
+            (visits_df['Study'] == study)
         ]
         if not study_visits.empty and 'Date' in study_visits.columns:
             visit_dates = pd.to_datetime(study_visits['Date'], errors='coerce').dropna()
@@ -198,8 +196,13 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
         # DEBUG: Log what columns we actually have
         log_activity(f"DEBUG gantt_view: study_details_df columns: {list(study_details_df.columns)}", level='info')
 
-        # Handle both SiteforVisit and ContractedSite column names
-        site_col = 'SiteforVisit' if 'SiteforVisit' in study_details_df.columns else 'ContractedSite'
+        # Handle ContractSite as canonical, with backward-compatible fallbacks
+        if 'ContractSite' in study_details_df.columns:
+            site_col = 'ContractSite'
+        elif 'ContractedSite' in study_details_df.columns:
+            site_col = 'ContractedSite'
+        else:
+            site_col = 'SiteforVisit'
 
         for _, row in study_details_df.iterrows():
             study_site_combinations.add((row['Study'], row[site_col]))
