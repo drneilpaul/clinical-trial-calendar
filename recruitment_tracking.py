@@ -28,8 +28,6 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
     
     if study_details_df is not None and not study_details_df.empty:
         # Use study_site_details as primary source
-        # Rename ContractedSite to SiteforVisit for consistency with rest of code
-        study_details_df = study_details_df.rename(columns={'ContractedSite': 'SiteforVisit'})
         study_site_combos = study_details_df[['Study', 'SiteforVisit']].drop_duplicates()
     elif 'SiteforVisit' in trials_df.columns:
         # Fallback to trials_df

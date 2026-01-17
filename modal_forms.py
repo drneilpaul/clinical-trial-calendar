@@ -1239,7 +1239,7 @@ def study_settings_navigation_modal():
         # Add from study_site_details (preferred source)
         if study_details_df is not None and not study_details_df.empty:
             for _, row in study_details_df.iterrows():
-                combinations_set.add((row['Study'], row['ContractedSite']))
+                combinations_set.add((row['Study'], row['SiteforVisit']))
         
         # Add from trial_schedules (for backward compatibility - studies without details yet)
         if trials_df is not None and not trials_df.empty:

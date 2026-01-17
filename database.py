@@ -916,11 +916,12 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
             log_activity(f"study_site_details columns from database: {list(df.columns)}", level='info')
 
             # Standardize column name - handle both ContractedSite and SiteforVisit
-            if 'SiteforVisit' in df.columns and 'ContractedSite' not in df.columns:
-                df = df.rename(columns={'SiteforVisit': 'ContractedSite'})
-                log_activity("Renamed SiteforVisit to ContractedSite", level='info')
-            elif 'ContractedSite' not in df.columns and 'SiteforVisit' not in df.columns:
-                log_activity(f"WARNING: Neither ContractedSite nor SiteforVisit found in study_site_details. Columns: {list(df.columns)}", level='warning')
+            # Database should have SiteforVisit, but handle ContractedSite for compatibility
+            if 'ContractedSite' in df.columns and 'SiteforVisit' not in df.columns:
+                df = df.rename(columns={'ContractedSite': 'SiteforVisit'})
+                log_activity("Renamed ContractedSite to SiteforVisit", level='info')
+            elif 'SiteforVisit' not in df.columns and 'ContractedSite' not in df.columns:
+                log_activity(f"WARNING: Neither SiteforVisit nor ContractedSite found in study_site_details. Columns: {list(df.columns)}", level='warning')
 
             # Parse date fields if they exist
             for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
@@ -938,7 +939,7 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
                 df['RecruitmentTarget'] = pd.to_numeric(df['RecruitmentTarget'], errors='coerce')
 
             return df
-        return pd.DataFrame(columns=['Study', 'ContractedSite', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
+        return pd.DataFrame(columns=['Study', 'SiteforVisit', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
     except Exception as e:
         log_activity(f"Error fetching study site details: {e}", level='error')
         return None
@@ -957,7 +958,7 @@ def fetch_study_site_details(study: str, site: str) -> Optional[Dict]:
         if client is None:
             return None
         
-        response = client.table('study_site_details').select("*").eq('Study', study).eq('ContractedSite', site).execute()
+        response = client.table('study_site_details').select("*").eq('Study', study).eq('SiteforVisit', site).execute()
         
         if response.data and len(response.data) > 0:
             return response.data[0]
@@ -976,7 +977,7 @@ def create_study_site_details(study: str, site: str, details: Dict) -> bool:
         # Prepare record with defaults
         record = {
             'Study': str(study).strip(),
-            'ContractedSite': str(site).strip(),
+            'SiteforVisit': str(site).strip(),
             'StudyStatus': details.get('StudyStatus', 'active'),
             'RecruitmentTarget': details.get('RecruitmentTarget'),
             'FPFV': str(details.get('FPFV')) if details.get('FPFV') else None,
@@ -1016,7 +1017,7 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
         # Prepare record
         record = {
             'Study': str(study).strip(),
-            'ContractedSite': str(site).strip(),
+            'SiteforVisit': str(site).strip(),
         }
         
         # Add fields that are provided
@@ -1041,7 +1042,7 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
         
         if existing:
             # Update existing record
-            response = client.table('study_site_details').update(record).eq('Study', study).eq('ContractedSite', site).execute()
+            response = client.table('study_site_details').update(record).eq('Study', study).eq('SiteforVisit', site).execute()
             log_activity(f"Updated study site details: {study}/{site}", level='success')
         else:
             # Create new record
@@ -1080,7 +1081,7 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
         if not update_data:
             return False
         
-        response = client.table('study_site_details').update(update_data).eq('Study', study).eq('ContractedSite', site).execute()
+        response = client.table('study_site_details').update(update_data).eq('Study', study).eq('SiteforVisit', site).execute()
         
         if response.data:
             log_activity(f"Updated study site details: {study}/{site}", level='success')

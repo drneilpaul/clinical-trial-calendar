@@ -196,7 +196,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     # Add from study_site_details (includes EOI studies without trial schedules)
     if study_details_df is not None and not study_details_df.empty:
         for _, row in study_details_df.iterrows():
-            study_site_combinations.add((row['Study'], row['ContractedSite']))
+            study_site_combinations.add((row['Study'], row['SiteforVisit']))
     
     if not study_site_combinations:
         log_activity("No study-site combinations found, cannot build Gantt data", level='error')
