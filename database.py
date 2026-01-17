@@ -911,22 +911,32 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
         
         if response.data:
             df = pd.DataFrame(response.data)
-            
+
+            # Log actual columns for debugging
+            log_activity(f"study_site_details columns from database: {list(df.columns)}", level='info')
+
+            # Standardize column name - handle both ContractedSite and SiteforVisit
+            if 'SiteforVisit' in df.columns and 'ContractedSite' not in df.columns:
+                df = df.rename(columns={'SiteforVisit': 'ContractedSite'})
+                log_activity("Renamed SiteforVisit to ContractedSite", level='info')
+            elif 'ContractedSite' not in df.columns and 'SiteforVisit' not in df.columns:
+                log_activity(f"WARNING: Neither ContractedSite nor SiteforVisit found in study_site_details. Columns: {list(df.columns)}", level='warning')
+
             # Parse date fields if they exist
             for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
                 if date_col in df.columns:
                     df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-            
+
             # Ensure StudyStatus defaults to 'active' if missing
             if 'StudyStatus' not in df.columns:
                 df['StudyStatus'] = 'active'
             else:
                 df['StudyStatus'] = df['StudyStatus'].fillna('active')
-            
+
             # Ensure RecruitmentTarget is numeric or None
             if 'RecruitmentTarget' in df.columns:
                 df['RecruitmentTarget'] = pd.to_numeric(df['RecruitmentTarget'], errors='coerce')
-            
+
             return df
         return pd.DataFrame(columns=['Study', 'ContractedSite', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
     except Exception as e:
