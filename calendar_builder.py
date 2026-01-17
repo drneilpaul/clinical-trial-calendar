@@ -314,16 +314,10 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     # OPTIMIZED: Process visits by date (only iterate through dates that have visits)
     # This reduces iterations from 365 (all dates) to ~100-200 (dates with visits)
     for visit_date, visits_group in visits_by_date.items():
-        # Normalize visit_date to ensure it matches date_to_idx keys (which are normalized)
-        if pd.notna(visit_date):
-            visit_date_normalized = pd.to_datetime(visit_date).normalize()
-        else:
-            continue  # Skip visits with invalid dates
-        
-        if visit_date_normalized not in date_to_idx:
+        if visit_date not in date_to_idx:
             continue
             
-        i = date_to_idx[visit_date_normalized]
+        i = date_to_idx[visit_date]
         visits_today = visits_group
         
         
@@ -341,9 +335,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                 pid = str(visit["PatientID"])
                 visit_info = visit["Visit"]
                 payment = float(visit["Payment"]) if pd.notna(visit["Payment"]) else 0.0
-                # Fix NaN boolean evaluation: check for NaN before using in boolean context
-                is_actual_raw = visit.get("IsActual", False)
-                is_actual = bool(is_actual_raw) if pd.notna(is_actual_raw) else False
+                is_actual = visit.get("IsActual", False)
                 visit_site = visit["SiteofVisit"]
                 
 
@@ -600,16 +592,10 @@ def build_site_busy_calendar(visits_df, trials_df=None, actual_visits_df=None, d
     
     # Group visits by date and site
     for visit_date, date_group in visits_df.groupby('Date'):
-        # Normalize visit_date to ensure it matches date_to_idx keys (which are normalized)
-        if pd.notna(visit_date):
-            visit_date_normalized = pd.to_datetime(visit_date).normalize()
-        else:
-            continue  # Skip visits with invalid dates
-        
-        if visit_date_normalized not in date_to_idx:
+        if visit_date not in date_to_idx:
             continue
         
-        idx = date_to_idx[visit_date_normalized]
+        idx = date_to_idx[visit_date]
         
         # Group by site
         for site, site_group in date_group.groupby('SiteofVisit'):

@@ -2097,11 +2097,6 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                         records_df_display = records_df.copy()
                         if 'ActualDate' in records_df_display.columns and not pd.api.types.is_string_dtype(records_df_display['ActualDate']):
                             records_df_display['ActualDate'] = records_df_display['ActualDate'].dt.strftime('%d/%m/%Y')
-                        
-                        # Defensive: Normalize any 'Target' column to string type to prevent PyArrow serialization errors
-                        if 'Target' in records_df_display.columns:
-                            from recruitment_tracking import normalize_target_column_for_display
-                            records_df_display = normalize_target_column_for_display(records_df_display)
 
                         st.success(f"Parsed {len(records_df)} visit record(s) ready for import.")
                         with st.expander("Preview import records", expanded=False):
