@@ -184,19 +184,25 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     # This ensures EOI studies without trial schedules are included
     import database as db
     study_details_df = db.fetch_all_study_site_details()
-    
+
     # Build set of all study+site combinations
     study_site_combinations = set()
-    
+
     # Add from trial_schedules
     if trials_df is not None and not trials_df.empty and 'SiteforVisit' in trials_df.columns:
         for _, row in trials_df.iterrows():
             study_site_combinations.add((row['Study'], row['SiteforVisit']))
-    
+
     # Add from study_site_details (includes EOI studies without trial schedules)
     if study_details_df is not None and not study_details_df.empty:
+        # DEBUG: Log what columns we actually have
+        log_activity(f"DEBUG gantt_view: study_details_df columns: {list(study_details_df.columns)}", level='info')
+
+        # Handle both SiteforVisit and ContractedSite column names
+        site_col = 'SiteforVisit' if 'SiteforVisit' in study_details_df.columns else 'ContractedSite'
+
         for _, row in study_details_df.iterrows():
-            study_site_combinations.add((row['Study'], row['SiteforVisit']))
+            study_site_combinations.add((row['Study'], row[site_col]))
     
     if not study_site_combinations:
         log_activity("No study-site combinations found, cannot build Gantt data", level='error')

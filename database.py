@@ -915,12 +915,15 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
             # Log actual columns for debugging
             log_activity(f"study_site_details columns from database: {list(df.columns)}", level='info')
 
-            # Standardize column name - handle both ContractedSite and SiteforVisit
-            # Database should have SiteforVisit, but handle ContractedSite for compatibility
-            if 'ContractedSite' in df.columns and 'SiteforVisit' not in df.columns:
-                df = df.rename(columns={'ContractedSite': 'SiteforVisit'})
-                log_activity("Renamed ContractedSite to SiteforVisit", level='info')
-            elif 'SiteforVisit' not in df.columns and 'ContractedSite' not in df.columns:
+            # Standardize column name - handle both ContractedSite and SiteforVisit (case-insensitive)
+            # Create lowercase column mapping for case-insensitive search
+            col_lower_map = {col.lower(): col for col in df.columns}
+
+            if 'contractedsite' in col_lower_map and 'siteforvisit' not in col_lower_map:
+                actual_col = col_lower_map['contractedsite']
+                df = df.rename(columns={actual_col: 'SiteforVisit'})
+                log_activity(f"Renamed {actual_col} to SiteforVisit", level='info')
+            elif 'siteforvisit' not in col_lower_map and 'contractedsite' not in col_lower_map:
                 log_activity(f"WARNING: Neither SiteforVisit nor ContractedSite found in study_site_details. Columns: {list(df.columns)}", level='warning')
 
             # Parse date fields if they exist
