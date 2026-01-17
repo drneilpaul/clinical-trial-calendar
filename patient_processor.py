@@ -492,12 +492,12 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         visit_name = str(visit_tuple.VisitName)
         visit_day = int(visit_tuple.Day)
         # Convert tuple to dict-like for compatibility
-            visit = {
+        visit = {
             "Day": visit_tuple.Day,
             "VisitName": visit_tuple.VisitName,
             "Payment": getattr(visit_tuple, 'Payment', 0),
             "SiteforVisit": getattr(visit_tuple, 'SiteforVisit', ''),
-                "ContractSite": getattr(visit_tuple, 'SiteforVisit', ''),
+            "ContractSite": getattr(visit_tuple, 'SiteforVisit', ''),
             "ToleranceBefore": getattr(visit_tuple, 'ToleranceBefore', 0),
             "ToleranceAfter": getattr(visit_tuple, 'ToleranceAfter', 0),
             "IntervalUnit": getattr(visit_tuple, 'IntervalUnit', None),
