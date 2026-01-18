@@ -1056,6 +1056,8 @@ def main():
                 st.session_state.active_site_filter = available_sites.copy() if available_sites else []
             if 'active_study_filter' not in st.session_state:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
+            if 'calendar_view' not in st.session_state:
+                st.session_state.calendar_view = "Site Busy"
             
             # Calendar display options - moved calendar view selector to same line
             col_options = st.columns([1, 1, 1, 1, 1, 1, 1])
@@ -1125,114 +1127,115 @@ def main():
                 # Calendar range selector moved to same line - hide label for alignment
                 calendar_filter_option = render_calendar_start_selector(show_label=False)
                 calendar_start_date = calendar_filter_option.get("start")
-            with col_options[6]:
-                # Build filter summary for expander header
-                active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
-                active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
-                total_sites = len(available_sites) if available_sites else 0
-                total_studies = len(available_studies) if available_studies else 0
-                
-                if active_sites_count == total_sites and active_studies_count == total_studies:
-                    filter_summary = "Filter Calendar (All)"
-                else:
-                    filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
-                
-                # Determine if filter is active (expanded if active, closed if showing all)
-                has_active_filter = (
-                    (active_sites_count < total_sites or active_studies_count < total_studies)
-                    if (total_sites > 0 and total_studies > 0)
-                    else False
-                )
-                
-                with st.expander(filter_summary, expanded=has_active_filter):
-                    # Wrap filter UI in form to prevent reruns on checkbox clicks
-                    with st.form(key="calendar_filter_form"):
-                        # Get relationship maps for site-study relationships
-                        relationship_map = st.session_state.get('site_study_relationship_map', {})
-                        site_to_studies = relationship_map.get('site_to_studies', {})
-                        study_to_sites = relationship_map.get('study_to_sites', {})
-                        
-                        # Always use Site → Study mode (simplified)
-                        # Sites: show all available sites
-                        available_site_options = available_sites.copy() if available_sites else []
-                        
-                        # Studies: show all studies, but some may be disabled based on selected sites
-                        available_study_options = available_studies.copy() if available_studies else []
-                        
-                        study_label = "Study:"
-                        
-                        # Site selector
-                        st.markdown("**Site:**")
-                        
-                        # Individual checkboxes for each site (Select All removed)
-                        pending_sites = st.session_state.pending_site_filter or []
-                        selected_sites = []
-                        
-                        for site in available_site_options:
-                            is_selected = site in pending_sites
-                            site_key = f"site_checkbox_{site}"
-                            checked = st.checkbox(
-                                site,
-                                value=is_selected,
-                                key=site_key
-                            )
-                            if checked:
-                                selected_sites.append(site)
-                        
-                        # Update pending site filter based on form values (no rerun until form submission)
-                        st.session_state.pending_site_filter = selected_sites
-                        
-                        # Determine which studies are enabled based on CURRENT form selections (not session state)
-                        enabled_studies = set()
-                        for site in selected_sites:
-                            if site in site_to_studies:
-                                enabled_studies.update(site_to_studies[site])
-                        
-                        st.markdown("")  # Spacing
-                        
-                        # Study selector
-                        st.markdown(f"**{study_label}**")
-                        
-                        # Individual checkboxes for each study - disabled if site not selected (Select All removed)
-                        pending_studies = st.session_state.pending_study_filter or []
-                        selected_studies = []
-                        
-                        for study in available_study_options:
-                            is_selected = study in pending_studies
-                            study_key = f"study_checkbox_{study}"
-                            is_enabled = study in enabled_studies
+            if calendar_view != 'Gantt':
+                with col_options[6]:
+                    # Build filter summary for expander header
+                    active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
+                    active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
+                    total_sites = len(available_sites) if available_sites else 0
+                    total_studies = len(available_studies) if available_studies else 0
+                    
+                    if active_sites_count == total_sites and active_studies_count == total_studies:
+                        filter_summary = "Filter Calendar (All)"
+                    else:
+                        filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
+                    
+                    # Determine if filter is active (expanded if active, closed if showing all)
+                    has_active_filter = (
+                        (active_sites_count < total_sites or active_studies_count < total_studies)
+                        if (total_sites > 0 and total_studies > 0)
+                        else False
+                    )
+                    
+                    with st.expander(filter_summary, expanded=has_active_filter):
+                        # Wrap filter UI in form to prevent reruns on checkbox clicks
+                        with st.form(key="calendar_filter_form"):
+                            # Get relationship maps for site-study relationships
+                            relationship_map = st.session_state.get('site_study_relationship_map', {})
+                            site_to_studies = relationship_map.get('site_to_studies', {})
+                            study_to_sites = relationship_map.get('study_to_sites', {})
                             
-                            checked = st.checkbox(
-                                study,
-                                value=is_selected if is_enabled else False,  # Uncheck if disabled
-                                disabled=not is_enabled,
-                                key=study_key,
-                                help=f"Disabled because no associated site is selected" if not is_enabled else None
-                            )
-                            if checked and is_enabled:
-                                selected_studies.append(study)
-                        
-                        # Clean up: remove studies that are no longer enabled
-                        final_selected_studies = [s for s in selected_studies if s in enabled_studies]
-                        
-                        # Update pending study filter based on form values (no rerun until form submission)
-                        st.session_state.pending_study_filter = final_selected_studies
-                        
-                        st.markdown("")  # Spacing
-                        
-                        # Apply Filter button - form submit button (triggers rerun only on submit)
-                        submitted = st.form_submit_button("Apply Filter", type="primary", width='stretch')
-                        if submitted:
-                            # Copy pending to active - form submission automatically triggers rerun
-                            # Defensive check: ensure we have lists before calling .copy()
-                            st.session_state.active_site_filter = (
-                                st.session_state.pending_site_filter.copy() 
-                                if st.session_state.pending_site_filter else []
-                            )
-                            st.session_state.active_study_filter = (
-                                st.session_state.pending_study_filter.copy() 
-                                if st.session_state.pending_study_filter else []
-                            )
+                            # Always use Site → Study mode (simplified)
+                            # Sites: show all available sites
+                            available_site_options = available_sites.copy() if available_sites else []
+                            
+                            # Studies: show all studies, but some may be disabled based on selected sites
+                            available_study_options = available_studies.copy() if available_studies else []
+                            
+                            study_label = "Study:"
+                            
+                            # Site selector
+                            st.markdown("**Site:**")
+                            
+                            # Individual checkboxes for each site (Select All removed)
+                            pending_sites = st.session_state.pending_site_filter or []
+                            selected_sites = []
+                            
+                            for site in available_site_options:
+                                is_selected = site in pending_sites
+                                site_key = f"site_checkbox_{site}"
+                                checked = st.checkbox(
+                                    site,
+                                    value=is_selected,
+                                    key=site_key
+                                )
+                                if checked:
+                                    selected_sites.append(site)
+                            
+                            # Update pending site filter based on form values (no rerun until form submission)
+                            st.session_state.pending_site_filter = selected_sites
+                            
+                            # Determine which studies are enabled based on CURRENT form selections (not session state)
+                            enabled_studies = set()
+                            for site in selected_sites:
+                                if site in site_to_studies:
+                                    enabled_studies.update(site_to_studies[site])
+                            
+                            st.markdown("")  # Spacing
+                            
+                            # Study selector
+                            st.markdown(f"**{study_label}**")
+                            
+                            # Individual checkboxes for each study - disabled if site not selected (Select All removed)
+                            pending_studies = st.session_state.pending_study_filter or []
+                            selected_studies = []
+                            
+                            for study in available_study_options:
+                                is_selected = study in pending_studies
+                                study_key = f"study_checkbox_{study}"
+                                is_enabled = study in enabled_studies
+                                
+                                checked = st.checkbox(
+                                    study,
+                                    value=is_selected if is_enabled else False,  # Uncheck if disabled
+                                    disabled=not is_enabled,
+                                    key=study_key,
+                                    help=f"Disabled because no associated site is selected" if not is_enabled else None
+                                )
+                                if checked and is_enabled:
+                                    selected_studies.append(study)
+                            
+                            # Clean up: remove studies that are no longer enabled
+                            final_selected_studies = [s for s in selected_studies if s in enabled_studies]
+                            
+                            # Update pending study filter based on form values (no rerun until form submission)
+                            st.session_state.pending_study_filter = final_selected_studies
+                            
+                            st.markdown("")  # Spacing
+                            
+                            # Apply Filter button - form submit button (triggers rerun only on submit)
+                            submitted = st.form_submit_button("Apply Filter", type="primary", width='stretch')
+                            if submitted:
+                                # Copy pending to active - form submission automatically triggers rerun
+                                # Defensive check: ensure we have lists before calling .copy()
+                                st.session_state.active_site_filter = (
+                                    st.session_state.pending_site_filter.copy() 
+                                    if st.session_state.pending_site_filter else []
+                                )
+                                st.session_state.active_study_filter = (
+                                    st.session_state.pending_study_filter.copy() 
+                                    if st.session_state.pending_study_filter else []
+                                )
             
             # Get calendar_start_date from the selector (created in col_options[3])
             calendar_filter_option = st.session_state.get("calendar_start_selection", {})
@@ -1249,15 +1252,17 @@ def main():
             effective_studies = selected_studies if selected_studies is not None else available_studies
             effective_sites = selected_sites if selected_sites is not None else available_sites
 
-            if effective_studies is not None and 'Study' in visits_df_filtered.columns:
-                visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
-            if effective_sites is not None and site_field and site_field in visits_df_filtered.columns:
-                visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
+            apply_filters = (calendar_view != 'Gantt')
+            if apply_filters:
+                if effective_studies is not None and 'Study' in visits_df_filtered.columns:
+                    visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
+                if effective_sites is not None and site_field and site_field in visits_df_filtered.columns:
+                    visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
 
             # Filter site column mapping to match selections
             filtered_site_column_mapping = {}
             for site, site_data in site_column_mapping.items():
-                if effective_sites is not None and site not in effective_sites:
+                if apply_filters and effective_sites is not None and site not in effective_sites:
                     continue
 
                 patient_info = site_data.get('patient_info', [])
@@ -1268,7 +1273,7 @@ def main():
 
                 for info in patient_info:
                     study_name = str(info.get('study', '')).strip()
-                    if effective_studies is not None and study_name not in effective_studies:
+                    if apply_filters and effective_studies is not None and study_name not in effective_studies:
                         continue
                     filtered_columns.append(info.get('col_id'))
                     filtered_patient_info.append(info)
@@ -1276,7 +1281,7 @@ def main():
                 if events_col:
                     filtered_columns.append(events_col)
 
-                if filtered_columns:
+                if filtered_columns or not apply_filters:
                     filtered_site_column_mapping[site] = {
                         **site_data,
                         'columns': filtered_columns,
@@ -1303,7 +1308,7 @@ def main():
 
             # If filters are explicitly empty, show nothing
             no_filter_results = (effective_sites == [] or effective_studies == [])
-            if no_filter_results:
+            if apply_filters and no_filter_results:
                 st.info("No sites or studies selected. Apply a selection to display the calendar.")
 
             if calendar_start_date is not None:
@@ -1322,7 +1327,7 @@ def main():
             
             # Display appropriate calendar view
             calendar_view = st.session_state.get('calendar_view', 'Standard')
-            if no_filter_results:
+            if apply_filters and no_filter_results:
                 pass
             elif calendar_view == 'Site Busy':
                 # Build site busy calendar

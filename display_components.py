@@ -1243,6 +1243,8 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                         display: block;
                         /* Safari: Create stacking context for proper sticky positioning */
                         isolation: isolate;
+                        /* Reserve space for scrollbars when shown */
+                        scrollbar-gutter: stable both-edges;
                     }}
                     
                     /* Show scrollbars always when class is applied */
@@ -1273,7 +1275,7 @@ def _generate_calendar_html_with_frozen_headers(styled_df, site_column_mapping, 
                     
                     /* For Firefox - ensure scrollbars are always visible */
                     .calendar-container.show-scrollbars {{
-                        scrollbar-width: thin !important;
+                        scrollbar-width: auto !important;
                         scrollbar-color: #888 #f1f1f1 !important;
                     }}
                     
