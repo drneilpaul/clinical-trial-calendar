@@ -80,7 +80,7 @@ def get_file_structure_info():
 
 # Application constants
 APP_TITLE = "Clinical Trial Calendar Generator"
-APP_VERSION = "v1.1"
+APP_VERSION = "v1.2"
 APP_SUBTITLE = "For Ashfields and Kiltearn GP Surgeries use only - no unauthorised use..."
 
 # Default profit sharing weights
