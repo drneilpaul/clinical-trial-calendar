@@ -121,6 +121,27 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
     # Group patients by visit site for three-level headers
     patients_df["ColumnID"] = patients_df["Study"] + "_" + patients_df["PatientID"]
     
+    # Pre-index patient origin sites to avoid repeated DataFrame scans
+    origin_candidates = ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']
+    origin_lookup = {}
+    if not patients_df.empty:
+        for row in patients_df.itertuples(index=False):
+            patient_id = str(getattr(row, 'PatientID', '')).strip()
+            study = str(getattr(row, 'Study', '')).strip()
+            if not patient_id or not study:
+                continue
+            origin_site = ""
+            for candidate in origin_candidates:
+                if hasattr(row, candidate):
+                    value = getattr(row, candidate)
+                    if pd.notna(value):
+                        value_str = str(value).strip()
+                        if value_str and value_str.lower() != 'nan':
+                            origin_site = value_str
+                            break
+            if origin_site:
+                origin_lookup[(patient_id, study)] = origin_site
+    
     # Get unique visit sites from actual visit data only
     # This ensures only sites that perform work get calendar sections
     
@@ -161,36 +182,24 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
                         log_activity(f"Filtering inactive patient {patient_id} ({study}) - reason: {reason}", level='info')
                         continue
                 
-                patient_row = patients_df[
-                    (patients_df['PatientID'] == patient_id) & 
-                    (patients_df['Study'] == study)
-                ]
+                origin_site = origin_lookup.get((patient_id, study), "")
                 
-                if not patient_row.empty:
-                    # Try to get origin site from various possible columns
-                    origin_site = ""
-                    for candidate in ['Site', 'PatientPractice', 'PatientSite', 'OriginSite', 'Practice', 'HomeSite']:
-                        if candidate in patient_row.columns and not pd.isna(patient_row.iloc[0][candidate]):
-                            origin_site = str(patient_row.iloc[0][candidate]).strip()
-                            if origin_site and origin_site != 'nan':
-                                break
-                    
-                    # If still empty, this is a data error - skip this patient column
-                    if not origin_site:
-                        log_activity(
-                            f"⚠️ Patient {patient_id} has no valid origin site - skipping from calendar display", 
-                            level='warning'
-                        )
-                        continue  # Skip this patient - don't add their column
-                    
-                    col_id = f"{study}_{patient_id}"
-                    
-                    site_patients_info.append({
-                        'col_id': col_id,
-                        'study': study,
-                        'patient_id': patient_id,
-                        'origin_site': origin_site
-                    })
+                # If still empty, this is a data error - skip this patient column
+                if not origin_site:
+                    log_activity(
+                        f"⚠️ Patient {patient_id} has no valid origin site - skipping from calendar display", 
+                        level='warning'
+                    )
+                    continue  # Skip this patient - don't add their column
+                
+                col_id = f"{study}_{patient_id}"
+                
+                site_patients_info.append({
+                    'col_id': col_id,
+                    'study': study,
+                    'patient_id': patient_id,
+                    'origin_site': origin_site
+                })
         else:
             # Site has no visits - only track recruitment income, don't create visit columns
             log_activity(f"Site {visit_site} has no visits, will only track recruitment income", level='info')
@@ -389,11 +398,16 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             calendar_df.at[i, col_id] = visit_info
                         else:
                             # Handle multiple visits on same day - IMPROVED LOGIC
+                            current_str = str(current_value)
+                            has_actual = any(symbol in current_str for symbol in ["✅", "🔴", "⚠️"])
+                            has_planned = "📅" in current_str
+                            has_predicted = "📋" in current_str
+                            has_proposed = "❓" in current_str
                             
                             # If this is a tolerance marker
                             if visit_info in ["-", "+"]:
-                                # Only add if there's no actual visit already there
-                                if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "📋"]):
+                                # Only add if there's no actual or scheduled visit already there
+                                if not (has_actual or has_planned or has_predicted):
                                     if current_value in ["-", "+", ""]:
                                         calendar_df.at[i, col_id] = visit_info
                                     else:
@@ -401,7 +415,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                             # If this is a planned visit (📅)
                             elif "📅" in visit_info and "(Planned)" in visit_info:
                                 # Only add if there's no actual visit on this date
-                                if not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                if not has_actual:
                                     if current_value in ["-", "+", ""]:
                                         calendar_df.at[i, col_id] = visit_info
                                     else:
@@ -411,19 +425,19 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                                 # Proposed visits can replace predicted/planned, but not actual
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
-                                elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                elif not has_actual:
                                     # Replace predicted/planned with proposed, but keep existing actual
                                     calendar_df.at[i, col_id] = visit_info
                                 else:
                                     # Actual visit exists - don't replace, but can append if multiple actual visits
-                                    if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                    if has_actual:
                                         calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                             # If this is a predicted visit (📋) 
                             elif "📋" in visit_info and "(Predicted)" in visit_info:
                                 # Only add if cell is empty or has tolerance markers
                                 if current_value in ["-", "+", ""]:
                                     calendar_df.at[i, col_id] = visit_info
-                                elif not any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️", "📅", "❓"]):
+                                elif not (has_actual or has_planned or has_proposed):
                                     calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                             # If this is an actual visit (✅, 🔴, ⚠️)
                             else:
@@ -435,7 +449,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
                                             log_activity(f"    -> Placed in cell with tolerance markers", level='info')
                                 else:
                                     # Check if there's already an actual visit
-                                    if any(symbol in str(current_value) for symbol in ["✅", "🔴", "⚠️"]):
+                                    if has_actual:
                                         # Multiple actual visits on same day
                                         calendar_df.at[i, col_id] = f"{current_value}\n{visit_info}"
                                         if is_actual:

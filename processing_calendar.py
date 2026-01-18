@@ -170,7 +170,7 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
     # Build stats
     stats = {
         "total_visits": len([v for v in visit_records if not v.get('IsActual', False) and v['Visit'] not in ['-', '+'] and not v.get('IsStudyEvent', False)]),
-        "total_income": visits_df["Payment"].sum(),
+        "total_income": pd.to_numeric(visits_df.get("Payment", 0), errors="coerce").fillna(0).sum(),
         "messages": processing_messages,
         "out_of_window_visits": processing_stats['out_of_window_visits']
     }
