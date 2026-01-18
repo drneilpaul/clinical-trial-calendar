@@ -207,8 +207,9 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     display_df['Progress'] = display_df['Progress'].apply(
         lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
     )
+    # Ensure Target is string for consistent Arrow conversion
     display_df['Target'] = display_df['Target'].apply(
-        lambda x: int(x) if pd.notna(x) else "No target"
+        lambda x: str(int(x)) if pd.notna(x) else "No target"
     )
     
     # Add color coding
