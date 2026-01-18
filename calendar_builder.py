@@ -252,7 +252,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
     
     
     # Check for actual visits
-    if 'IsActual' in visits_df.columns:
+    if 'IsActual' in visits_df.columns and CALENDAR_DEBUG:
         actual_count = len(visits_df[visits_df['IsActual'] == True])
         if actual_count > 0:
             log_activity(f"📅 Processing {actual_count} actual visits", level='info')

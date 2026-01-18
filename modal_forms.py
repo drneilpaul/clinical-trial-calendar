@@ -1166,7 +1166,7 @@ def get_study_site_combinations(trials_df: pd.DataFrame) -> List[Tuple[str, str]
         return []
     
     study_site_combos = trials_df.groupby(['Study', 'SiteforVisit']).first().reset_index()
-    combinations = [(row['Study'], row['SiteforVisit']) for _, row in study_site_combos.iterrows()]
+    combinations = [(row.Study, row.SiteforVisit) for row in study_site_combos.itertuples(index=False)]
     return sorted(combinations, key=lambda x: (x[0], x[1]))
 
 def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame, visits_df: pd.DataFrame) -> Dict[str, Any]:

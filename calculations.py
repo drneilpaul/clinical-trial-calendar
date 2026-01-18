@@ -310,8 +310,9 @@ def build_profit_sharing_analysis(financial_df, patients_df, weights):
             quarter_num = int(quarter.split('-Q')[1])
             # Q1 and Q2 are in the previous financial year start
             fy_year = year_part if quarter_num >= 2 else year_part - 1
-        except:
-            fy_year = 2024  # fallback
+        except Exception as e:
+            log_activity(f"FY parsing failed for period '{quarter}': {e}", level='warning')
+            fy_year = None
         
         quarterly_ratios.append({
             'Period': quarter,
@@ -344,8 +345,9 @@ def build_profit_sharing_analysis(financial_df, patients_df, weights):
         
         try:
             fy_year = int(fy.split('-')[0])
-        except:
-            fy_year = 2024  # fallback
+        except Exception as e:
+            log_activity(f"FY parsing failed for period '{fy}': {e}", level='warning')
+            fy_year = None
         
         quarterly_ratios.append({
             'Period': f"FY {fy}",
@@ -583,9 +585,9 @@ def calculate_monthly_realization_breakdown(visits_df, trials_df):
             is_proposed = month_visits.get('IsProposed', False) == True if 'IsProposed' in month_visits.columns else pd.Series([False] * len(month_visits))
             date_past = month_visits['Date'] <= today
             completed = month_visits[is_actual & ~is_proposed & date_past]
-            completed_income = completed['Payment'].sum()
+            completed_income = pd.to_numeric(completed['Payment'], errors='coerce').fillna(0).sum()
             
-            total_scheduled_income = month_visits['Payment'].sum()
+            total_scheduled_income = pd.to_numeric(month_visits['Payment'], errors='coerce').fillna(0).sum()
             
             realization_rate = (completed_income / total_scheduled_income * 100) if total_scheduled_income > 0 else 0
             

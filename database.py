@@ -8,6 +8,15 @@ import zipfile
 from helpers import log_activity
 from payment_handler import normalize_payment_column, validate_payment_data
 
+def safe_float(value, default=0.0):
+    """Safely convert to float, defaulting on invalid values."""
+    try:
+        if pd.isna(value) or value is None or str(value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
 def get_supabase_client() -> Optional[Client]:
     """Get Supabase client with error handling"""
     try:
@@ -356,7 +365,7 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 'Day': int(row_tuple.Day),
                 'VisitName': str(row_tuple.VisitName),
                 'SiteforVisit': str(getattr(row_tuple, 'SiteforVisit', '')),
-                'Payment': float(getattr(row_tuple, 'Payment', 0)),
+                'Payment': safe_float(getattr(row_tuple, 'Payment', 0)),
                 'ToleranceBefore': int(getattr(row_tuple, 'ToleranceBefore', 0)),
                 'ToleranceAfter': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
@@ -761,7 +770,7 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 'Day': int(getattr(row_tuple, 'Day', 0)),
                 'VisitName': str(row_tuple.VisitName),
                 'SiteforVisit': str(getattr(row_tuple, 'SiteforVisit', '')),
-                'Payment': float(getattr(row_tuple, 'Payment', 0)),
+                'Payment': safe_float(getattr(row_tuple, 'Payment', 0)),
                 'ToleranceBefore': int(getattr(row_tuple, 'ToleranceBefore', 0)),
                 'ToleranceAfter': int(getattr(row_tuple, 'ToleranceAfter', 0)),
                 # Optional month-based interval fields
@@ -1211,7 +1220,7 @@ def clear_patients_table() -> bool:
         if client is None:
             return False
         
-        client.table('patients').delete().neq('id', 0).execute()
+        client.table('patients').delete().execute()
         log_activity("Cleared all patients from database", level='info')
         return True
         
@@ -1227,7 +1236,7 @@ def clear_trial_schedules_table() -> bool:
         if client is None:
             return False
         
-        client.table('trial_schedules').delete().neq('id', 0).execute()
+        client.table('trial_schedules').delete().execute()
         log_activity("Cleared all trial schedules from database", level='info')
         return True
         
@@ -1243,7 +1252,7 @@ def clear_actual_visits_table() -> bool:
         if client is None:
             return False
         
-        client.table('actual_visits').delete().neq('id', 0).execute()
+        client.table('actual_visits').delete().execute()
         log_activity("Cleared all actual visits from database", level='info')
         return True
         
@@ -1384,6 +1393,10 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             backup_df = fetch_all_actual_visits()
         
         log_activity(f"Created backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
+        
+        if backup_df is None:
+            log_activity(f"Backup failed for {table_name}; refusing to overwrite", level='error')
+            return False
         
         clear_function = None
         if table_name == 'patients':
