@@ -446,6 +446,14 @@ def setup_file_uploaders():
                 )
                 st.session_state.debug_level = debug_level_options[selected_option]
                 
+                calendar_debug = st.checkbox(
+                    "Calendar debug logging (slower)",
+                    value=st.session_state.get('calendar_debug', False),
+                    help="Enable extra calendar debug checks and logging. This adds overhead.",
+                    key="calendar_debug_checkbox"
+                )
+                st.session_state.calendar_debug = calendar_debug
+                
                 st.divider()
                 
                 # Conditional debug UI elements - only show at VERBOSE level or higher
@@ -932,6 +940,8 @@ def main():
         try:
             hide_inactive = st.session_state.get('hide_inactive_patients', False)
             cache_buster = st.session_state.get('calendar_cache_buster', 0)
+            import calendar_builder
+            calendar_builder.CALENDAR_DEBUG = st.session_state.get('calendar_debug', False)
             visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
                 patients_df=patients_df, 
                 trials_df=trials_df, 

@@ -44,6 +44,8 @@ def initialize_session_state():
         st.session_state.recruitment_weight = 30
     if 'calendar_cache_buster' not in st.session_state:
         st.session_state.calendar_cache_buster = 0
+    if 'calendar_debug' not in st.session_state:
+        st.session_state.calendar_debug = False
     if 'show_weights_form' not in st.session_state:
         st.session_state.show_weights_form = False
     if 'show_scrollbars' not in st.session_state:

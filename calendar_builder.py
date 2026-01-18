@@ -488,7 +488,7 @@ def fill_calendar_with_visits(calendar_df, visits_df, trials_df):
         calendar_df.columns = pd.io.common.dedup_names(calendar_df.columns, is_potential_multiindex=False)
     
     # Debug: Count actual vs predicted visits placed by checking the visits_df
-    if 'IsActual' in visits_df.columns:
+    if 'IsActual' in visits_df.columns and CALENDAR_DEBUG:
         total_actual = len(visits_df[visits_df['IsActual'] == True])
         total_predicted = len(visits_df[visits_df['IsActual'] == False])
         log_activity(f"Calendar filled: {total_actual} actual visits, {total_predicted} predicted visits", level='info')
