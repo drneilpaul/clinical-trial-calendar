@@ -1037,14 +1037,14 @@ def main():
                     else:
                         combo_options = cached_options
 
-            # Initialize filter state variables - default to all selected
-            if 'pending_site_filter' not in st.session_state or not st.session_state.pending_site_filter:
+            # Initialize filter state variables - default to all selected on first load only
+            if 'pending_site_filter' not in st.session_state:
                 st.session_state.pending_site_filter = available_sites.copy() if available_sites else []
-            if 'pending_study_filter' not in st.session_state or not st.session_state.pending_study_filter:
+            if 'pending_study_filter' not in st.session_state:
                 st.session_state.pending_study_filter = available_studies.copy() if available_studies else []
-            if 'active_site_filter' not in st.session_state or not st.session_state.active_site_filter:
+            if 'active_site_filter' not in st.session_state:
                 st.session_state.active_site_filter = available_sites.copy() if available_sites else []
-            if 'active_study_filter' not in st.session_state or not st.session_state.active_study_filter:
+            if 'active_study_filter' not in st.session_state:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
             
             # Calendar display options - moved calendar view selector to same line
@@ -1232,22 +1232,22 @@ def main():
             calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
             visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
             
-            # Use active filters for calendar filtering
-            selected_sites = st.session_state.active_site_filter or available_sites
-            selected_studies = st.session_state.active_study_filter or available_studies
+            # Use active filters for calendar filtering (empty selection means show none)
+            selected_sites = st.session_state.active_site_filter
+            selected_studies = st.session_state.active_study_filter
 
-            effective_studies = selected_studies if selected_studies else available_studies
-            effective_sites = selected_sites if selected_sites else available_sites
+            effective_studies = selected_studies if selected_studies is not None else available_studies
+            effective_sites = selected_sites if selected_sites is not None else available_sites
 
-            if effective_studies and 'Study' in visits_df_filtered.columns:
+            if effective_studies is not None and 'Study' in visits_df_filtered.columns:
                 visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
-            if effective_sites and site_field and site_field in visits_df_filtered.columns:
+            if effective_sites is not None and site_field and site_field in visits_df_filtered.columns:
                 visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
 
             # Filter site column mapping to match selections
             filtered_site_column_mapping = {}
             for site, site_data in site_column_mapping.items():
-                if effective_sites and site not in effective_sites:
+                if effective_sites is not None and site not in effective_sites:
                     continue
 
                 patient_info = site_data.get('patient_info', [])
@@ -1258,7 +1258,7 @@ def main():
 
                 for info in patient_info:
                     study_name = str(info.get('study', '')).strip()
-                    if effective_studies and study_name not in effective_studies:
+                    if effective_studies is not None and study_name not in effective_studies:
                         continue
                     filtered_columns.append(info.get('col_id'))
                     filtered_patient_info.append(info)
@@ -1276,7 +1276,7 @@ def main():
 
             # Ensure we always have at least one site mapping to display
             if not filtered_site_column_mapping:
-                filtered_site_column_mapping = site_column_mapping
+                filtered_site_column_mapping = {}
 
             allowed_columns = set()
             base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
@@ -1290,8 +1290,11 @@ def main():
                 calendar_df_filtered = calendar_df_filtered[keep_columns]
 
             filtered_unique_visit_sites = [site for site in unique_visit_sites if site in filtered_site_column_mapping]
-            if not filtered_unique_visit_sites:
-                filtered_unique_visit_sites = unique_visit_sites
+
+            # If filters are explicitly empty, show nothing
+            no_filter_results = (effective_sites == [] or effective_studies == [])
+            if no_filter_results:
+                st.info("No sites or studies selected. Apply a selection to display the calendar.")
 
             if calendar_start_date is not None:
                 calendar_filter_option = st.session_state.get("calendar_start_selection", {})
@@ -1309,7 +1312,9 @@ def main():
             
             # Display appropriate calendar view
             calendar_view = st.session_state.get('calendar_view', 'Standard')
-            if calendar_view == 'Site Busy':
+            if no_filter_results:
+                pass
+            elif calendar_view == 'Site Busy':
                 # Build site busy calendar
                 from calendar_builder import build_site_busy_calendar
                 # Determine date range for site busy calendar
