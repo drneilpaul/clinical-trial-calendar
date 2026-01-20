@@ -1234,9 +1234,6 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
     except Exception as e:
         log_activity(f"Error saving study site details: {e}", level='error')
         return False
-    except Exception as e:
-        log_activity(f"Error updating study site details for {study}/{site}: {e}", level='error')
-        return False
 
 def create_backup_zip() -> Optional[io.BytesIO]:
     """Create a ZIP file containing all four database tables as CSVs"""
