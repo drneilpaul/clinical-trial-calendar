@@ -1,7 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import io
 from datetime import datetime
 import zipfile
@@ -926,6 +926,41 @@ def export_visits_to_csv() -> Optional[pd.DataFrame]:
         st.error(f"Error exporting visits: {e}")
         return None
 
+def export_study_site_details_to_csv() -> Optional[pd.DataFrame]:
+    """Export study site details from database in upload-ready CSV format"""
+    try:
+        df = fetch_all_study_site_details()
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV'])
+        
+        # Ensure required columns exist
+        for col in ['Study', 'ContractSite']:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # Ensure optional columns exist
+        for col in ['StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # Format date columns for export
+        for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+            if date_col in df.columns:
+                try:
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce').dt.strftime('%d/%m/%Y')
+                    df[date_col] = df[date_col].replace('NaT', '').replace('nan', '')
+                except Exception:
+                    df[date_col] = ''
+        
+        export_columns = ['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']
+        available_columns = [col for col in export_columns if col in df.columns]
+        df = df[available_columns]
+        
+        return df
+    except Exception as e:
+        st.error(f"Error exporting study site details: {e}")
+        return None
+
 # ============================================
 # Study Site Details Functions
 # ============================================
@@ -1134,12 +1169,77 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
             _fetch_all_study_site_details_cached.clear()
             return True
         return False
+
+def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
+    """Save study_site_details data to database (overwrite existing rows)"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            log_activity("Cannot save study site details: Supabase client not available", level='error')
+            return False
+        
+        if details_df is None or details_df.empty:
+            log_activity("Cannot save study site details: Empty DataFrame", level='error')
+            return False
+        
+        details_df = details_df.copy()
+        if 'ContractSite' not in details_df.columns:
+            if 'ContractedSite' in details_df.columns:
+                details_df = details_df.rename(columns={'ContractedSite': 'ContractSite'})
+            elif 'SiteforVisit' in details_df.columns:
+                details_df = details_df.rename(columns={'SiteforVisit': 'ContractSite'})
+        
+        if 'RecruitmentTarget' in details_df.columns:
+            details_df['RecruitmentTarget'] = pd.to_numeric(details_df['RecruitmentTarget'], errors='coerce')
+        
+        records = []
+        for row in details_df.itertuples(index=False):
+            study = str(getattr(row, 'Study', '')).strip()
+            site = str(getattr(row, 'ContractSite', '')).strip()
+            if not study or not site:
+                continue
+            
+            def parse_date(val):
+                if pd.isna(val) or val in ['', None]:
+                    return None
+                parsed = pd.to_datetime(val, errors='coerce')
+                if pd.isna(parsed):
+                    return None
+                return str(parsed.date())
+            
+            record = {
+                'Study': study,
+                'ContractSite': site,
+                'StudyStatus': str(getattr(row, 'StudyStatus', 'active')).strip().lower() or 'active',
+                'RecruitmentTarget': getattr(row, 'RecruitmentTarget', None),
+                'FPFV': parse_date(getattr(row, 'FPFV', None)),
+                'LPFV': parse_date(getattr(row, 'LPFV', None)),
+                'LPLV': parse_date(getattr(row, 'LPLV', None)),
+                'Description': str(getattr(row, 'Description', '')).strip(),
+                'EOIDate': parse_date(getattr(row, 'EOIDate', None)),
+                'StudyURL': str(getattr(row, 'StudyURL', '')).strip(),
+                'DocumentLinks': str(getattr(row, 'DocumentLinks', '')).strip()
+            }
+            records.append(record)
+        
+        if not records:
+            log_activity("No valid study_site_details records to save", level='error')
+            return False
+        
+        client.table('study_site_details').insert(records).execute()
+        _fetch_all_study_site_details_cached.clear()
+        log_activity(f"Saved {len(records)} study site detail records", level='success')
+        return True
+        
+    except Exception as e:
+        log_activity(f"Error saving study site details: {e}", level='error')
+        return False
     except Exception as e:
         log_activity(f"Error updating study site details for {study}/{site}: {e}", level='error')
         return False
 
 def create_backup_zip() -> Optional[io.BytesIO]:
-    """Create a ZIP file containing all three database tables as CSVs"""
+    """Create a ZIP file containing all four database tables as CSVs"""
     zip_buffer = None
     try:
         today = datetime.now().strftime('%Y-%m-%d')
@@ -1148,6 +1248,7 @@ def create_backup_zip() -> Optional[io.BytesIO]:
         patients_df = None
         trials_df = None
         visits_df = None
+        study_details_df = None
         
         try:
             patients_df = export_patients_to_csv()
@@ -1167,6 +1268,12 @@ def create_backup_zip() -> Optional[io.BytesIO]:
             log_activity(f"Error exporting visits: {e}", level='error')
             visits_df = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
         
+        try:
+            study_details_df = export_study_site_details_to_csv()
+        except Exception as e:
+            log_activity(f"Error exporting study site details: {e}", level='error')
+            study_details_df = pd.DataFrame(columns=['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV'])
+        
         # Ensure we have DataFrames (even if empty)
         if patients_df is None:
             patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
@@ -1174,6 +1281,8 @@ def create_backup_zip() -> Optional[io.BytesIO]:
             trials_df = pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment'])
         if visits_df is None:
             visits_df = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
+        if study_details_df is None:
+            study_details_df = pd.DataFrame(columns=['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV'])
         
         zip_buffer = io.BytesIO()
         
@@ -1201,6 +1310,14 @@ def create_backup_zip() -> Optional[io.BytesIO]:
                 log_activity(f"Error writing visits CSV: {e}", level='error')
                 visits_csv = pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType']).to_csv(index=False)
                 zip_file.writestr(f'actual_visits_backup_{today}.csv', visits_csv)
+            
+            try:
+                details_csv = study_details_df.to_csv(index=False)
+                zip_file.writestr(f'study_site_details_backup_{today}.csv', details_csv)
+            except Exception as e:
+                log_activity(f"Error writing study site details CSV: {e}", level='error')
+                details_csv = pd.DataFrame(columns=['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV']).to_csv(index=False)
+                zip_file.writestr(f'study_site_details_backup_{today}.csv', details_csv)
         
         if zip_buffer:
             zip_buffer.seek(0)
@@ -1212,6 +1329,48 @@ def create_backup_zip() -> Optional[io.BytesIO]:
         import traceback
         log_activity(f"Traceback: {traceback.format_exc()}", level='error')
         return None
+
+def restore_database_from_zip(zip_file) -> Tuple[bool, str]:
+    """Restore database tables from a backup ZIP containing CSVs."""
+    try:
+        if zip_file is None:
+            return False, "No ZIP file provided"
+        
+        with zipfile.ZipFile(zip_file) as zf:
+            names = zf.namelist()
+            def read_csv_by_prefix(prefix):
+                for name in names:
+                    if name.startswith(prefix) and name.endswith(".csv"):
+                        with zf.open(name) as f:
+                            return pd.read_csv(f)
+                return None
+            
+            patients_df = read_csv_by_prefix("patients_backup_")
+            trials_df = read_csv_by_prefix("trials_backup_")
+            visits_df = read_csv_by_prefix("actual_visits_backup_")
+            details_df = read_csv_by_prefix("study_site_details_backup_")
+        
+        if patients_df is None and trials_df is None and visits_df is None and details_df is None:
+            return False, "No recognized backup files found in ZIP"
+        
+        # Overwrite tables using safe operations
+        if patients_df is not None:
+            if not safe_overwrite_table('patients', patients_df, save_patients_to_database):
+                return False, "Failed to restore patients table"
+        if trials_df is not None:
+            if not safe_overwrite_table('trial_schedules', trials_df, save_trial_schedules_to_database):
+                return False, "Failed to restore trial schedules table"
+        if visits_df is not None:
+            if not safe_overwrite_table('actual_visits', visits_df, save_actual_visits_to_database):
+                return False, "Failed to restore actual visits table"
+        if details_df is not None:
+            if not safe_overwrite_table('study_site_details', details_df, save_study_site_details_to_database):
+                return False, "Failed to restore study site details table"
+        
+        return True, "Database restored from backup ZIP"
+    except Exception as e:
+        log_activity(f"Error restoring from backup ZIP: {e}", level='error')
+        return False, f"Error restoring from backup ZIP: {e}"
 
 def clear_patients_table() -> bool:
     """Clear all patients from database"""
@@ -1261,7 +1420,29 @@ def clear_actual_visits_table() -> bool:
         log_activity(f"Error clearing actual visits table: {e}", level='error')
         return False
 
-def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataFrame, actual_visits_df: pd.DataFrame = None) -> bool:
+def clear_study_site_details_table() -> bool:
+    """Clear all study site details from database"""
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+        
+        client.table('study_site_details').delete().execute()
+        log_activity("Cleared all study site details from database", level='info')
+        _fetch_all_study_site_details_cached.clear()
+        return True
+        
+    except Exception as e:
+        st.error(f"Error clearing study site details table: {e}")
+        log_activity(f"Error clearing study site details table: {e}", level='error')
+        return False
+
+def overwrite_database_with_files(
+    patients_df: pd.DataFrame,
+    trials_df: pd.DataFrame,
+    actual_visits_df: pd.DataFrame = None,
+    study_site_details_df: pd.DataFrame = None
+) -> bool:
     """Completely replace database content with uploaded files"""
     try:
         if not clear_patients_table():
@@ -1271,6 +1452,9 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
         if actual_visits_df is not None and not actual_visits_df.empty:
             if not clear_actual_visits_table():
                 return False
+        if study_site_details_df is not None and not study_site_details_df.empty:
+            if not clear_study_site_details_table():
+                return False
         
         if not save_patients_to_database(patients_df):
             return False
@@ -1278,6 +1462,9 @@ def overwrite_database_with_files(patients_df: pd.DataFrame, trials_df: pd.DataF
             return False
         if actual_visits_df is not None and not actual_visits_df.empty:
             if not save_actual_visits_to_database(actual_visits_df):
+                return False
+        if study_site_details_df is not None and not study_site_details_df.empty:
+            if not save_study_site_details_to_database(study_site_details_df):
                 return False
         
         log_activity("Successfully overwrote database with uploaded files", level='success')
@@ -1391,6 +1578,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             backup_df = fetch_all_trial_schedules()
         elif table_name == 'actual_visits':
             backup_df = fetch_all_actual_visits()
+        elif table_name == 'study_site_details':
+            backup_df = fetch_all_study_site_details()
         
         log_activity(f"Created backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
         
@@ -1405,6 +1594,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             clear_function = clear_trial_schedules_table
         elif table_name == 'actual_visits':
             clear_function = clear_actual_visits_table
+        elif table_name == 'study_site_details':
+            clear_function = clear_study_site_details_table
         
         if not clear_function():
             log_activity(f"Failed to clear {table_name} table", level='error')
@@ -1421,6 +1612,8 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
                     save_trial_schedules_to_database(backup_df)
                 elif table_name == 'actual_visits':
                     save_actual_visits_to_database(backup_df)
+                elif table_name == 'study_site_details':
+                    save_study_site_details_to_database(backup_df)
                 log_activity(f"Restored backup for {table_name}", level='info')
             return False
         

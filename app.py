@@ -16,8 +16,8 @@ from display_components import (
     display_download_buttons, display_monthly_income_tables,
     display_quarterly_profit_sharing_tables, display_income_realization_analysis,
     display_site_income_by_fy, display_study_income_summary,
-    render_calendar_start_selector, apply_calendar_start_filter,
-    display_site_busy_calendar
+    apply_calendar_start_filter, display_site_busy_calendar,
+    render_reporting_year_selector
 )
 from gantt_view import build_gantt_data, display_gantt_chart
 from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard, overlay_recruitment_on_gantt
@@ -59,6 +59,92 @@ def extract_site_summary(patients_df, screen_failures=None):
     site_summary = site_summary.reset_index()
     site_summary = site_summary.rename(columns={site_col: 'Site'})
     return site_summary
+
+def render_db_admin_page():
+    """Admin-only database editor page using inline table editing."""
+    st.subheader("🗄️ Database Admin")
+    st.caption("Edit database tables directly. Changes overwrite the selected table.")
+    
+    table_configs = {
+        "Patients": {
+            "table": "patients",
+            "fetch": db.fetch_all_patients,
+            "save": db.save_patients_to_database,
+            "required": ["PatientID", "Study", "StartDate", "PatientPractice"]
+        },
+        "Trial Schedules": {
+            "table": "trial_schedules",
+            "fetch": db.fetch_all_trial_schedules,
+            "save": db.save_trial_schedules_to_database,
+            "required": ["Study", "Day", "VisitName", "SiteforVisit"]
+        },
+        "Actual Visits": {
+            "table": "actual_visits",
+            "fetch": db.fetch_all_actual_visits,
+            "save": db.save_actual_visits_to_database,
+            "required": ["PatientID", "Study", "VisitName", "ActualDate"]
+        },
+        "Study Site Details": {
+            "table": "study_site_details",
+            "fetch": db.fetch_all_study_site_details,
+            "save": db.save_study_site_details_to_database,
+            "required": ["Study", "ContractSite"]
+        }
+    }
+    
+    table_choice = st.selectbox("Select table", list(table_configs.keys()))
+    config = table_configs[table_choice]
+    
+    df = config["fetch"]()
+    if df is None:
+        df = pd.DataFrame(columns=config["required"])
+    
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=f"db_editor_{config['table']}"
+    )
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if st.button("Save Table", type="primary"):
+            missing_cols = [c for c in config["required"] if c not in edited_df.columns]
+            if missing_cols:
+                st.error(f"Missing required columns: {', '.join(missing_cols)}")
+            else:
+                if db.safe_overwrite_table(config["table"], edited_df, config["save"]):
+                    st.success("Table saved successfully.")
+                    trigger_data_refresh()
+                else:
+                    st.error("Failed to save table.")
+    
+    with col2:
+        if st.button("Reload Table"):
+            st.rerun()
+    
+    st.markdown("---")
+    st.subheader("📦 Backup and Restore")
+    
+    backup_zip = db.create_backup_zip()
+    if backup_zip:
+        st.download_button(
+            "Download Full Backup (ZIP)",
+            data=backup_zip.getvalue(),
+            file_name=f"database_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+            mime="application/zip",
+            width="stretch"
+        )
+    
+    restore_zip = st.file_uploader("Restore from backup ZIP", type=["zip"], key="restore_db_zip")
+    if restore_zip is not None:
+        if st.button("Restore Backup ZIP", type="secondary"):
+            success, message = db.restore_database_from_zip(restore_zip)
+            if success:
+                st.success(message)
+                trigger_data_refresh()
+            else:
+                st.error(message)
 
 def check_and_refresh_data():
     """Check if data refresh is needed and reload from database"""
@@ -124,6 +210,8 @@ def setup_file_uploaders():
     st.sidebar.divider()
     st.sidebar.header("Pages")
     page_options = ["Site Busy", "Calendar", "Gantt", "Recruitment", "Financials"]
+    if st.session_state.get('auth_level') == 'admin':
+        page_options.append("DB Admin")
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Site Busy"
     current_page = st.session_state.get('current_page', "Site Busy")
@@ -143,6 +231,7 @@ def setup_file_uploaders():
     trials_file = None
     patients_file = None
     actual_visits_file = None
+    study_site_details_file = None
     
     if st.session_state.get('database_available', False):
         if st.session_state.get('auth_level') == 'admin':
@@ -152,9 +241,10 @@ def setup_file_uploaders():
                 trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
                 patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
                 actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+                study_site_details_file = st.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
             
             # Selective overwrite buttons
-            if patients_file or trials_file or actual_visits_file:
+            if patients_file or trials_file or actual_visits_file or study_site_details_file:
                 st.divider()
                 st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
                 
@@ -346,6 +436,57 @@ def setup_file_uploaders():
                         if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
                             st.session_state.overwrite_visits_confirmed = False
                             st.rerun()
+                
+                # Study site details overwrite
+                if study_site_details_file:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.session_state.get('overwrite_in_progress', False):
+                            st.button("🔄 Overwrite Study Site Details", help="Another overwrite operation in progress", disabled=True)
+                        elif st.button("🔄 Overwrite Study Site Details", help="Replace only study site details in database"):
+                            if st.session_state.get('overwrite_study_details_confirmed', False):
+                                try:
+                                    st.session_state.overwrite_in_progress = True
+                                    
+                                    details_df, validation_messages = validate_file_upload(study_site_details_file, 'study_site_details')
+                                    
+                                    if details_df is None:
+                                        st.error("❌ File validation failed!")
+                                        for msg in validation_messages:
+                                            st.error(f"  • {msg}")
+                                        st.session_state.overwrite_study_details_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                        st.rerun()
+                                        return
+                                    
+                                    validation_summary = get_validation_summary(
+                                        [msg for msg in validation_messages if msg.startswith('❌')],
+                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    )
+                                    st.markdown(validation_summary)
+                                    
+                                    if db.safe_overwrite_table('study_site_details', details_df, db.save_study_site_details_to_database):
+                                        st.success("✅ Study site details overwritten successfully!")
+                                        st.session_state.use_database = True
+                                        st.session_state.overwrite_study_details_confirmed = False
+                                        trigger_data_refresh()
+                                        st.session_state.overwrite_in_progress = False
+                                    else:
+                                        st.error("❌ Failed to overwrite study site details")
+                                        st.session_state.overwrite_study_details_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                except Exception as e:
+                                    st.error(f"❌ Error processing study site details file: {e}")
+                                    log_activity(f"Error processing study site details file: {e}", level='error')
+                                    st.session_state.overwrite_study_details_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
+                            else:
+                                st.session_state.overwrite_study_details_confirmed = True
+                                st.warning("⚠️ Click again to confirm overwrite")
+                    with col2:
+                        if st.button("❌ Cancel", help="Cancel study site details overwrite", key="cancel_study_details"):
+                            st.session_state.overwrite_study_details_confirmed = False
+                            st.rerun()
         else:
             st.sidebar.info("🔒 Admin login required to upload files")
     else:
@@ -355,6 +496,7 @@ def setup_file_uploaders():
             trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
             patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
             actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+            study_site_details_file = st.sidebar.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
         else:
             st.sidebar.info("🔒 Admin login required to upload files")
     
@@ -371,9 +513,14 @@ def setup_file_uploaders():
         st.session_state.last_visits_file = actual_visits_file.name
         log_activity(f"Uploaded actual visits file: {actual_visits_file.name}", level='info')
     
+    if study_site_details_file and 'last_study_site_details_file' not in st.session_state:
+        st.session_state.last_study_site_details_file = study_site_details_file.name
+        log_activity(f"Uploaded study site details file: {study_site_details_file.name}", level='info')
+    
     st.session_state.patients_file = patients_file
     st.session_state.trials_file = trials_file
     st.session_state.actual_visits_file = actual_visits_file
+    st.session_state.study_site_details_file = study_site_details_file
     
     # Database Operations - Admin only
     if st.session_state.get('database_available', False):
@@ -1145,9 +1292,7 @@ def main():
                         st.session_state.scroll_to_today = True
                         st.rerun()
                 with col_options[4]:
-                    # Calendar range selector moved to same line - hide label for alignment
-                    calendar_filter_option = render_calendar_start_selector(show_label=False)
-                    calendar_start_date = calendar_filter_option.get("start")
+                    calendar_start_date = None
                 with col_options[5]:
                     # Build filter summary for expander header
                     active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
@@ -1261,10 +1406,6 @@ def main():
             else:
                 calendar_start_date = None
             
-            # Get calendar_start_date from the selector (created in col_options)
-            calendar_filter_option = st.session_state.get("calendar_start_selection", {})
-            calendar_start_date = calendar_filter_option.get("start") if calendar_filter_option else calendar_start_date
-            
             # Apply filters to dataframes using calendar start date (calendar views only)
             if current_page in ['Calendar', 'Site Busy']:
                 calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
@@ -1340,12 +1481,7 @@ def main():
                 st.info("No sites or studies selected. Apply a selection to display the calendar.")
 
             if current_page in ['Calendar', 'Site Busy']:
-                if calendar_start_date is not None:
-                    calendar_filter_option = st.session_state.get("calendar_start_selection", {})
-                    label = calendar_filter_option.get('label', 'selected period') if calendar_filter_option else 'selected period'
-                    st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({label}).")
-                else:
-                    st.caption("Showing all recorded visits.")
+                st.caption("Showing all recorded visits.")
 
                 # Public - Always show
                 compact_mode = st.session_state.get('compact_calendar_mode', False)
@@ -1354,51 +1490,51 @@ def main():
                 if hide_inactive_status == "enabled" or compact_status == "enabled":
                     st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
             
-            # Display appropriate view
-            if apply_filters and no_filter_results:
-                pass
-            elif current_page == 'Site Busy':
-                # Build site busy calendar
-                from calendar_builder import build_site_busy_calendar
-                # Determine date range for site busy calendar
-                date_range = None
-                if calendar_start_date:
-                    # Use calendar start date as min, keep max as None (will use visits_df max)
-                    date_range = (calendar_start_date, None)
-                
-                site_busy_df = build_site_busy_calendar(
-                    visits_df_filtered,
-                    trials_df=trials_df,
-                    actual_visits_df=actual_visits_df,
-                    date_range=date_range
-                )
-                # Get site columns (exclude Date and Day)
-                site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
-                display_site_busy_calendar(site_busy_df, site_columns)
-            elif current_page == 'Gantt':
-                # Build and display Gantt chart
-                try:
-                    gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
+            if current_page == 'DB Admin':
+                render_db_admin_page()
+            else:
+                # Display appropriate view
+                if apply_filters and no_filter_results:
+                    pass
+                elif current_page == 'Site Busy':
+                    # Build site busy calendar
+                    from calendar_builder import build_site_busy_calendar
+                    # Determine date range for site busy calendar
+                    date_range = None
                     
-                    # Option to show recruitment overlay
-                    show_recruitment_overlay = st.checkbox(
-                        "Show Recruitment Overlay",
-                        value=False,
-                        help="Overlay recruitment progress on Gantt chart"
+                    site_busy_df = build_site_busy_calendar(
+                        visits_df_filtered,
+                        trials_df=trials_df,
+                        actual_visits_df=actual_visits_df,
+                        date_range=date_range
                     )
-                    
-                    recruitment_data = None
-                    if show_recruitment_overlay:
-                        recruitment_data = build_recruitment_data(patients_df, trials_df)
-                        gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
-                    
-                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
-                except Exception as e:
-                    st.error(f"Error building Gantt chart: {e}")
-                    log_activity(f"Error building Gantt chart: {e}", level='error')
-                    st.exception(e)
-            elif current_page == 'Calendar':
-                display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
+                    # Get site columns (exclude Date and Day)
+                    site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
+                    display_site_busy_calendar(site_busy_df, site_columns)
+                elif current_page == 'Gantt':
+                    # Build and display Gantt chart
+                    try:
+                        gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
+                        
+                        # Option to show recruitment overlay
+                        show_recruitment_overlay = st.checkbox(
+                            "Show Recruitment Overlay",
+                            value=False,
+                            help="Overlay recruitment progress on Gantt chart"
+                        )
+                        
+                        recruitment_data = None
+                        if show_recruitment_overlay:
+                            recruitment_data = build_recruitment_data(patients_df, trials_df)
+                            gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
+                        
+                        display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
+                    except Exception as e:
+                        st.error(f"Error building Gantt chart: {e}")
+                        log_activity(f"Error building Gantt chart: {e}", level='error')
+                        st.exception(e)
+                elif current_page == 'Calendar':
+                    display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
             if current_page in ['Calendar', 'Site Busy']:
                 # Show view-specific legend
@@ -1427,7 +1563,23 @@ def main():
             if current_page == 'Recruitment':
                 st.subheader("📊 Recruitment Tracking")
                 try:
-                    recruitment_data = build_recruitment_data(patients_df, trials_df)
+                    reporting_selection = render_reporting_year_selector(
+                        visits_df=visits_df,
+                        patients_df=patients_df,
+                        show_label=True
+                    )
+                    fy_start = reporting_selection.get("start")
+                    fy_end = reporting_selection.get("end")
+                    
+                    recruitment_patients_df = patients_df
+                    if fy_start is not None and fy_end is not None and 'StartDate' in recruitment_patients_df.columns:
+                        start_dates = pd.to_datetime(recruitment_patients_df['StartDate'], errors='coerce')
+                        recruitment_patients_df = recruitment_patients_df[
+                            (start_dates >= pd.Timestamp(fy_start)) &
+                            (start_dates <= pd.Timestamp(fy_end))
+                        ].copy()
+                    
+                    recruitment_data = build_recruitment_data(recruitment_patients_df, trials_df)
                     display_recruitment_dashboard(recruitment_data)
                 except Exception as e:
                     st.error(f"Error building recruitment dashboard: {e}")
@@ -1438,21 +1590,45 @@ def main():
                 # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
                 # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
                 if st.session_state.get('auth_level') == 'admin':
-                    display_monthly_income_tables(visits_df_filtered)
+                    reporting_selection = render_reporting_year_selector(
+                        visits_df=visits_df,
+                        patients_df=patients_df,
+                        show_label=True
+                    )
+                    fy_start = reporting_selection.get("start")
+                    fy_end = reporting_selection.get("end")
                     
-                    financial_df = prepare_financial_data(visits_df_filtered)
+                    financial_visits_df = visits_df_filtered
+                    financial_patients_df = patients_df
+                    if fy_start is not None and fy_end is not None:
+                        if financial_visits_df is not None and not financial_visits_df.empty and 'Date' in financial_visits_df.columns:
+                            visit_dates = pd.to_datetime(financial_visits_df['Date'], errors='coerce')
+                            financial_visits_df = financial_visits_df[
+                                (visit_dates >= pd.Timestamp(fy_start)) &
+                                (visit_dates <= pd.Timestamp(fy_end))
+                            ].copy()
+                        if financial_patients_df is not None and not financial_patients_df.empty and 'StartDate' in financial_patients_df.columns:
+                            start_dates = pd.to_datetime(financial_patients_df['StartDate'], errors='coerce')
+                            financial_patients_df = financial_patients_df[
+                                (start_dates >= pd.Timestamp(fy_start)) &
+                                (start_dates <= pd.Timestamp(fy_end))
+                            ].copy()
+                    
+                    display_monthly_income_tables(financial_visits_df)
+                    
+                    financial_df = prepare_financial_data(financial_visits_df)
                     if not financial_df.empty:
-                        display_quarterly_profit_sharing_tables(financial_df, patients_df)
+                        display_quarterly_profit_sharing_tables(financial_df, financial_patients_df)
 
-                    display_income_realization_analysis(visits_df_filtered, trials_df, patients_df)
+                    display_income_realization_analysis(financial_visits_df, trials_df, financial_patients_df)
 
-                    display_site_income_by_fy(visits_df_filtered, trials_df)
+                    display_site_income_by_fy(financial_visits_df, trials_df)
                     
                     # By-study income summary (current FY by default)
-                    display_study_income_summary(visits_df_filtered)
+                    display_study_income_summary(financial_visits_df)
 
                     # Site-wise statistics (includes financial data)
-                    display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
+                    display_site_wise_statistics(financial_visits_df, financial_patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
                 else:
                     st.info("🔒 Login as admin to view financial reports and income analysis")
 

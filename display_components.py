@@ -4,7 +4,12 @@ import io
 from datetime import date
 import re
 import streamlit.components.v1 as components
-from helpers import log_activity, generate_financial_year_options, trigger_data_refresh
+from helpers import (
+    log_activity,
+    generate_financial_year_options,
+    trigger_data_refresh,
+    get_current_financial_year_boundaries
+)
 from calendar_builder import is_patient_inactive
 
 def render_calendar_start_selector(years_back: int = 4, show_label: bool = True):
@@ -54,6 +59,74 @@ def get_calendar_start_date(default_start=None):
     if isinstance(option, dict):
         return option.get("start") or default_start
     return default_start
+
+def render_reporting_year_selector(
+    visits_df: pd.DataFrame,
+    patients_df: pd.DataFrame,
+    show_label: bool = True
+):
+    """
+    Render a financial year selector for reporting pages (Recruitment/Financials).
+    Options are derived from available data plus current FY, with a Show All option.
+    """
+    options = [{"label": "Show All", "start": None, "end": None}]
+    fy_options = []
+    
+    date_series = []
+    if visits_df is not None and not visits_df.empty and 'Date' in visits_df.columns:
+        date_series.append(pd.to_datetime(visits_df['Date'], errors='coerce'))
+    if patients_df is not None and not patients_df.empty and 'StartDate' in patients_df.columns:
+        date_series.append(pd.to_datetime(patients_df['StartDate'], errors='coerce'))
+    
+    if date_series:
+        all_dates = pd.concat(date_series).dropna()
+        if not all_dates.empty:
+            min_date = all_dates.min()
+            max_date = all_dates.max()
+            # Extend to full FY boundaries
+            from helpers import get_financial_year_start_year_for_series, get_financial_year_start_end
+            fy_start_years = get_financial_year_start_year_for_series(pd.Series([min_date, max_date]))
+            min_fy_start = int(fy_start_years.min())
+            max_fy_start = int(fy_start_years.max())
+            for start_year in range(min_fy_start, max_fy_start + 1):
+                start, end = get_financial_year_start_end(f"{start_year}-{str(start_year + 1)[-2:]}")
+                fy_options.append({
+                    "label": f"FY {start_year}-{str(start_year + 1)[-2:]}",
+                    "start": start,
+                    "end": end
+                })
+    
+    # Always ensure current FY is present
+    current_start, current_end = get_current_financial_year_boundaries()
+    current_label = f"FY {current_start.year}-{str(current_end.year)[-2:]}"
+    if not any(opt["label"] == current_label for opt in fy_options):
+        fy_options.append({"label": current_label, "start": current_start, "end": current_end})
+    
+    fy_options = sorted(fy_options, key=lambda x: x["start"] or pd.Timestamp.max)
+    options.extend(fy_options)
+    
+    labels = [opt["label"] for opt in options]
+    session_key = "reporting_year_select"
+    default_label = current_label if current_label in labels else labels[0]
+    default_index = labels.index(default_label)
+    
+    if session_key in st.session_state and st.session_state[session_key] not in labels:
+        del st.session_state[session_key]
+    
+    label_text = "Reporting year"
+    help_text = "Filter reports to a financial year, or choose Show All."
+    selected_label = st.selectbox(
+        label_text,
+        labels,
+        index=default_index,
+        key=session_key,
+        label_visibility="visible" if show_label else "collapsed",
+        help=help_text
+    )
+    
+    selected_option = next(opt for opt in options if opt["label"] == selected_label)
+    st.session_state["reporting_year_selection"] = selected_option
+    return selected_option
 
 def apply_calendar_start_filter(df, start_date):
     """

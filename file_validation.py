@@ -410,6 +410,50 @@ def validate_visits_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     
     return df_clean, errors + warnings
 
+def validate_study_site_details_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+    """Validate and clean study site details file"""
+    errors = []
+    warnings = []
+    
+    df_clean = df.copy()
+    if 'ContractSite' not in df_clean.columns:
+        if 'ContractedSite' in df_clean.columns:
+            df_clean = df_clean.rename(columns={'ContractedSite': 'ContractSite'})
+        elif 'SiteforVisit' in df_clean.columns:
+            df_clean = df_clean.rename(columns={'SiteforVisit': 'ContractSite'})
+    
+    required_columns = ['Study', 'ContractSite']
+    missing = [col for col in required_columns if col not in df_clean.columns]
+    if missing:
+        return df_clean, [f"Missing required columns: {', '.join(missing)}"]
+    
+    # Normalize whitespace
+    for col in df_clean.columns:
+        if df_clean[col].dtype == 'object':
+            df_clean[col] = df_clean[col].fillna('').astype(str).str.strip()
+    
+    # Validate required fields
+    invalid_mask = (
+        df_clean['Study'].isna() | (df_clean['Study'].astype(str).str.strip() == '') |
+        df_clean['ContractSite'].isna() | (df_clean['ContractSite'].astype(str).str.strip() == '')
+    )
+    if invalid_mask.any():
+        invalid_count = invalid_mask.sum()
+        errors.append(f"❌ {invalid_count} row(s) missing Study or ContractSite")
+    
+    # Optional date fields
+    for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+        if date_col in df_clean.columns:
+            df_clean[date_col] = pd.to_datetime(df_clean[date_col], errors='coerce')
+    
+    # RecruitmentTarget should be numeric when provided
+    if 'RecruitmentTarget' in df_clean.columns:
+        df_clean['RecruitmentTarget'] = pd.to_numeric(df_clean['RecruitmentTarget'], errors='coerce')
+    
+    log_activity(f"Validated study site details file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
+    
+    return df_clean, errors + warnings
+
 def validate_file_upload(file, file_type: str) -> Tuple[Optional[pd.DataFrame], List[str]]:
     """Main validation function for file uploads"""
     try:
@@ -428,6 +472,8 @@ def validate_file_upload(file, file_type: str) -> Tuple[Optional[pd.DataFrame], 
             return validate_trials_file(df)
         elif file_type == 'visits':
             return validate_visits_file(df)
+    elif file_type == 'study_site_details':
+        return validate_study_site_details_file(df)
         else:
             return None, [f"Unknown file type: {file_type}"]
             
