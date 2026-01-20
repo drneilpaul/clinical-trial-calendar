@@ -122,6 +122,21 @@ def setup_file_uploaders():
             st.rerun()
     
     st.sidebar.divider()
+    st.sidebar.header("Pages")
+    page_options = ["Site Busy", "Calendar", "Gantt", "Recruitment", "Financials"]
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Site Busy"
+    current_page = st.session_state.get('current_page', "Site Busy")
+    page_index = page_options.index(current_page) if current_page in page_options else 0
+    selected_page = st.sidebar.radio(
+        "Go to",
+        options=page_options,
+        index=page_index,
+        key="page_selector"
+    )
+    st.session_state.current_page = selected_page
+    
+    st.sidebar.divider()
     
     # File uploaders - Admin only
     # Initialize to None first
@@ -1056,79 +1071,71 @@ def main():
                 st.session_state.active_site_filter = available_sites.copy() if available_sites else []
             if 'active_study_filter' not in st.session_state:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
-            if 'calendar_view' not in st.session_state:
-                st.session_state.calendar_view = "Site Busy"
             
-            # Calendar display options - moved calendar view selector to same line
-            col_options = st.columns([1, 1, 1, 1, 1, 1, 1])
-            with col_options[0]:
-                prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
-                hide_inactive = st.checkbox(
-                    "Hide inactive patients",
-                    value=prev_hide_inactive,
-                    help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
-                    key="hide_inactive_checkbox"
-                )
-                # Check if value changed and clear cache if so
-                if hide_inactive != prev_hide_inactive:
-                    clear_build_calendar_cache()
-                    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
-                    st.session_state.hide_inactive_patients = hide_inactive
-                    st.rerun()
-                else:
-                    st.session_state.hide_inactive_patients = hide_inactive
-            with col_options[1]:
-                prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
-                compact_mode = st.checkbox(
-                    "Compact view",
-                    value=prev_compact_mode,
-                    help="Narrow columns with vertical headers and icons",
-                    key="compact_mode_checkbox"
-                )
-                # Check if value changed and trigger rerun
-                if compact_mode != prev_compact_mode:
-                    st.session_state.compact_calendar_mode = compact_mode
-                    st.rerun()
-                else:
-                    st.session_state.compact_calendar_mode = compact_mode
-            with col_options[2]:
-                prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
-                show_scrollbars = st.checkbox(
-                    "Show scrollbars",
-                    value=prev_show_scrollbars,
-                    help="Always show vertical and horizontal scrollbars (useful on Windows)",
-                    key="show_scrollbars_checkbox"
-                )
-                # Check if value changed and trigger rerun
-                if show_scrollbars != prev_show_scrollbars:
-                    st.session_state.show_scrollbars = show_scrollbars
-                    st.rerun()
-                else:
-                    st.session_state.show_scrollbars = show_scrollbars
-            with col_options[3]:
-                # View selector
-                view_options = ["Standard", "Site Busy", "Gantt"]
-                current_view = st.session_state.get('calendar_view', 'Standard')
-                view_index = view_options.index(current_view) if current_view in view_options else 0
-                calendar_view = st.radio(
-                    "View",
-                    options=view_options,
-                    index=view_index,
-                    horizontal=True,
-                    help="Standard: Patient-focused view | Site Busy: Site workload view | Gantt: Timeline view by site",
-                    key="calendar_view_radio"
-                )
-                st.session_state.calendar_view = calendar_view
-            with col_options[4]:
-                if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
-                    st.session_state.scroll_to_today = True
-                    st.rerun()
-            with col_options[5]:
-                # Calendar range selector moved to same line - hide label for alignment
-                calendar_filter_option = render_calendar_start_selector(show_label=False)
-                calendar_start_date = calendar_filter_option.get("start")
-            if calendar_view != 'Gantt':
-                with col_options[6]:
+            current_page = st.session_state.get('current_page', 'Site Busy')
+            if current_page == 'Calendar':
+                calendar_view = 'Standard'
+            elif current_page == 'Site Busy':
+                calendar_view = 'Site Busy'
+            else:
+                calendar_view = 'Gantt'
+            
+            # Calendar display options (Calendar and Site Busy only)
+            if current_page in ['Calendar', 'Site Busy']:
+                col_options = st.columns([1, 1, 1, 1, 1, 1])
+                with col_options[0]:
+                    prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
+                    hide_inactive = st.checkbox(
+                        "Hide inactive patients",
+                        value=prev_hide_inactive,
+                        help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
+                        key="hide_inactive_checkbox"
+                    )
+                    # Check if value changed and clear cache if so
+                    if hide_inactive != prev_hide_inactive:
+                        clear_build_calendar_cache()
+                        st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                        st.session_state.hide_inactive_patients = hide_inactive
+                        st.rerun()
+                    else:
+                        st.session_state.hide_inactive_patients = hide_inactive
+                with col_options[1]:
+                    prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
+                    compact_mode = st.checkbox(
+                        "Compact view",
+                        value=prev_compact_mode,
+                        help="Narrow columns with vertical headers and icons",
+                        key="compact_mode_checkbox"
+                    )
+                    # Check if value changed and trigger rerun
+                    if compact_mode != prev_compact_mode:
+                        st.session_state.compact_calendar_mode = compact_mode
+                        st.rerun()
+                    else:
+                        st.session_state.compact_calendar_mode = compact_mode
+                with col_options[2]:
+                    prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
+                    show_scrollbars = st.checkbox(
+                        "Show scrollbars",
+                        value=prev_show_scrollbars,
+                        help="Always show vertical and horizontal scrollbars (useful on Windows)",
+                        key="show_scrollbars_checkbox"
+                    )
+                    # Check if value changed and trigger rerun
+                    if show_scrollbars != prev_show_scrollbars:
+                        st.session_state.show_scrollbars = show_scrollbars
+                        st.rerun()
+                    else:
+                        st.session_state.show_scrollbars = show_scrollbars
+                with col_options[3]:
+                    if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
+                        st.session_state.scroll_to_today = True
+                        st.rerun()
+                with col_options[4]:
+                    # Calendar range selector moved to same line - hide label for alignment
+                    calendar_filter_option = render_calendar_start_selector(show_label=False)
+                    calendar_start_date = calendar_filter_option.get("start")
+                with col_options[5]:
                     # Build filter summary for expander header
                     active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                     active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
@@ -1237,13 +1244,20 @@ def main():
                                     if st.session_state.pending_study_filter else []
                                 )
             
-            # Get calendar_start_date from the selector (created in col_options[3])
-            calendar_filter_option = st.session_state.get("calendar_start_selection", {})
-            calendar_start_date = calendar_filter_option.get("start") if calendar_filter_option else None
+            else:
+                calendar_start_date = None
             
-            # Apply filters to dataframes using calendar start date
-            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
-            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
+            # Get calendar_start_date from the selector (created in col_options)
+            calendar_filter_option = st.session_state.get("calendar_start_selection", {})
+            calendar_start_date = calendar_filter_option.get("start") if calendar_filter_option else calendar_start_date
+            
+            # Apply filters to dataframes using calendar start date (calendar views only)
+            if current_page in ['Calendar', 'Site Busy']:
+                calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
+                visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
+            else:
+                calendar_df_filtered = calendar_df
+                visits_df_filtered = visits_df
             
             # Use active filters for calendar filtering (empty selection means show none)
             selected_sites = st.session_state.active_site_filter
@@ -1252,7 +1266,7 @@ def main():
             effective_studies = selected_studies if selected_studies is not None else available_studies
             effective_sites = selected_sites if selected_sites is not None else available_sites
 
-            apply_filters = (calendar_view != 'Gantt')
+            apply_filters = current_page in ['Calendar', 'Site Busy']
             if apply_filters:
                 if effective_studies is not None and 'Study' in visits_df_filtered.columns:
                     visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
@@ -1311,25 +1325,25 @@ def main():
             if apply_filters and no_filter_results:
                 st.info("No sites or studies selected. Apply a selection to display the calendar.")
 
-            if calendar_start_date is not None:
-                calendar_filter_option = st.session_state.get("calendar_start_selection", {})
-                label = calendar_filter_option.get('label', 'selected period') if calendar_filter_option else 'selected period'
-                st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({label}).")
-            else:
-                st.caption("Showing all recorded visits.")
+            if current_page in ['Calendar', 'Site Busy']:
+                if calendar_start_date is not None:
+                    calendar_filter_option = st.session_state.get("calendar_start_selection", {})
+                    label = calendar_filter_option.get('label', 'selected period') if calendar_filter_option else 'selected period'
+                    st.caption(f"Showing visits from {calendar_start_date.strftime('%d/%m/%Y')} onwards ({label}).")
+                else:
+                    st.caption("Showing all recorded visits.")
 
-            # Public - Always show
-            compact_mode = st.session_state.get('compact_calendar_mode', False)
-            hide_inactive_status = "enabled" if st.session_state.get('hide_inactive_patients', False) else "disabled"
-            compact_status = "enabled" if compact_mode else "disabled"
-            if hide_inactive_status == "enabled" or compact_status == "enabled":
-                st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
+                # Public - Always show
+                compact_mode = st.session_state.get('compact_calendar_mode', False)
+                hide_inactive_status = "enabled" if st.session_state.get('hide_inactive_patients', False) else "disabled"
+                compact_status = "enabled" if compact_mode else "disabled"
+                if hide_inactive_status == "enabled" or compact_status == "enabled":
+                    st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
             
-            # Display appropriate calendar view
-            calendar_view = st.session_state.get('calendar_view', 'Standard')
+            # Display appropriate view
             if apply_filters and no_filter_results:
                 pass
-            elif calendar_view == 'Site Busy':
+            elif current_page == 'Site Busy':
                 # Build site busy calendar
                 from calendar_builder import build_site_busy_calendar
                 # Determine date range for site busy calendar
@@ -1347,7 +1361,7 @@ def main():
                 # Get site columns (exclude Date and Day)
                 site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
                 display_site_busy_calendar(site_busy_df, site_columns)
-            elif calendar_view == 'Gantt':
+            elif current_page == 'Gantt':
                 # Build and display Gantt chart
                 try:
                     gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
@@ -1369,64 +1383,66 @@ def main():
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')
                     st.exception(e)
-            else:
+            elif current_page == 'Calendar':
                 display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
             
-            # Show view-specific legend
-            calendar_view = st.session_state.get('calendar_view', 'Standard')
-            show_legend(actual_visits_df, view=calendar_view)
-            
-            site_summary_df = extract_site_summary(patients_df, screen_failures)
-            if not site_summary_df.empty and effective_sites:
-                site_column_candidates = [col for col in ['Site', 'Visit Site', 'VisitSite'] if col in site_summary_df.columns]
-                if site_column_candidates:
-                    site_summary_df = site_summary_df[site_summary_df[site_column_candidates[0]].isin(effective_sites)]
-            if not site_summary_df.empty:
-                display_site_statistics(site_summary_df)
-            
-            # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
-            # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
-            if st.session_state.get('auth_level') == 'admin':
-                display_monthly_income_tables(visits_df_filtered)
+            if current_page in ['Calendar', 'Site Busy']:
+                # Show view-specific legend
+                show_legend(actual_visits_df, view=calendar_view)
                 
-                financial_df = prepare_financial_data(visits_df_filtered)
-                if not financial_df.empty:
-                    display_quarterly_profit_sharing_tables(financial_df, patients_df)
-
-                display_income_realization_analysis(visits_df_filtered, trials_df, patients_df)
-
-                display_site_income_by_fy(visits_df_filtered, trials_df)
+                if current_page == 'Site Busy':
+                    site_summary_df = extract_site_summary(patients_df, screen_failures)
+                    if not site_summary_df.empty and effective_sites:
+                        site_column_candidates = [col for col in ['Site', 'Visit Site', 'VisitSite'] if col in site_summary_df.columns]
+                        if site_column_candidates:
+                            site_summary_df = site_summary_df[site_summary_df[site_column_candidates[0]].isin(effective_sites)]
+                    if not site_summary_df.empty:
+                        display_site_statistics(site_summary_df)
                 
-                # By-study income summary (current FY by default)
-                display_study_income_summary(visits_df_filtered)
+                if current_page == 'Calendar':
+                    display_download_buttons(
+                        calendar_df_filtered,
+                        filtered_site_column_mapping,
+                        filtered_unique_visit_sites,
+                        patients_df,
+                        visits_df_filtered,
+                        trials_df,
+                        actual_visits_df
+                    )
+            
+            if current_page == 'Recruitment':
+                st.subheader("📊 Recruitment Tracking")
+                try:
+                    recruitment_data = build_recruitment_data(patients_df, trials_df)
+                    display_recruitment_dashboard(recruitment_data)
+                except Exception as e:
+                    st.error(f"Error building recruitment dashboard: {e}")
+                    log_activity(f"Error building recruitment dashboard: {e}", level='error')
+                    st.exception(e)
+            
+            if current_page == 'Financials':
+                # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
+                # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
+                if st.session_state.get('auth_level') == 'admin':
+                    display_monthly_income_tables(visits_df_filtered)
+                    
+                    financial_df = prepare_financial_data(visits_df_filtered)
+                    if not financial_df.empty:
+                        display_quarterly_profit_sharing_tables(financial_df, patients_df)
 
-                # Site-wise statistics (includes financial data)
-                display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
-            else:
-                st.info("🔒 Login as admin to view financial reports and income analysis")
+                    display_income_realization_analysis(visits_df_filtered, trials_df, patients_df)
 
-            display_download_buttons(
-                calendar_df_filtered,
-                filtered_site_column_mapping,
-                filtered_unique_visit_sites,
-                patients_df,
-                visits_df_filtered,
-                trials_df,
-                actual_visits_df
-            )
+                    display_site_income_by_fy(visits_df_filtered, trials_df)
+                    
+                    # By-study income summary (current FY by default)
+                    display_study_income_summary(visits_df_filtered)
+
+                    # Site-wise statistics (includes financial data)
+                    display_site_wise_statistics(visits_df_filtered, patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
+                else:
+                    st.info("🔒 Login as admin to view financial reports and income analysis")
 
             display_error_log_section()
-            
-            # Recruitment Tracking Section (separate from calendar views)
-            st.markdown("---")
-            st.subheader("📊 Recruitment Tracking")
-            try:
-                recruitment_data = build_recruitment_data(patients_df, trials_df)
-                display_recruitment_dashboard(recruitment_data)
-            except Exception as e:
-                st.error(f"Error building recruitment dashboard: {e}")
-                log_activity(f"Error building recruitment dashboard: {e}", level='error')
-                st.exception(e)
 
         except Exception as e:
             st.error(f"Error processing files: {e}")
