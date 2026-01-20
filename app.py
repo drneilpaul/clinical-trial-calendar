@@ -1071,6 +1071,19 @@ def main():
                 st.session_state.active_site_filter = available_sites.copy() if available_sites else []
             if 'active_study_filter' not in st.session_state:
                 st.session_state.active_study_filter = available_studies.copy() if available_studies else []
+            if 'filters_user_set' not in st.session_state:
+                st.session_state.filters_user_set = False
+            
+            # If user hasn't adjusted filters yet, default to all available options
+            if not st.session_state.filters_user_set:
+                if available_sites and not st.session_state.active_site_filter:
+                    st.session_state.active_site_filter = available_sites.copy()
+                if available_studies and not st.session_state.active_study_filter:
+                    st.session_state.active_study_filter = available_studies.copy()
+                if available_sites and not st.session_state.pending_site_filter:
+                    st.session_state.pending_site_filter = available_sites.copy()
+                if available_studies and not st.session_state.pending_study_filter:
+                    st.session_state.pending_study_filter = available_studies.copy()
             
             current_page = st.session_state.get('current_page', 'Site Busy')
             if current_page == 'Calendar':
@@ -1243,6 +1256,7 @@ def main():
                                     st.session_state.pending_study_filter.copy() 
                                     if st.session_state.pending_study_filter else []
                                 )
+                                st.session_state.filters_user_set = True
             
             else:
                 calendar_start_date = None
