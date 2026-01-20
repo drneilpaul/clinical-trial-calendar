@@ -472,8 +472,8 @@ def validate_file_upload(file, file_type: str) -> Tuple[Optional[pd.DataFrame], 
             return validate_trials_file(df)
         elif file_type == 'visits':
             return validate_visits_file(df)
-    elif file_type == 'study_site_details':
-        return validate_study_site_details_file(df)
+        elif file_type == 'study_site_details':
+            return validate_study_site_details_file(df)
         else:
             return None, [f"Unknown file type: {file_type}"]
             
