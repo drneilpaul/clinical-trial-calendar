@@ -1144,30 +1144,33 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
         client = get_supabase_client()
         if client is None:
             return False
-        
+
         # Prepare update record
         update_data = {}
-        
+
         # Handle date fields
         for date_field in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
             if date_field in kwargs:
                 update_data[date_field] = str(kwargs[date_field]) if kwargs[date_field] else None
-        
+
         # Handle other fields
         for field in ['StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']:
             if field in kwargs:
                 update_data[field] = kwargs[field]
-        
+
         if not update_data:
             return False
-        
+
         response = client.table('study_site_details').update(update_data).eq('Study', study).eq('ContractSite', site).execute()
-        
+
         if response.data:
             log_activity(f"Updated study site details: {study}/{site}", level='success')
             # Clear cache
             _fetch_all_study_site_details_cached.clear()
             return True
+        return False
+    except Exception as e:
+        log_activity(f"Error updating study site details: {e}", level='error')
         return False
 
 def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
