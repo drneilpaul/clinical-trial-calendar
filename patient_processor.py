@@ -335,7 +335,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, patient_seen_at, 
     
     try:
         payment = float(visit.get("Payment", 0) or 0)
-    except:
+    except (ValueError, TypeError):
         payment = 0.0
     
     # CHANGED: Use patient SiteSeenAt for visit location

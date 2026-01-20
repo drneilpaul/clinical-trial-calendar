@@ -17,7 +17,7 @@ def _get_processing_debug():
     try:
         from config import should_log_debug
         return should_log_debug()
-    except:
+    except (ImportError, AttributeError):
         return False
 
 @timeit
@@ -321,9 +321,9 @@ def prepare_trials_data(trials_df):
     
     try:
         trials_df["Day"] = pd.to_numeric(trials_df["Day"], errors='coerce').fillna(1).astype(int)
-    except:
-        st.error("Invalid 'Day' values in trials file. Days must be numeric.")
-        raise ValueError("Invalid Day column in trials file")
+    except (ValueError, TypeError, KeyError) as e:
+        st.error(f"Invalid 'Day' values in trials file. Days must be numeric. Error: {e}")
+        raise ValueError(f"Invalid Day column in trials file: {e}")
 
     # Optional interval-based scheduling columns
     try:

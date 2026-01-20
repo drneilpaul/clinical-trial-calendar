@@ -40,16 +40,16 @@ def log_site_detection_summary(patients_df, function_name="Unknown"):
     
     # Get all detected sites using the helper function
     detected_sites = set()
-    for _, patient_row in patients_df.iterrows():
+    for patient_row in patients_df.itertuples(index=False):
         site = get_patient_origin_site(patient_row)
         detected_sites.add(site)
-    
+
     log_activity(f"Total patients processed: {len(patients_df)}", level='info')
     log_activity(f"Unique sites detected: {sorted(detected_sites)}", level='info')
-    
+
     # Count sites
     site_counts = {}
-    for _, patient_row in patients_df.iterrows():
+    for patient_row in patients_df.itertuples(index=False):
         site = get_patient_origin_site(patient_row)
         site_counts[site] = site_counts.get(site, 0) + 1
     
@@ -128,7 +128,7 @@ def parse_dates_column(df, col, errors="raise"):
                 try:
                     excel_date = pd.to_datetime(val, origin='1899-12-30', unit='D')
                     return pd.Timestamp(excel_date.date())
-                except:
+                except (ValueError, TypeError, pd.errors.OutOfBoundsDatetime):
                     pass
             
             uk_formats = ['%d/%m/%y', '%d/%m/%Y', '%d-%m-%y', '%d-%m-%Y', '%d.%m.%y', '%d.%m.%Y']

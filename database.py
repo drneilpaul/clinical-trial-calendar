@@ -331,7 +331,8 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                     elif hasattr(field_value, 'date'):
                         return str(field_value.date())
                     return None
-                except:
+                except Exception as e:
+                    log_activity(f"Error parsing date field {field_name}: {e}", level='warning')
                     return None
             
             # Handle StudyStatus field
@@ -624,11 +625,23 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
             return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
         
         # Database columns are now PascalCase, no renaming needed
-        
-        # Check each visit in the input DataFrame
-        for _, new_visit in visit_df.iterrows():
+
+        # OPTIMIZED: Normalize existing visits once OUTSIDE the loop
+        if 'ActualDate' in existing_visits.columns:
+            existing_visits_normalized = existing_visits.copy()
+            existing_visits_normalized['ActualDate_normalized'] = pd.to_datetime(
+                existing_visits_normalized['ActualDate'], dayfirst=True, errors='coerce'
+            ).dt.date
+            existing_visits_normalized['PatientID_str'] = existing_visits_normalized['PatientID'].astype(str)
+            existing_visits_normalized['Study_str'] = existing_visits_normalized['Study'].astype(str)
+            existing_visits_normalized['VisitName_lower'] = existing_visits_normalized['VisitName'].astype(str).str.strip().str.lower()
+        else:
+            existing_visits_normalized = None
+
+        # Check each visit in the input DataFrame - using itertuples for 2-3x performance
+        for new_visit in visit_df.itertuples(index=False):
             # Normalize date for comparison
-            new_date = new_visit.get('ActualDate')
+            new_date = new_visit.ActualDate if hasattr(new_visit, 'ActualDate') else None
             if pd.notna(new_date):
                 if isinstance(new_date, str):
                     new_date_normalized = pd.to_datetime(new_date, dayfirst=True).date()
@@ -636,58 +649,53 @@ def check_visit_duplicates(visit_df: pd.DataFrame, client) -> dict:
                     new_date_normalized = new_date.date() if hasattr(new_date, 'date') else new_date
             else:
                 new_date_normalized = None
-            
-            # OPTIMIZED: Only copy when we need to add normalized date column
-            if 'ActualDate' in existing_visits.columns:
-                existing_visits_copy = existing_visits.copy()
-                existing_visits_copy['ActualDate_normalized'] = pd.to_datetime(
-                    existing_visits_copy['ActualDate'], dayfirst=True, errors='coerce'
-                ).dt.date
-                
+
+            if existing_visits_normalized is not None:
+                new_patient_id_str = str(new_visit.PatientID)
+                new_study_str = str(new_visit.Study)
+                new_visit_name_lower = str(new_visit.VisitName).strip().lower()
+
                 # Check for exact duplicate (same PatientID + Study + VisitName + ActualDate)
-                exact_match = existing_visits_copy[
-                    (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
-                    (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
-                    (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
-                    (existing_visits_copy['ActualDate_normalized'] == new_date_normalized)
+                exact_match = existing_visits_normalized[
+                    (existing_visits_normalized['PatientID_str'] == new_patient_id_str) &
+                    (existing_visits_normalized['Study_str'] == new_study_str) &
+                    (existing_visits_normalized['VisitName_lower'] == new_visit_name_lower) &
+                    (existing_visits_normalized['ActualDate_normalized'] == new_date_normalized)
                 ]
-            else:
-                # No ActualDate column - can't match on date, so no exact duplicates possible
-                exact_match = pd.DataFrame()
-            
-            if not exact_match.empty:
-                duplicate_info = exact_match.iloc[0]
-                return {
-                    'has_duplicates': True,
-                    'is_exact_duplicate': True,
-                    'duplicates': {
-                        'PatientID': duplicate_info['PatientID'],
-                        'Study': duplicate_info['Study'],
-                        'VisitName': duplicate_info['VisitName'],
-                        'ActualDate': duplicate_info['ActualDate']
+
+                if not exact_match.empty:
+                    duplicate_info = exact_match.iloc[0]
+                    return {
+                        'has_duplicates': True,
+                        'is_exact_duplicate': True,
+                        'duplicates': {
+                            'PatientID': duplicate_info['PatientID'],
+                            'Study': duplicate_info['Study'],
+                            'VisitName': duplicate_info['VisitName'],
+                            'ActualDate': duplicate_info['ActualDate']
+                        }
                     }
-                }
-            
-            # Check for same visit on different date
-            same_visit_different_date = existing_visits_copy[
-                (existing_visits_copy['PatientID'].astype(str) == str(new_visit['PatientID'])) &
-                (existing_visits_copy['Study'].astype(str) == str(new_visit['Study'])) &
-                (existing_visits_copy['VisitName'].astype(str).str.strip().str.lower() == str(new_visit['VisitName']).strip().lower()) &
-                (existing_visits_copy['ActualDate_normalized'] != new_date_normalized)
-            ]
-            
-            if not same_visit_different_date.empty:
-                duplicate_info = same_visit_different_date.iloc[0]
-                return {
-                    'has_duplicates': True,
-                    'is_exact_duplicate': False,
-                    'duplicates': {
-                        'PatientID': duplicate_info['PatientID'],
-                        'Study': duplicate_info['Study'],
-                        'VisitName': duplicate_info['VisitName'],
-                        'ActualDate': duplicate_info['ActualDate']
+
+                # Check for same visit on different date
+                same_visit_different_date = existing_visits_normalized[
+                    (existing_visits_normalized['PatientID_str'] == new_patient_id_str) &
+                    (existing_visits_normalized['Study_str'] == new_study_str) &
+                    (existing_visits_normalized['VisitName_lower'] == new_visit_name_lower) &
+                    (existing_visits_normalized['ActualDate_normalized'] != new_date_normalized)
+                ]
+
+                if not same_visit_different_date.empty:
+                    duplicate_info = same_visit_different_date.iloc[0]
+                    return {
+                        'has_duplicates': True,
+                        'is_exact_duplicate': False,
+                        'duplicates': {
+                            'PatientID': duplicate_info['PatientID'],
+                            'Study': duplicate_info['Study'],
+                            'VisitName': duplicate_info['VisitName'],
+                            'ActualDate': duplicate_info['ActualDate']
+                        }
                     }
-                }
         
         return {'has_duplicates': False, 'is_exact_duplicate': False, 'duplicates': None}
         
@@ -740,9 +748,10 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                     elif hasattr(field_value, 'date'):
                         return str(field_value.date())
                     return None
-                except:
+                except Exception as e:
+                    log_activity(f"Error parsing date field {field_name}: {e}", level='warning')
                     return None
-            
+
             # Handle StudyStatus field
             study_status_value = getattr(row_tuple, 'StudyStatus', None)
             if pd.isna(study_status_value) or str(study_status_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
@@ -1049,11 +1058,12 @@ def fetch_study_site_details(study: str, site: str) -> Optional[Dict]:
 
 def create_study_site_details(study: str, site: str, details: Dict) -> bool:
     """Create a new study+site entry in study_site_details table"""
+    success = False
     try:
         client = get_supabase_client()
         if client is None:
             return False
-        
+
         # Prepare record with defaults
         record = {
             'Study': str(study).strip(),
@@ -1068,21 +1078,24 @@ def create_study_site_details(study: str, site: str, details: Dict) -> bool:
             'StudyURL': details.get('StudyURL'),
             'DocumentLinks': details.get('DocumentLinks')
         }
-        
+
         # Remove None values to let database use defaults
         record = {k: v for k, v in record.items() if v is not None}
-        
+
         response = client.table('study_site_details').insert(record).execute()
-        
+
         if response.data:
             log_activity(f"Created study site details: {study}/{site}", level='success')
-            # Clear cache
-            _fetch_all_study_site_details_cached.clear()
+            success = True
             return True
         return False
     except Exception as e:
         log_activity(f"Error creating study site details for {study}/{site}: {e}", level='error')
         return False
+    finally:
+        # Always clear cache after database operation attempt (success or failure)
+        if success:
+            _fetch_all_study_site_details_cached.clear()
 
 def save_study_site_details(study: str, site: str, details: Dict) -> bool:
     """Create or update (upsert) study site details"""

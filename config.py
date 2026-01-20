@@ -98,7 +98,7 @@ def get_debug_level():
     """Get current debug level from session state, defaulting to STANDARD"""
     try:
         return st.session_state.get('debug_level', DEBUG_STANDARD)
-    except:
+    except (AttributeError, RuntimeError):
         # Fallback if streamlit not available (e.g., in tests)
         return DEBUG_STANDARD
 

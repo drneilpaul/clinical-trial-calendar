@@ -295,13 +295,13 @@ def calculate_tolerance_windows(visit, baseline_date, visit_day):
     try:
         if pd.notna(visit.get("ToleranceBefore")):
             tolerance_before = int(float(visit.get("ToleranceBefore", 0)))
-    except:
+    except (ValueError, TypeError):
         tolerance_before = 0
-        
+
     try:
         if pd.notna(visit.get("ToleranceAfter")):
             tolerance_after = int(float(visit.get("ToleranceAfter", 0)))
-    except:
+    except (ValueError, TypeError):
         tolerance_after = 0
     
     earliest_acceptable = expected_date - timedelta(days=tolerance_before)
