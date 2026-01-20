@@ -84,12 +84,12 @@ def render_reporting_year_selector(
             min_date = all_dates.min()
             max_date = all_dates.max()
             # Extend to full FY boundaries
-            from helpers import get_financial_year_start_year_for_series, get_financial_year_start_end
+            from helpers import get_financial_year_start_year_for_series, get_financial_year_boundaries
             fy_start_years = get_financial_year_start_year_for_series(pd.Series([min_date, max_date]))
             min_fy_start = int(fy_start_years.min())
             max_fy_start = int(fy_start_years.max())
             for start_year in range(min_fy_start, max_fy_start + 1):
-                start, end = get_financial_year_start_end(f"{start_year}-{str(start_year + 1)[-2:]}")
+                start, end = get_financial_year_boundaries(f"{start_year}-{str(start_year + 1)[-2:]}")
                 fy_options.append({
                     "label": f"FY {start_year}-{str(start_year + 1)[-2:]}",
                     "start": start,
