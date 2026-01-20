@@ -288,29 +288,36 @@ def validate_financial_year_string(fy_string):
     """Validate that a financial year string is in the correct format"""
     if not isinstance(fy_string, str):
         return False
-    
+
     try:
         parts = fy_string.split('-')
         if len(parts) != 2:
             return False
-        
+
         start_year = int(parts[0])
         end_year = int(parts[1])
-        
+
+        # Handle both "2021-22" and "2021-2022" formats
+        if len(parts[1]) == 2:
+            # Two-digit year: convert to full year
+            end_year = int(str(start_year)[:2] + parts[1])
+
         return end_year == start_year + 1
     except ValueError:
         return False
 
 def get_financial_year_boundaries(fy_string):
-    """Get the start and end dates for a financial year string"""
+    """Get the start and end dates for a financial year string
+    Supports both "2021-22" and "2021-2022" formats
+    """
     if not validate_financial_year_string(fy_string):
         raise ValueError(f"Invalid financial year format: {fy_string}")
-    
+
     start_year = int(fy_string.split('-')[0])
-    
+
     start_date = pd.Timestamp(f"{start_year}-04-01")
     end_date = pd.Timestamp(f"{start_year + 1}-03-31")
-    
+
     return start_date, end_date
 
 def get_current_financial_year_boundaries():
