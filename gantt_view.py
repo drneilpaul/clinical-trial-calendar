@@ -47,10 +47,10 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
     if study_patients.empty or 'StartDate' not in study_patients.columns:
         return []
     
-    # Get and sort by StartDate
+    # Get and sort by StartDate - OPTIMIZED: use itertuples for 2-3x speedup
     patient_dates = []
-    for _, patient in study_patients.iterrows():
-        start_date = pd.to_datetime(patient['StartDate'], errors='coerce')
+    for patient in study_patients.itertuples(index=False):
+        start_date = pd.to_datetime(patient.StartDate, errors='coerce')
         if pd.notna(start_date):
             patient_dates.append(start_date.date())
     
@@ -186,10 +186,10 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     # Build set of all study+site combinations
     study_site_combinations = set()
 
-    # Add from trial_schedules
+    # Add from trial_schedules - OPTIMIZED: use itertuples for 2-3x speedup
     if trials_df is not None and not trials_df.empty and 'SiteforVisit' in trials_df.columns:
-        for _, row in trials_df.iterrows():
-            study_site_combinations.add((row['Study'], row['SiteforVisit']))
+        for row in trials_df.itertuples(index=False):
+            study_site_combinations.add((row.Study, row.SiteforVisit))
 
     # Add from study_site_details (includes EOI studies without trial schedules)
     if study_details_df is not None and not study_details_df.empty:
@@ -204,8 +204,9 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
         else:
             site_col = 'SiteforVisit'
 
-        for _, row in study_details_df.iterrows():
-            study_site_combinations.add((row['Study'], row[site_col]))
+        # OPTIMIZED: use itertuples for 2-3x speedup
+        for row in study_details_df.itertuples(index=False):
+            study_site_combinations.add((row.Study, getattr(row, site_col)))
     
     if not study_site_combinations:
         log_activity("No study-site combinations found, cannot build Gantt data", level='error')

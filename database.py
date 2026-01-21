@@ -73,6 +73,8 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
             return df
         return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
     except Exception as e:
+        log_activity(f"Error fetching patients from database: {e}", level='error')
+        st.error(f"Database error: Unable to fetch patients. {str(e)}")
         return None
 
 def fetch_all_patients() -> Optional[pd.DataFrame]:
@@ -117,6 +119,8 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
             return df
         return pd.DataFrame(columns=['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget'])
     except Exception as e:
+        log_activity(f"Error fetching trial schedules from database: {e}", level='error')
+        st.error(f"Database error: Unable to fetch trial schedules. {str(e)}")
         return None
 
 def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
@@ -160,6 +164,8 @@ def _fetch_all_actual_visits_cached() -> Optional[pd.DataFrame]:
             return df
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
     except Exception as e:
+        log_activity(f"Error fetching actual visits from database: {e}", level='error')
+        st.error(f"Database error: Unable to fetch actual visits. {str(e)}")
         return None
 
 def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
@@ -309,12 +315,18 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             if pd.isna(visit_type_value) or str(visit_type_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
                 # Auto-detect from VisitName
                 visit_name = str(getattr(row_tuple, 'VisitName', ''))
-                if visit_name.upper().strip() == 'SIV':
+                visit_name_upper = visit_name.upper().strip()
+
+                # Check for exact matches first (case-insensitive)
+                if visit_name_upper == 'SIV':
                     visit_type_value = 'siv'
-                elif 'monitor' in visit_name.lower():
+                elif visit_name_upper in ['MONITORING VISIT', 'MONITOR VISIT', 'SITE MONITORING']:
+                    visit_type_value = 'monitor'
+                elif visit_name_upper.startswith('MONITORING') and len(visit_name_upper.split()) <= 3:
+                    # "Monitoring Visit 1", "Monitoring V1" etc (short phrases only)
                     visit_type_value = 'monitor'
                 else:
-                    visit_type_value = 'patient'  # Default
+                    visit_type_value = 'patient'  # Default for all patient visits
             
             # Handle date override fields (FPFV, LPFV, LPLV)
             def parse_date_field(field_name):
@@ -727,12 +739,18 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
             if pd.isna(visit_type_value) or str(visit_type_value).strip() in ['', 'None', 'nan', 'null', 'NULL']:
                 # Auto-detect from VisitName
                 visit_name = str(getattr(row_tuple, 'VisitName', ''))
-                if visit_name.upper().strip() == 'SIV':
+                visit_name_upper = visit_name.upper().strip()
+
+                # Check for exact matches first (case-insensitive)
+                if visit_name_upper == 'SIV':
                     visit_type_value = 'siv'
-                elif 'monitor' in visit_name.lower():
+                elif visit_name_upper in ['MONITORING VISIT', 'MONITOR VISIT', 'SITE MONITORING']:
+                    visit_type_value = 'monitor'
+                elif visit_name_upper.startswith('MONITORING') and len(visit_name_upper.split()) <= 3:
+                    # "Monitoring Visit 1", "Monitoring V1" etc (short phrases only)
                     visit_type_value = 'monitor'
                 else:
-                    visit_type_value = 'patient'  # Default
+                    visit_type_value = 'patient'  # Default for all patient visits
             
             # Handle date override fields (FPFV, LPFV, LPLV)
             def parse_date_field(field_name):
