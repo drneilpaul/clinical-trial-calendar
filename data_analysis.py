@@ -13,10 +13,11 @@ def extract_screen_failures(actual_visits_df):
             actual_visits_df["Notes"].str.contains("ScreenFail", case=False, na=False)
         ]
         
-        for _, visit in screen_fail_visits.iterrows():
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-            screen_fail_date = visit['ActualDate']
-            
+        # OPTIMIZED: use itertuples for 2-3x speedup
+        for visit in screen_fail_visits.itertuples(index=False):
+            patient_study_key = f"{visit.PatientID}_{visit.Study}"
+            screen_fail_date = visit.ActualDate
+
             # Store the earliest screen failure date for each patient-study combination
             if patient_study_key not in screen_failures or screen_fail_date < screen_failures[patient_study_key]:
                 screen_failures[patient_study_key] = screen_fail_date
@@ -33,10 +34,11 @@ def extract_withdrawals(actual_visits_df):
             actual_visits_df["Notes"].str.contains("Withdrawn", case=False, na=False)
         ]
         
-        for _, visit in withdrawal_visits.iterrows():
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-            withdrawal_date = visit['ActualDate']
-            
+        # OPTIMIZED: use itertuples for 2-3x speedup
+        for visit in withdrawal_visits.itertuples(index=False):
+            patient_study_key = f"{visit.PatientID}_{visit.Study}"
+            withdrawal_date = visit.ActualDate
+
             # Store the earliest withdrawal date for each patient-study combination
             if patient_study_key not in withdrawals or withdrawal_date < withdrawals[patient_study_key]:
                 withdrawals[patient_study_key] = withdrawal_date
@@ -53,10 +55,11 @@ def extract_deaths(actual_visits_df):
             actual_visits_df["Notes"].str.contains("Died", case=False, na=False)
         ]
         
-        for _, visit in death_visits.iterrows():
-            patient_study_key = f"{visit['PatientID']}_{visit['Study']}"
-            death_date = visit['ActualDate']
-            
+        # OPTIMIZED: use itertuples for 2-3x speedup
+        for visit in death_visits.itertuples(index=False):
+            patient_study_key = f"{visit.PatientID}_{visit.Study}"
+            death_date = visit.ActualDate
+
             # Store the earliest death date for each patient-study combination
             if patient_study_key not in deaths or death_date < deaths[patient_study_key]:
                 deaths[patient_study_key] = death_date

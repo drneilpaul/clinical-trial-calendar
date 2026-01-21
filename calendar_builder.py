@@ -579,26 +579,28 @@ def build_site_busy_calendar(visits_df, trials_df=None, actual_visits_df=None, d
     # Create date-to-index mapping
     date_to_idx = {date: idx for idx, date in enumerate(site_busy_df['Date'])}
     
-    # Create tolerance lookup from trials_df if available
+    # Create tolerance lookup from trials_df if available - OPTIMIZED: use itertuples
     tolerance_lookup = {}
     if trials_df is not None and not trials_df.empty:
-        for _, trial in trials_df.iterrows():
-            key = (str(trial.get('Study', '')), str(trial.get('VisitName', '')))
-            tolerance_before = int(trial.get('ToleranceBefore', 0) or 0)
-            tolerance_after = int(trial.get('ToleranceAfter', 0) or 0)
+        for trial in trials_df.itertuples(index=False):
+            key = (str(getattr(trial, 'Study', '')), str(getattr(trial, 'VisitName', '')))
+            tolerance_before = int(getattr(trial, 'ToleranceBefore', 0) or 0)
+            tolerance_after = int(getattr(trial, 'ToleranceAfter', 0) or 0)
             tolerance_lookup[key] = (tolerance_before, tolerance_after)
     
-    # Create Notes lookup from actual_visits_df if available (for DNA detection)
+    # Create Notes lookup from actual_visits_df if available (for DNA detection) - OPTIMIZED
     notes_lookup = {}
     if actual_visits_df is not None and not actual_visits_df.empty:
-        for _, visit in actual_visits_df.iterrows():
+        for visit in actual_visits_df.itertuples(index=False):
+            actual_date = getattr(visit, 'ActualDate', None)
+            normalized_date = pd.to_datetime(actual_date).normalize() if pd.notna(actual_date) else None
             key = (
-                str(visit.get('PatientID', '')),
-                str(visit.get('Study', '')),
-                str(visit.get('VisitName', '')),
-                pd.to_datetime(visit.get('ActualDate')).normalize() if pd.notna(visit.get('ActualDate')) else None
+                str(getattr(visit, 'PatientID', '')),
+                str(getattr(visit, 'Study', '')),
+                str(getattr(visit, 'VisitName', '')),
+                normalized_date
             )
-            notes = str(visit.get('Notes', '') or '')
+            notes = str(getattr(visit, 'Notes', '') or '')
             if key[3] is not None:
                 notes_lookup[key] = notes
     
