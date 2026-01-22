@@ -30,12 +30,15 @@ def detect_study_phase(lpfv_date: Optional[date], lplv_date: Optional[date], tod
 def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFrame) -> List[Tuple[date, int]]:
     """
     Get sorted list of patient recruitment dates with sequential numbers.
-    
+
+    REFACTOR: Now uses Status-based recruitment - only counts patients with recruited statuses.
+    Uses RandomizationDate for recruited patients, not ScreeningDate.
+
     Args:
         study: Study name
         site: Contract site name (for grouping only)
         patients_df: Patients dataframe
-    
+
     Returns:
         List of tuples: [(recruitment_date, patient_number), ...] sorted by date
     """
@@ -43,16 +46,36 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
     study_patients = patients_df[
         (patients_df['Study'] == study)
     ]
-    
-    if study_patients.empty or 'StartDate' not in study_patients.columns:
+
+    if study_patients.empty:
         return []
-    
-    # Get and sort by ScreeningDate - OPTIMIZED: use itertuples for 2-3x speedup
+
+    # REFACTOR: Filter for recruited patients only (not screening/screen_failed)
+    if 'Status' in study_patients.columns:
+        recruited_statuses = ['randomized', 'withdrawn', 'deceased', 'completed', 'lost_to_followup']
+        study_patients = study_patients[study_patients['Status'].isin(recruited_statuses)]
+
+    if study_patients.empty:
+        return []
+
+    # REFACTOR: Use RandomizationDate for recruited patients (when randomized), with fallbacks
+    date_column = None
+    if 'RandomizationDate' in study_patients.columns:
+        date_column = 'RandomizationDate'
+    elif 'ScreeningDate' in study_patients.columns:
+        date_column = 'ScreeningDate'
+    elif 'StartDate' in study_patients.columns:
+        date_column = 'StartDate'
+
+    if date_column is None:
+        return []
+
+    # Get and sort by date - OPTIMIZED: use itertuples for 2-3x speedup
     patient_dates = []
     for patient in study_patients.itertuples(index=False):
-        screening_date = pd.to_datetime(patient.ScreeningDate, errors='coerce')
-        if pd.notna(screening_date):
-            patient_dates.append(screening_date.date())
+        patient_date = pd.to_datetime(getattr(patient, date_column), errors='coerce')
+        if pd.notna(patient_date):
+            patient_dates.append(patient_date.date())
     
     # Sort by date and number sequentially
     patient_dates.sort()
@@ -131,8 +154,15 @@ def calculate_study_dates(study: str, site: str, patients_df: pd.DataFrame,
         study_patients = patients_df[
             (patients_df['Study'] == study)
         ]
-        if not study_patients.empty and 'StartDate' in study_patients.columns:
-            start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
+        # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
+        if not study_patients.empty:
+            if 'ScreeningDate' in study_patients.columns:
+                start_dates = pd.to_datetime(study_patients['ScreeningDate'], errors='coerce').dropna()
+            elif 'StartDate' in study_patients.columns:
+                start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
+            else:
+                start_dates = pd.Series(dtype='datetime64[ns]')
+
             if not start_dates.empty:
                 start_date = start_dates.min().date()
     
@@ -356,14 +386,22 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             studies_with_activity.update(fy_visits['Study'].dropna().unique())
     
     # Check patients_df for recruitment in current FY
-    if patients_df is not None and not patients_df.empty and 'StartDate' in patients_df.columns:
-        patients_df_dates = pd.to_datetime(patients_df['StartDate'], errors='coerce')
-        fy_patients = patients_df[
-            (patients_df_dates >= pd.Timestamp(fy_start)) & 
-            (patients_df_dates <= pd.Timestamp(fy_end))
-        ]
-        if not fy_patients.empty and 'Study' in fy_patients.columns:
-            studies_with_activity.update(fy_patients['Study'].dropna().unique())
+    # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
+    if patients_df is not None and not patients_df.empty:
+        date_column = None
+        if 'ScreeningDate' in patients_df.columns:
+            date_column = 'ScreeningDate'
+        elif 'StartDate' in patients_df.columns:
+            date_column = 'StartDate'
+
+        if date_column:
+            patients_df_dates = pd.to_datetime(patients_df[date_column], errors='coerce')
+            fy_patients = patients_df[
+                (patients_df_dates >= pd.Timestamp(fy_start)) &
+                (patients_df_dates <= pd.Timestamp(fy_end))
+            ]
+            if not fy_patients.empty and 'Study' in fy_patients.columns:
+                studies_with_activity.update(fy_patients['Study'].dropna().unique())
     
     # Filter: Keep studies with activity in current FY, or EOI/contracted/in_setup studies
     # (EOI, contracted, in_setup are future/potential studies and should still be shown)
