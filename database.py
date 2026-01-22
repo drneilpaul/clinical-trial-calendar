@@ -67,18 +67,11 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
             df = pd.DataFrame(response.data)
 
             # Database columns are now PascalCase, no renaming needed
-            # REFACTOR: Support both ScreeningDate (new) and StartDate (backward compat)
             if 'ScreeningDate' in df.columns:
                 df['ScreeningDate'] = pd.to_datetime(df['ScreeningDate'], errors='coerce')
 
             if 'RandomizationDate' in df.columns:
                 df['RandomizationDate'] = pd.to_datetime(df['RandomizationDate'], errors='coerce')
-
-            # Backward compatibility: if StartDate exists but ScreeningDate doesn't, map it
-            if 'StartDate' in df.columns and 'ScreeningDate' not in df.columns:
-                df['ScreeningDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
-            elif 'StartDate' in df.columns:
-                df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
 
             return df
         return pd.DataFrame(columns=['PatientID', 'Study', 'ScreeningDate', 'RandomizationDate', 'Status', 'PatientPractice', 'SiteSeenAt', 'Pathway'])

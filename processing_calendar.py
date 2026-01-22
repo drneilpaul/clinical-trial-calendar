@@ -32,9 +32,9 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
 
     # CHANGED: Remove the section that adds default columns silently
     # The validation layer now ensures these columns exist with valid data
-    
-    # Validate required columns - this will now fail fast if missing
-    validate_required_columns(patients_df, {"PatientID", "Study", "StartDate", "PatientPractice"}, "Patients file")
+
+    # Validate required columns
+    validate_required_columns(patients_df, {"PatientID", "Study", "ScreeningDate", "PatientPractice"}, "Patients file")
     validate_required_columns(trials_df, {"Study", "Day", "VisitName", "SiteforVisit"}, "Trials file")
 
     # Standardize visit columns

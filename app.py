@@ -70,7 +70,7 @@ def render_db_admin_page():
             "table": "patients",
             "fetch": db.fetch_all_patients,
             "save": db.save_patients_to_database,
-            "required": ["PatientID", "Study", "StartDate", "PatientPractice"]
+            "required": ["PatientID", "Study", "PatientPractice"]
         },
         "Trial Schedules": {
             "table": "trial_schedules",

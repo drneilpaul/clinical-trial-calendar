@@ -102,33 +102,32 @@ def validate_patients_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """Validate and clean patients file"""
     errors = []
     warnings = []
-    
-    # Required columns - PatientPractice is recruitment site
-    required_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice']
+
+    # Required columns
+    required_columns = ['PatientID', 'Study', 'ScreeningDate', 'PatientPractice']
     missing_columns = [col for col in required_columns if col not in df.columns]
-    
+
     if missing_columns:
         errors.append(f"Missing required columns: {missing_columns}")
         return df, errors
-    
+
     # Clean the dataframe
     df_clean = df.copy()
-    
+
     # Clean PatientID - ensure it's a string
     if 'PatientID' in df_clean.columns:
         df_clean['PatientID'] = df_clean['PatientID'].astype(str)
-    
+
     # Clean Study - ensure it's a string
     if 'Study' in df_clean.columns:
         df_clean['Study'] = df_clean['Study'].astype(str)
-    
-    # Clean StartDate
-    if 'StartDate' in df_clean.columns:
-        df_clean['StartDate'] = df_clean['StartDate'].apply(lambda x: clean_date_value(x))
-        # Check for invalid dates
-        invalid_dates = df_clean['StartDate'].isna().sum()
+
+    # Clean ScreeningDate
+    if 'ScreeningDate' in df_clean.columns:
+        df_clean['ScreeningDate'] = df_clean['ScreeningDate'].apply(lambda x: clean_date_value(x))
+        invalid_dates = df_clean['ScreeningDate'].isna().sum()
         if invalid_dates > 0:
-            warnings.append(f"{invalid_dates} patients have invalid start dates")
+            warnings.append(f"{invalid_dates} patients have invalid screening dates")
     
     # NEW SECTION: Validate PatientPractice is present and valid (recruitment site)
     if 'PatientPractice' in df_clean.columns:

@@ -99,15 +99,15 @@ class DatabaseValidator:
             else:
                 self.info.append(f"✅ All {len(patients_df)} patients have valid visit sites")
         
-        # Check 2: Valid StartDate
-        if 'StartDate' not in patients_df.columns:
-            self.errors.append("❌ CRITICAL: StartDate column missing from patients table")
+        # Check 2: Valid ScreeningDate
+        if 'ScreeningDate' not in patients_df.columns:
+            self.errors.append("❌ CRITICAL: ScreeningDate column missing from patients table")
         else:
-            invalid_dates = patients_df['StartDate'].isna().sum()
+            invalid_dates = patients_df['ScreeningDate'].isna().sum()
             if invalid_dates > 0:
-                self.warnings.append(f"⚠️ {invalid_dates} patient(s) have invalid/missing start dates")
+                self.warnings.append(f"⚠️ {invalid_dates} patient(s) have invalid/missing screening dates")
             else:
-                self.info.append(f"✅ All patients have valid start dates")
+                self.info.append(f"✅ All patients have valid screening dates")
         
         # Check 3: Duplicate PatientIDs
         duplicates = patients_df['PatientID'].duplicated().sum()
