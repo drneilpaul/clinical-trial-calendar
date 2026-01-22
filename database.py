@@ -266,22 +266,22 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
         records = []
         # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
         for row_tuple in patients_df.itertuples(index=False):
-            start_date = None
-            if pd.notna(row_tuple.StartDate):
+            screening_date = None
+            if pd.notna(row_tuple.ScreeningDate):
                 try:
-                    if isinstance(row_tuple.StartDate, str):
+                    if isinstance(row_tuple.ScreeningDate, str):
                         from datetime import datetime
-                        start_date = datetime.strptime(row_tuple.StartDate, '%d/%m/%Y').date()
+                        screening_date = datetime.strptime(row_tuple.ScreeningDate, '%d/%m/%Y').date()
                     else:
-                        start_date = row_tuple.StartDate.date() if hasattr(row_tuple.StartDate, 'date') else row_tuple.StartDate
+                        screening_date = row_tuple.ScreeningDate.date() if hasattr(row_tuple.ScreeningDate, 'date') else row_tuple.ScreeningDate
                 except Exception as date_error:
                     log_activity(f"Date parsing error for patient {row_tuple.PatientID}: {date_error}", level='warning')
-                    start_date = None
+                    screening_date = None
 
             record = {
                 'PatientID': str(row_tuple.PatientID),
                 'Study': str(row_tuple.Study),
-                'StartDate': str(start_date) if start_date else None,
+                'ScreeningDate': str(screening_date) if screening_date else None,
                 'PatientPractice': str(getattr(row_tuple, 'PatientPractice', '')),
                 'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', ''))),
                 'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))  # Enrollment pathway variant

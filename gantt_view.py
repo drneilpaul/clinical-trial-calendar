@@ -47,12 +47,12 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
     if study_patients.empty or 'StartDate' not in study_patients.columns:
         return []
     
-    # Get and sort by StartDate - OPTIMIZED: use itertuples for 2-3x speedup
+    # Get and sort by ScreeningDate - OPTIMIZED: use itertuples for 2-3x speedup
     patient_dates = []
     for patient in study_patients.itertuples(index=False):
-        start_date = pd.to_datetime(patient.StartDate, errors='coerce')
-        if pd.notna(start_date):
-            patient_dates.append(start_date.date())
+        screening_date = pd.to_datetime(patient.ScreeningDate, errors='coerce')
+        if pd.notna(screening_date):
+            patient_dates.append(screening_date.date())
     
     # Sort by date and number sequentially
     patient_dates.sort()

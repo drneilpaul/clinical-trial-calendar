@@ -349,9 +349,9 @@ def prepare_patients_data(patients_df, trials_df):
     # Process data types
     patients_df["PatientID"] = safe_string_conversion(patients_df["PatientID"])
     patients_df["Study"] = safe_string_conversion(patients_df["Study"])
-    
-    if not pd.api.types.is_datetime64_any_dtype(patients_df["StartDate"]):
-        patients_df["StartDate"] = pd.to_datetime(patients_df["StartDate"], dayfirst=True, errors="coerce")
+
+    if not pd.api.types.is_datetime64_any_dtype(patients_df["ScreeningDate"]):
+        patients_df["ScreeningDate"] = pd.to_datetime(patients_df["ScreeningDate"], dayfirst=True, errors="coerce")
 
     if _get_processing_debug():
         log_activity(f"Patients columns: {list(patients_df.columns)}", level='info')
@@ -541,9 +541,10 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         patient = {
             "PatientID": patient_tuple.PatientID,
             "Study": patient_tuple.Study,
-            "StartDate": patient_tuple.StartDate,
+            "ScreeningDate": patient_tuple.ScreeningDate,
             "PatientPractice": getattr(patient_tuple, 'PatientPractice', ''),
-            "SiteSeenAt": getattr(patient_tuple, 'SiteSeenAt', None)
+            "SiteSeenAt": getattr(patient_tuple, 'SiteSeenAt', None),
+            "Pathway": getattr(patient_tuple, 'Pathway', 'standard')
         }
         
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(

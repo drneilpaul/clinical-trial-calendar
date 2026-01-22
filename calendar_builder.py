@@ -77,10 +77,10 @@ def build_calendar_dataframe(visits_df, patients_df, hide_inactive=False, actual
         max_date = visits_df["Date"].max() + timedelta(days=1)
         log_activity(f"Using visits date range: {min_date} to {max_date}", level='info')
     else:
-        # Fallback: use patient start dates to create a reasonable date range
-        if not patients_df.empty and 'StartDate' in patients_df.columns:
-            patient_min = patients_df["StartDate"].min()
-            patient_max = patients_df["StartDate"].max()
+        # Fallback: use patient screening dates to create a reasonable date range
+        if not patients_df.empty and 'ScreeningDate' in patients_df.columns:
+            patient_min = patients_df["ScreeningDate"].min()
+            patient_max = patients_df["ScreeningDate"].max()
             # Create a range from 30 days before first patient to 2 years after last patient
             min_date = patient_min - timedelta(days=30)
             max_date = patient_max + timedelta(days=730)  # 2 years
