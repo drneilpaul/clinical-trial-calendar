@@ -72,11 +72,17 @@ def render_reporting_year_selector(
     options = [{"label": "Show All", "start": None, "end": None}]
     fy_options = []
     
+    # REFACTOR: Use ScreeningDate/RandomizationDate with StartDate fallback
     date_series = []
     if visits_df is not None and not visits_df.empty and 'Date' in visits_df.columns:
         date_series.append(pd.to_datetime(visits_df['Date'], errors='coerce'))
-    if patients_df is not None and not patients_df.empty and 'StartDate' in patients_df.columns:
-        date_series.append(pd.to_datetime(patients_df['StartDate'], errors='coerce'))
+    if patients_df is not None and not patients_df.empty:
+        if 'ScreeningDate' in patients_df.columns:
+            date_series.append(pd.to_datetime(patients_df['ScreeningDate'], errors='coerce'))
+        elif 'StartDate' in patients_df.columns:
+            date_series.append(pd.to_datetime(patients_df['StartDate'], errors='coerce'))
+        if 'RandomizationDate' in patients_df.columns:
+            date_series.append(pd.to_datetime(patients_df['RandomizationDate'], errors='coerce'))
     
     if date_series:
         all_dates = pd.concat(date_series).dropna()

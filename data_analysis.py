@@ -324,24 +324,37 @@ def _display_enhanced_single_site_stats(visits_df, patients_df, site, screen_fai
         # Patient recruitment by time period (for patients who have visits at this site)
         st.write("**Patient Recruitment Analysis**")
         
-        # Add time period columns to patients data
+        # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
         site_patients_enhanced = site_related_patients.copy()
-        
-        # Check for NaN values in StartDate column
-        nan_start_dates = site_patients_enhanced['StartDate'].isna().sum()
-        if nan_start_dates > 0:
-            log_activity(f"Filtered {nan_start_dates} invalid start dates", level='info')
-            site_patients_enhanced = site_patients_enhanced.dropna(subset=['StartDate'])
-        
-        site_patients_enhanced['Quarter'] = site_patients_enhanced['StartDate'].dt.quarter
-        site_patients_enhanced['Year'] = site_patients_enhanced['StartDate'].dt.year
+
+        # Determine date column to use
+        date_column = None
+        if 'RandomizationDate' in site_patients_enhanced.columns:
+            date_column = 'RandomizationDate'
+        elif 'ScreeningDate' in site_patients_enhanced.columns:
+            date_column = 'ScreeningDate'
+        elif 'StartDate' in site_patients_enhanced.columns:
+            date_column = 'StartDate'
+
+        if date_column is None:
+            log_activity("No date column found for patient recruitment analysis", level='warning')
+            return
+
+        # Check for NaN values in date column
+        nan_dates = site_patients_enhanced[date_column].isna().sum()
+        if nan_dates > 0:
+            log_activity(f"Filtered {nan_dates} invalid dates from {date_column}", level='info')
+            site_patients_enhanced = site_patients_enhanced.dropna(subset=[date_column])
+
+        site_patients_enhanced['Quarter'] = site_patients_enhanced[date_column].dt.quarter
+        site_patients_enhanced['Year'] = site_patients_enhanced[date_column].dt.year
         # Handle NaN values before converting to int
         site_patients_enhanced['QuarterYear'] = (
-            site_patients_enhanced['Year'].fillna(0).astype(int).astype(str) + '-Q' + 
+            site_patients_enhanced['Year'].fillna(0).astype(int).astype(str) + '-Q' +
             site_patients_enhanced['Quarter'].fillna(0).astype(int).astype(str)
         )
         # FIXED: Use centralized FY calculation from helpers
-        site_patients_enhanced['FinancialYear'] = get_financial_year_for_series(site_patients_enhanced['StartDate'])
+        site_patients_enhanced['FinancialYear'] = get_financial_year_for_series(site_patients_enhanced[date_column])
         
         # Quarterly patient recruitment
         quarterly_recruitment = site_patients_enhanced.groupby('QuarterYear')['PatientID'].count()

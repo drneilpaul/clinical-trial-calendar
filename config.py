@@ -65,19 +65,25 @@ def get_file_structure_info():
     """Return file structure information as markdown"""
     return """
     **Patients File:**
-    - PatientID, Study, StartDate
-    - PatientPractice (recruitment site)
-    - SiteSeenAt (visit location)
-    
+    - PatientID, Study, ScreeningDate (first screening visit, Day 1)
+    - PatientPractice (recruitment site - where patient comes from)
+    - SiteSeenAt (visit location - where patient is seen)
+    - Status (screening, randomized, withdrawn, completed, etc.)
+    - RandomizationDate (optional - when patient was randomized)
+    - Pathway (optional - standard, with_run_in, etc.)
+
     **Trials File:**
-    - Study, Day, VisitName, SiteforVisit (ContractSite)
-    - Income/Payment, ToleranceBefore, ToleranceAfter (optional)
-    
+    - Study, Day (relative to screening Day 1), VisitName
+    - SiteforVisit (ContractSite)
+    - Payment, ToleranceBefore, ToleranceAfter (optional)
+    - Pathway (optional - standard, with_run_in, etc.)
+
     **Actual Visits File (Optional):**
     - PatientID, Study, VisitName, ActualDate
     - ActualPayment, Notes (optional)
-    - Use 'ScreenFail' in Notes to stop future visits (screen failure)
-    - Use 'Withdrawn' in Notes to stop future visits (patient withdrawal)
+    - Use 'ScreenFail' in Notes to mark screen failure
+    - Use 'Withdrawn' in Notes to mark withdrawal
+    - Use 'Died' in Notes to mark death
     """
 
 # Application constants

@@ -145,7 +145,7 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
         if not visits_df.empty:
             log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
     if visits_df.empty:
-        raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
+        raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and ScreeningDate is populated.")
 
     # Check for duplicate visits (same patient, study, date, visit)
     dedup_start = time.time()

@@ -1002,9 +1002,17 @@ def main():
                 else:
                     st.write("❌ No Payment column in trials")
                 
-                if not patients_df.empty and 'StartDate' in patients_df.columns:
-                    st.write(f"Patient date range: {patients_df['StartDate'].min().strftime('%Y-%m-%d')} to {patients_df['StartDate'].max().strftime('%Y-%m-%d')}")
-                    st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
+                # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
+                if not patients_df.empty:
+                    date_column = None
+                    if 'ScreeningDate' in patients_df.columns:
+                        date_column = 'ScreeningDate'
+                    elif 'StartDate' in patients_df.columns:
+                        date_column = 'StartDate'
+
+                    if date_column:
+                        st.write(f"Patient date range: {patients_df[date_column].min().strftime('%Y-%m-%d')} to {patients_df[date_column].max().strftime('%Y-%m-%d')}")
+                        st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
         else:
             # File processing
             try:
@@ -1597,13 +1605,23 @@ def main():
                     fy_start = reporting_selection.get("start")
                     fy_end = reporting_selection.get("end")
                     
+                    # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
                     recruitment_patients_df = patients_df
-                    if fy_start is not None and fy_end is not None and 'StartDate' in recruitment_patients_df.columns:
-                        start_dates = pd.to_datetime(recruitment_patients_df['StartDate'], errors='coerce')
-                        recruitment_patients_df = recruitment_patients_df[
-                            (start_dates >= pd.Timestamp(fy_start)) &
-                            (start_dates <= pd.Timestamp(fy_end))
-                        ].copy()
+                    if fy_start is not None and fy_end is not None:
+                        date_column = None
+                        if 'RandomizationDate' in recruitment_patients_df.columns:
+                            date_column = 'RandomizationDate'
+                        elif 'ScreeningDate' in recruitment_patients_df.columns:
+                            date_column = 'ScreeningDate'
+                        elif 'StartDate' in recruitment_patients_df.columns:
+                            date_column = 'StartDate'
+
+                        if date_column:
+                            dates = pd.to_datetime(recruitment_patients_df[date_column], errors='coerce')
+                            recruitment_patients_df = recruitment_patients_df[
+                                (dates >= pd.Timestamp(fy_start)) &
+                                (dates <= pd.Timestamp(fy_end))
+                            ].copy()
                     
                     recruitment_data = build_recruitment_data(recruitment_patients_df, trials_df)
                     display_recruitment_dashboard(recruitment_data)
@@ -1633,12 +1651,22 @@ def main():
                                 (visit_dates >= pd.Timestamp(fy_start)) &
                                 (visit_dates <= pd.Timestamp(fy_end))
                             ].copy()
-                        if financial_patients_df is not None and not financial_patients_df.empty and 'StartDate' in financial_patients_df.columns:
-                            start_dates = pd.to_datetime(financial_patients_df['StartDate'], errors='coerce')
-                            financial_patients_df = financial_patients_df[
-                                (start_dates >= pd.Timestamp(fy_start)) &
-                                (start_dates <= pd.Timestamp(fy_end))
-                            ].copy()
+                        # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
+                        if financial_patients_df is not None and not financial_patients_df.empty:
+                            date_column = None
+                            if 'RandomizationDate' in financial_patients_df.columns:
+                                date_column = 'RandomizationDate'
+                            elif 'ScreeningDate' in financial_patients_df.columns:
+                                date_column = 'ScreeningDate'
+                            elif 'StartDate' in financial_patients_df.columns:
+                                date_column = 'StartDate'
+
+                            if date_column:
+                                dates = pd.to_datetime(financial_patients_df[date_column], errors='coerce')
+                                financial_patients_df = financial_patients_df[
+                                    (dates >= pd.Timestamp(fy_start)) &
+                                    (dates <= pd.Timestamp(fy_end))
+                                ].copy()
                     
                     display_monthly_income_tables(financial_visits_df)
                     
@@ -1674,16 +1702,19 @@ def main():
         with col1:
             st.markdown("""
             **Patients File**
-            
+
             Required columns:
             - **PatientID** - Unique patient identifier
             - **Study** - Study name/code
-            - **StartDate** - Patient enrollment date (DD/MM/YYYY)
+            - **ScreeningDate** - First screening visit date (DD/MM/YYYY)
             - **PatientPractice** - Recruitment site (where patient comes from)
             - **SiteSeenAt** - Visit location (where patient is seen)
-            
+
             Optional columns:
-            - **Site** / **PatientSite** / **OriginSite** - Legacy origin site columns
+            - **RandomizationDate** - Randomization date (DD/MM/YYYY)
+            - **Status** - Patient status (screening, randomized, etc.)
+            - **Pathway** - Study pathway variant (standard, with_run_in, etc.)
+            - **StartDate** - Legacy column (backward compatibility)
             """)
         
         with col2:
