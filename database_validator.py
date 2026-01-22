@@ -220,12 +220,21 @@ class DatabaseValidator:
                 total_payment = trials_df['Payment'].sum()
                 self.info.append(f"✅ All payment values valid. Total trial value: £{total_payment:,.2f}")
         
-        # Check 4: Duplicate Study+Day combinations
-        duplicates = trials_df.duplicated(subset=['Study', 'Day', 'VisitName']).sum()
-        if duplicates > 0:
-            self.warnings.append(f"⚠️ {duplicates} duplicate Study+Day+Visit combination(s) found")
+        # Check 4: Duplicate Study+Pathway+Day+Visit combinations
+        # REFACTOR: Include Pathway in duplicate check to avoid false positives
+        if 'Pathway' in trials_df.columns:
+            duplicates = trials_df.duplicated(subset=['Study', 'Pathway', 'Day', 'VisitName']).sum()
+            if duplicates > 0:
+                self.warnings.append(f"⚠️ {duplicates} duplicate Study+Pathway+Day+Visit combination(s) found")
+            else:
+                self.info.append(f"✅ No duplicate visit definitions")
         else:
-            self.info.append(f"✅ No duplicate visit definitions")
+            # Backward compatibility: no Pathway column
+            duplicates = trials_df.duplicated(subset=['Study', 'Day', 'VisitName']).sum()
+            if duplicates > 0:
+                self.warnings.append(f"⚠️ {duplicates} duplicate Study+Day+Visit combination(s) found")
+            else:
+                self.info.append(f"✅ No duplicate visit definitions")
         
         # Check 5: Study events have valid sites and VisitType
         from helpers import get_visit_type_series

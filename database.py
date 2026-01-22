@@ -179,21 +179,31 @@ def _fetch_all_actual_visits_cached() -> Optional[pd.DataFrame]:
             
             # FIXED: Auto-detect study events IMMEDIATELY after loading from database
             # This fixes SIV/Monitor visits that were saved with wrong VisitType
+            # Store correction counts for logging
+            siv_corrected_count = 0
+            monitor_corrected_count = 0
+
             if 'VisitType' in df.columns:
                 siv_mask = (
                     (df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') &
                     (df['VisitType'].astype(str).str.lower() != 'siv')
                 )
                 if siv_mask.any():
+                    siv_corrected_count = siv_mask.sum()
                     df.loc[siv_mask, 'VisitType'] = 'siv'
-                
+
                 monitor_mask = (
                     df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False) &
                     (df['VisitType'].astype(str).str.lower() != 'monitor')
                 )
                 if monitor_mask.any():
+                    monitor_corrected_count = monitor_mask.sum()
                     df.loc[monitor_mask, 'VisitType'] = 'monitor'
-            
+
+            # Store correction counts in DataFrame metadata for logging
+            df.attrs['siv_corrected'] = siv_corrected_count
+            df.attrs['monitor_corrected'] = monitor_corrected_count
+
             return df
         return pd.DataFrame(columns=['PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes', 'VisitType'])
     except Exception as e:
@@ -206,18 +216,16 @@ def fetch_all_actual_visits() -> Optional[pd.DataFrame]:
         nat_count = df['ActualDate'].isna().sum() if 'ActualDate' in df.columns else 0
         if nat_count > 0:
             log_activity(f"Warning: {nat_count} actual visit dates failed to parse from database", level='warning')
-        
-        # Check for corrected visit types
-        if 'VisitType' in df.columns:
-            siv_corrected = ((df['VisitName'].astype(str).str.upper().str.strip() == 'SIV') & 
-                           (df['VisitType'].astype(str).str.lower() == 'siv')).sum()
-            monitor_corrected = ((df['VisitName'].astype(str).str.contains('Monitor', case=False, na=False)) & 
-                               (df['VisitType'].astype(str).str.lower() == 'monitor')).sum()
-            if siv_corrected > 0:
-                log_activity(f"🔧 CORRECTED {siv_corrected} SIV event(s) in database (were marked as patient visits)", level='warning')
-            if monitor_corrected > 0:
-                log_activity(f"🔧 CORRECTED {monitor_corrected} Monitor event(s) in database (were marked as patient visits)", level='warning')
-        
+
+        # Log corrections that were made (if any)
+        siv_corrected = df.attrs.get('siv_corrected', 0)
+        monitor_corrected = df.attrs.get('monitor_corrected', 0)
+
+        if siv_corrected > 0:
+            log_activity(f"🔧 CORRECTED {siv_corrected} SIV event(s) in database (were marked as patient visits)", level='warning')
+        if monitor_corrected > 0:
+            log_activity(f"🔧 CORRECTED {monitor_corrected} Monitor event(s) in database (were marked as patient visits)", level='warning')
+
         # Log what was loaded (reduced verbosity)
         log_activity(f"📥 Loaded {len(df)} actual visits from database", level='success')
         # Removed verbose sample visit logging - only log if there are issues
