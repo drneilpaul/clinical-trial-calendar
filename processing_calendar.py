@@ -438,8 +438,9 @@ def validate_study_structure(patients_df, trials_df):
             for pathway in study_visits['Pathway'].unique():
                 pathway_visits = study_visits[study_visits['Pathway'] == pathway]
 
-                # Look for V1 by name (baseline visit)
-                v1_visits = pathway_visits[pathway_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
+                # Look for V1 by name (baseline visit) - use word boundary to avoid matching V16, V17, etc.
+                # Match V1 followed by space, slash, end of string, or nothing
+                v1_visits = pathway_visits[pathway_visits["VisitName"].str.match(r"^V1(\s|$|/)", case=False, na=False)]
 
                 if len(v1_visits) == 0:
                     # No V1 found - check if there's ANY Day 1 visit as fallback

@@ -443,7 +443,8 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
 
     # Get baseline visit - FIXED: Find V1 by name, not hardcoded Day 1
     # This supports pathways where V1 might be at Day 28 (e.g., with_run_in)
-    v1_visits = study_visits[study_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
+    # Use word boundary to avoid matching V16, V17, etc.
+    v1_visits = study_visits[study_visits["VisitName"].str.match(r"^V1(\s|$|/)", case=False, na=False)]
     if len(v1_visits) > 0:
         baseline_visit_name = str(v1_visits.iloc[0]["VisitName"])
     else:

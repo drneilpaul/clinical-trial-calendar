@@ -173,8 +173,8 @@ class DatabaseValidator:
             total_combos = len(study_pathway_combos)
 
             for (study, pathway), group in study_pathway_combos:
-                # Look for V1 by name (baseline visit)
-                v1_visits = group[group['VisitName'].str.contains('V1', case=False, na=False, regex=False)]
+                # Look for V1 by name (baseline visit) - use word boundary to avoid matching V16, V17, etc.
+                v1_visits = group[group['VisitName'].str.match(r"^V1(\s|$|/)", case=False, na=False)]
 
                 if len(v1_visits) == 0:
                     # No V1 found - check if there's ANY Day 1 visit as fallback
