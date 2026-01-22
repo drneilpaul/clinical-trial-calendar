@@ -417,8 +417,19 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     # Use patient-specific stoppage key (includes both screen failures and withdrawals)
     this_patient_stoppage_key = f"{patient_id}_{study}"
     stoppage_date = stoppages.get(this_patient_stoppage_key)
-    
-    study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
+
+    # PATHWAY FILTERING: Get patient's pathway and filter visits accordingly
+    patient_pathway = patient.get('Pathway', 'standard')  # Default to 'standard' for backward compatibility
+
+    # Filter by study and pathway
+    if 'Pathway' in patient_visits.columns:
+        study_visits = patient_visits[
+            (patient_visits["Study"] == study) &
+            (patient_visits["Pathway"] == patient_pathway)
+        ].sort_values('Day').copy()
+    else:
+        # Backward compatibility: if no Pathway column, use all visits for that study
+        study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
     
     # Include Day 0 visits for matching actual visits (but not for scheduling)
     all_study_visits = study_visits.copy()
@@ -430,9 +441,19 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     if len(study_visits) == 0:
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
-    # Get baseline visit
-    day_1_visits = study_visits[study_visits["Day"] == 1]
-    baseline_visit_name = str(day_1_visits.iloc[0]["VisitName"])
+    # Get baseline visit - FIXED: Find V1 by name, not hardcoded Day 1
+    # This supports pathways where V1 might be at Day 28 (e.g., with_run_in)
+    v1_visits = study_visits[study_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
+    if len(v1_visits) > 0:
+        baseline_visit_name = str(v1_visits.iloc[0]["VisitName"])
+    else:
+        # Fallback: use first visit with Day >= 1
+        positive_day_visits = study_visits[study_visits["Day"] >= 1]
+        if len(positive_day_visits) > 0:
+            baseline_visit_name = str(positive_day_visits.iloc[0]["VisitName"])
+        else:
+            # Last resort: use very first visit
+            baseline_visit_name = str(study_visits.iloc[0]["VisitName"])
     
     # Process actual visits for this patient (including Day 0 visits for matching)
     patient_actual_visits, patient_actual_count, patient_unmatched = process_patient_actual_visits(

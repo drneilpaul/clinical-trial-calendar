@@ -252,7 +252,8 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
                 'Study': str(row_tuple.Study),
                 'StartDate': str(start_date) if start_date else None,
                 'PatientPractice': str(getattr(row_tuple, 'PatientPractice', '')),
-                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', '')))
+                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', ''))),
+                'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))
             }
             records.append(record)
         
@@ -391,7 +392,9 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
                 'LPFV': parse_date_field('LPFV'),
                 'LPLV': parse_date_field('LPLV'),
                 'StudyStatus': study_status_value,
-                'RecruitmentTarget': recruitment_target_value
+                'RecruitmentTarget': recruitment_target_value,
+                # Pathway field for study variants (e.g., 'standard', 'with_run_in')
+                'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))
             }
             records.append(record)
         
@@ -519,7 +522,8 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
                 'Study': str(row_tuple.Study),
                 'StartDate': str(start_date) if start_date else None,
                 'PatientPractice': str(getattr(row_tuple, 'PatientPractice', '')),
-                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', '')))
+                'SiteSeenAt': str(getattr(row_tuple, 'SiteSeenAt', getattr(row_tuple, 'PatientPractice', ''))),
+                'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))
             }
             records.append(record)
         
@@ -810,7 +814,9 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 'LPFV': parse_date_field('LPFV'),
                 'LPLV': parse_date_field('LPLV'),
                 'StudyStatus': study_status_value,
-                'RecruitmentTarget': recruitment_target_value
+                'RecruitmentTarget': recruitment_target_value,
+                # Pathway field for study variants (e.g., 'standard', 'with_run_in')
+                'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))
             }
             records.append(record)
         
