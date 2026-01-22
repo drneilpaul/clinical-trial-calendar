@@ -1274,8 +1274,8 @@ def main():
             else:
                 calendar_view = 'Gantt'
             
-            # Calendar display options (Calendar and Site Busy only)
-            if current_page in ['Calendar', 'Site Busy']:
+            # Calendar display options (Calendar only - not Site Busy since compact mode doesn't apply there)
+            if current_page == 'Calendar':
                 col_options = st.columns([1, 1, 1, 1, 1, 1])
                 with col_options[0]:
                     prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
@@ -1328,6 +1328,30 @@ def main():
                 with col_options[4]:
                     calendar_start_date = None
                 with col_options[5]:
+
+            # Site Busy page has its own simpler options
+            elif current_page == 'Site Busy':
+                col_options = st.columns([1, 1, 1, 1, 1, 1])
+                with col_options[0]:
+                    prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
+                    hide_inactive = st.checkbox(
+                        "Hide inactive patients",
+                        value=prev_hide_inactive,
+                        help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
+                        key="hide_inactive_checkbox_site"
+                    )
+                    # Check if value changed and clear cache if so
+                    if hide_inactive != prev_hide_inactive:
+                        clear_build_calendar_cache()
+                        st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                        st.session_state.hide_inactive_patients = hide_inactive
+                        st.rerun()
+                    else:
+                        st.session_state.hide_inactive_patients = hide_inactive
+                # Note: No compact mode checkbox for Site Busy view
+                with col_options[1]:
+                    calendar_start_date = None
+                with col_options[2]:
                     # Build filter summary for expander header
                     active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
                     active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
