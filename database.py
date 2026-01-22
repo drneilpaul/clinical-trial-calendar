@@ -858,20 +858,37 @@ def export_patients_to_csv() -> Optional[pd.DataFrame]:
     try:
         df = fetch_all_patients()
         if df is None or df.empty:
-            return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
-        
+            return pd.DataFrame(columns=['PatientID', 'Study', 'ScreeningDate', 'RandomizationDate', 'Status', 'PatientPractice', 'SiteSeenAt', 'Pathway'])
+
+        # Ensure required columns exist
         for col in ['PatientPractice', 'SiteSeenAt']:
             if col not in df.columns:
                 df[col] = ''
-        
-        if 'StartDate' in df.columns:
-            df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce').dt.strftime('%d/%m/%Y')
-        
-        export_columns = ['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt']
+
+        if 'Pathway' not in df.columns:
+            df['Pathway'] = 'standard'
+
+        if 'Status' not in df.columns:
+            df['Status'] = 'screening'
+
+        # Format date columns
+        if 'ScreeningDate' in df.columns:
+            df['ScreeningDate'] = pd.to_datetime(df['ScreeningDate'], errors='coerce').dt.strftime('%d/%m/%Y')
+        elif 'StartDate' in df.columns:
+            # Backward compatibility: rename StartDate to ScreeningDate for export
+            df['ScreeningDate'] = pd.to_datetime(df['StartDate'], errors='coerce').dt.strftime('%d/%m/%Y')
+
+        if 'RandomizationDate' in df.columns:
+            df['RandomizationDate'] = pd.to_datetime(df['RandomizationDate'], errors='coerce').dt.strftime('%d/%m/%Y')
+            df['RandomizationDate'] = df['RandomizationDate'].replace('NaT', '').replace('nan', '')
+        else:
+            df['RandomizationDate'] = ''
+
+        export_columns = ['PatientID', 'Study', 'ScreeningDate', 'RandomizationDate', 'Status', 'PatientPractice', 'SiteSeenAt', 'Pathway']
         # Only select columns that exist
         available_columns = [col for col in export_columns if col in df.columns]
         df = df[available_columns]
-        
+
         return df
     except Exception as e:
         st.error(f"Error exporting patients: {e}")
@@ -913,6 +930,8 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
                     pass
         
         # Ensure new columns exist for export
+        if 'Pathway' not in df.columns:
+            df['Pathway'] = 'standard'  # Default pathway
         if 'FPFV' not in df.columns:
             df['FPFV'] = None
         if 'LPFV' not in df.columns:
@@ -923,7 +942,7 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
             df['StudyStatus'] = 'active'  # Default
         if 'RecruitmentTarget' not in df.columns:
             df['RecruitmentTarget'] = None
-        
+
         # Format date columns for export
         for date_col in ['FPFV', 'LPFV', 'LPLV']:
             if date_col in df.columns:
@@ -933,8 +952,8 @@ def export_trials_to_csv() -> Optional[pd.DataFrame]:
                 except Exception:
                     # If date formatting fails, set to empty string
                     df[date_col] = ''
-        
-        export_columns = ['Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget']
+
+        export_columns = ['Study', 'Pathway', 'Day', 'VisitName', 'SiteforVisit', 'Payment', 'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue', 'VisitType', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget']
         # Only select columns that exist
         available_columns = [col for col in export_columns if col in df.columns]
         df = df[available_columns]
