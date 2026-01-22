@@ -116,34 +116,48 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
 
     # Process all visits
     visit_records = []
-    
+
     # Process study events first
     if not study_event_templates.empty:
         visit_records.extend(process_study_events(study_event_templates, actual_visits_df))
-    
+
     # Process patient visits (using stoppages which includes both screen failures and withdrawals)
+    import time
+    patient_start = time.time()
     processing_stats = process_all_patients(
         patients_df, patient_visits, stoppages, actual_visits_df
     )
+    patient_elapsed = time.time() - patient_start
+    if patient_elapsed > 1.0:
+        log_activity(f"⏱️ Patient processing took {patient_elapsed:.2f}s for {len(patients_df)} patients ({patient_elapsed/len(patients_df)*1000:.1f}ms per patient)", level='info')
     
     visit_records.extend(processing_stats['visit_records'])
     
     # Create visits DataFrame
+    df_start = time.time()
     visits_df = pd.DataFrame(visit_records)
+    df_elapsed = time.time() - df_start
+    if df_elapsed > 0.5:
+        log_activity(f"⏱️ DataFrame creation took {df_elapsed:.2f}s for {len(visit_records)} records", level='info')
+
     if _get_processing_debug():
         log_activity(f"Created visits DataFrame with {len(visits_df)} records", level='info')
         if not visits_df.empty:
             log_activity(f"Visits date range: {visits_df['Date'].min()} to {visits_df['Date'].max()}", level='info')
     if visits_df.empty:
         raise ValueError("No visits generated. Check that Patient 'Study' matches Trial 'Study' values and StartDate is populated.")
-    
+
     # Check for duplicate visits (same patient, study, date, visit)
+    dedup_start = time.time()
     if 'PatientID' in visits_df.columns and 'Study' in visits_df.columns and 'Date' in visits_df.columns and 'Visit' in visits_df.columns:
         duplicate_mask = visits_df.duplicated(subset=['PatientID', 'Study', 'Date', 'Visit'], keep='first')
         if duplicate_mask.any():
             duplicate_count = duplicate_mask.sum()
             log_activity(f"Removed {duplicate_count} duplicate visits", level='info')
             visits_df = visits_df[~duplicate_mask].reset_index(drop=True)
+    dedup_elapsed = time.time() - dedup_start
+    if dedup_elapsed > 0.5:
+        log_activity(f"⏱️ Deduplication took {dedup_elapsed:.2f}s", level='info')
     
     # Check for duplicate indices in visits DataFrame
     if not visits_df.index.is_unique:
@@ -529,14 +543,38 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
     all_processing_messages = []
     recalculated_patients = []
     patients_with_no_visits = []
-    
+
+    # OPTIMIZATION: Pre-compute study/pathway visit filters to avoid repeated DataFrame filtering
+    # This creates a lookup cache: study_visit_cache[study][pathway] -> filtered DataFrame
+    # Reduces O(N × M) filter operations to O(N) lookups
+    study_visit_cache = {}
+
+    if 'Pathway' in patient_visits.columns:
+        # Build cache for each unique study/pathway combination
+        for study in patient_visits['Study'].unique():
+            study_visit_cache[study] = {}
+            study_visits_all = patient_visits[patient_visits['Study'] == study]
+            for pathway in study_visits_all['Pathway'].unique():
+                study_visit_cache[study][pathway] = study_visits_all[
+                    study_visits_all['Pathway'] == pathway
+                ].sort_values('Day').copy()
+    else:
+        # Backward compatibility: cache by study only
+        for study in patient_visits['Study'].unique():
+            study_visit_cache[study] = {
+                'standard': patient_visits[patient_visits['Study'] == study].sort_values('Day').copy()
+            }
+
+    if _get_processing_debug():
+        log_activity(f"Pre-computed visit filters for {len(study_visit_cache)} studies", level='info')
+
     # OPTIMIZED: Process patients and generate visits using itertuples (faster than iterrows)
     # itertuples() is 2-3x faster than iterrows() because it returns namedtuples instead of Series
-    
+
     for patient_tuple in patients_df.itertuples():
         patient_id = str(patient_tuple.PatientID)
         study = str(patient_tuple.Study)
-        
+
         # Convert tuple to dict-like object for process_single_patient compatibility
         patient = {
             "PatientID": patient_tuple.PatientID,
@@ -546,9 +584,21 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             "SiteSeenAt": getattr(patient_tuple, 'SiteSeenAt', None),
             "Pathway": getattr(patient_tuple, 'Pathway', 'standard')
         }
-        
+
+        # OPTIMIZATION: Use pre-computed visit cache instead of passing all patient_visits
+        # This avoids repeated filtering inside process_single_patient
+        patient_pathway = patient.get('Pathway', 'standard')
+        if study in study_visit_cache and patient_pathway in study_visit_cache[study]:
+            study_specific_visits = study_visit_cache[study][patient_pathway]
+        elif study in study_visit_cache and 'standard' in study_visit_cache[study]:
+            # Fallback to standard pathway if patient pathway not found
+            study_specific_visits = study_visit_cache[study]['standard']
+        else:
+            # Ultimate fallback: empty DataFrame
+            study_specific_visits = pd.DataFrame()
+
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(
-            patient, patient_visits, screen_failures, actual_visits_df
+            patient, study_specific_visits, screen_failures, actual_visits_df
         )
         
         if _get_processing_debug():

@@ -407,9 +407,13 @@ def update_patient_status_on_visit(patient_id, study, visit_name, visit_notes, v
 
 def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=None):
     """Process all visits for a single patient
-    
+
     Args:
+        patient_visits: Pre-filtered visits for this patient's study and pathway (for performance)
         stoppages: Dictionary of patient+study keys to stoppage dates (screen failures, withdrawals, or deaths)
+
+    Note: patient_visits should already be filtered by Study and Pathway for performance.
+          If not pre-filtered, this function will filter it (backward compatibility).
     """
     from helpers import log_activity
     
@@ -449,26 +453,29 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     this_patient_stoppage_key = f"{patient_id}_{study}"
     stoppage_date = stoppages.get(this_patient_stoppage_key)
 
-    # PATHWAY FILTERING: Get patient's pathway and filter visits accordingly
-    patient_pathway = patient.get('Pathway', 'standard')  # Default to 'standard' for backward compatibility
+    # OPTIMIZATION: Assume patient_visits is already pre-filtered by study and pathway
+    # This check handles backward compatibility if not pre-filtered
+    patient_pathway = patient.get('Pathway', 'standard')
 
-    # Filter by study and pathway
-    if 'Pathway' in patient_visits.columns:
-        study_visits = patient_visits[
-            (patient_visits["Study"] == study) &
-            (patient_visits["Pathway"] == patient_pathway)
-        ].sort_values('Day').copy()
+    # Check if visits are already filtered (performance optimization)
+    if not patient_visits.empty:
+        # Check if all visits are for the same study
+        unique_studies = patient_visits['Study'].unique()
+        if len(unique_studies) == 1 and unique_studies[0] == study:
+            # Already filtered - use directly
+            study_visits = patient_visits.copy()
+        else:
+            # Not pre-filtered - filter now (backward compatibility)
+            if 'Pathway' in patient_visits.columns:
+                study_visits = patient_visits[
+                    (patient_visits["Study"] == study) &
+                    (patient_visits["Pathway"] == patient_pathway)
+                ].sort_values('Day').copy()
+            else:
+                study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
     else:
-        # Backward compatibility: if no Pathway column, use all visits for that study
-        study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
-    
-    # Include Day 0 visits for matching actual visits (but not for scheduling)
-    all_study_visits = study_visits.copy()
-    if actual_visits_df is not None:
-        # Get all visits for this study including Day 0
-        all_trials_for_study = actual_visits_df[actual_visits_df["Study"] == study]["VisitName"].unique()
-        # This will be used for matching actual visits
-    
+        study_visits = patient_visits.copy()
+
     if len(study_visits) == 0:
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
 
