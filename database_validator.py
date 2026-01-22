@@ -173,24 +173,16 @@ class DatabaseValidator:
             total_combos = len(study_pathway_combos)
 
             for (study, pathway), group in study_pathway_combos:
-                # Look for V1 by name (baseline visit) - use word boundary to avoid matching V16, V17, etc.
-                v1_visits = group[group['VisitName'].str.match(r"^V1(\s|$|/)", case=False, na=False)]
+                # REFACTOR: Baseline is now Day 1 (screening), not V1
+                day_1_visits = group[group['Day'] == 1]
 
-                if len(v1_visits) == 0:
-                    # No V1 found - check if there's ANY Day 1 visit as fallback
-                    day_1_visits = group[group['Day'] == 1]
-                    if len(day_1_visits) == 0:
-                        self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has no baseline visit (V1 or Day 1)")
-                    elif len(day_1_visits) > 1:
-                        visit_names = day_1_visits['VisitName'].tolist()
-                        self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has multiple Day 1 visits: {visit_names}")
-                    else:
-                        valid_baseline_count += 1
-                elif len(v1_visits) > 1:
-                    visit_names = v1_visits['VisitName'].tolist()
-                    self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has multiple V1 visits: {visit_names}")
+                if len(day_1_visits) == 0:
+                    self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has no Day 1 visit (screening baseline)")
+                elif len(day_1_visits) > 1:
+                    visit_names = day_1_visits['VisitName'].tolist()
+                    self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has multiple Day 1 visits: {visit_names}")
                 else:
-                    valid_baseline_count += 1  # Valid - exactly one baseline
+                    valid_baseline_count += 1  # Valid - exactly one Day 1 visit
 
             if valid_baseline_count == total_combos:
                 self.info.append(f"✅ All {total_combos} study-pathway combinations have valid baseline visits")

@@ -306,38 +306,38 @@ def patient_entry_modal():
             selected_pathway = 'standard'
 
     with col2:
-        # Check if selected study has screening visits (filtered by pathway if applicable)
-        has_screening_visits = False
-        if selected_study:
-            if 'Pathway' in trial_schedule_df.columns:
-                study_visits = trial_schedule_df[
-                    (trial_schedule_df['Study'] == selected_study) &
-                    (trial_schedule_df['Pathway'] == selected_pathway)
-                ]
-            else:
-                study_visits = trial_schedule_df[trial_schedule_df['Study'] == selected_study]
-            screening_visits = study_visits[study_visits['Day'] < 1]
-            has_screening_visits = not screening_visits.empty
-        
-        # Date type selection - only show screening option if screening visits exist
-        if has_screening_visits:
-            date_type = st.radio(
-                "Date Type*",
-                ["Screening Date", "Randomization Date (Day 1)"],
-                help="Screening = pre-study visit, Randomization = study start (Day 1)"
-            )
-        else:
-            # No screening visits - only show randomization option
-            date_type = "Randomization Date (Day 1)"
-            st.info("ℹ️ **This study has no screening visits defined.** Date will be used as Day 1 baseline.")
-            st.write("**Date Type:** Randomization Date (Day 1)")
-        
-        start_date = st.date_input(
-            "Start Date*",
+        # REFACTOR: New model uses ScreeningDate (Day 1) as baseline
+        # Show status selection
+        st.markdown("**Patient Status***")
+        patient_status = st.selectbox(
+            "Patient Status*",
+            options=["screening", "randomized", "screen_failed", "dna_screening", "withdrawn", "deceased", "completed", "lost_to_followup"],
+            index=0,  # Default to 'screening'
+            help="Select patient journey status. 'screening' = not yet randomized, 'randomized' = recruited, 'dna_screening' = didn't attend screening.",
+            label_visibility="collapsed"
+        )
+
+        screening_date = st.date_input(
+            "Screening Date* (Day 1)",
             value=date.today(),
             format="DD/MM/YYYY",
-            help="Enter the actual date of the visit selected above"
+            help="Enter the date of the first screening visit (Day 1 baseline)"
         )
+
+        # If status is randomized or beyond, ask for randomization date
+        randomization_date = None
+        if patient_status in ['randomized', 'withdrawn', 'deceased', 'completed', 'lost_to_followup']:
+            randomization_date = st.date_input(
+                "Randomization Date",
+                value=screening_date,
+                format="DD/MM/YYYY",
+                help="Enter the date of randomization (V1). Must be >= screening date."
+            )
+
+            # Validation
+            if randomization_date and randomization_date < screening_date:
+                st.error("⚠️ Randomization date cannot be before screening date")
+                randomization_date = screening_date
         
         st.markdown("**Recruited By***")
         recruitment_site = st.selectbox(
@@ -358,27 +358,16 @@ def patient_entry_modal():
             label_visibility="collapsed"
         )
     
-    # Show calculated information
-    if selected_study and start_date:
-        # Calculate Day 1 date if screening is selected
-        if date_type == "Screening Date" and has_screening_visits:
-            adjusted_date, offset_days, screening_found = calculate_day_1_date(
-                start_date, selected_study, trial_schedule_df, selected_pathway
-            )
-            
-            if screening_found:
-                st.info(f"📅 **Calculated Day 1 Date:** {adjusted_date.strftime('%d/%m/%Y')} "
-                       f"(Screening + {offset_days} days)")
-            else:
-                st.warning("⚠️ **No screening visits defined** for this study. "
-                          "Date will be used as Day 1 baseline.")
-                adjusted_date = start_date
+    # Show status information
+    if selected_study and screening_date:
+        if patient_status in ['randomized', 'withdrawn', 'deceased', 'completed', 'lost_to_followup']:
+            st.success(f"✅ **This patient will be counted as RECRUITED** (Status: {patient_status})")
+        elif patient_status == 'screening':
+            st.info(f"📋 **This patient is in screening** and not yet recruited")
+        elif patient_status == 'dna_screening':
+            st.warning(f"⚠️ **DNA Screening** - Did not attend screening, will not count as recruited")
         else:
-            # Randomization Date or no screening visits
-            adjusted_date = start_date
-            st.info(f"📅 **Day 1 Date:** {adjusted_date.strftime('%d/%m/%Y')}")
-    else:
-        adjusted_date = start_date
+            st.warning(f"⚠️ **This patient screen failed** and will not count as recruited")
     
     # Validation and submission
     col_submit, col_cancel = st.columns([1, 1])
@@ -389,33 +378,24 @@ def patient_entry_modal():
             if not new_patient_id or not selected_study:
                 st.error("Please fill in all required fields (Patient ID and Study)")
                 return
-            
+
             # Check for duplicate patient ID
             if new_patient_id in patients_df['PatientID'].values:
                 st.error(f"Patient ID '{new_patient_id}' already exists!")
                 return
-            
-            # Calculate the final date to use as baseline
-            if date_type == "Screening Date" and has_screening_visits:
-                final_date, offset_days, screening_found = calculate_day_1_date(
-                    start_date, selected_study, trial_schedule_df, selected_pathway
-                )
-                if not screening_found:
-                    final_date = start_date
-            else:
-                # Randomization Date or no screening visits
-                final_date = start_date
-            
-            # Format the final date
-            formatted_date = final_date.strftime('%d/%m/%Y')
-            
-            # Create new patient data
+
+            # REFACTOR: Format dates for new model
+            formatted_screening_date = screening_date.strftime('%d/%m/%Y')
+            formatted_randomization_date = randomization_date.strftime('%d/%m/%Y') if randomization_date else None
+
+            # Create new patient data with new schema
             new_patient = {
                 'PatientID': new_patient_id,
                 'Study': selected_study,
-                'StartDate': formatted_date,
+                'ScreeningDate': formatted_screening_date,
+                'RandomizationDate': formatted_randomization_date,
+                'Status': patient_status,
                 'Site': recruitment_site,  # Which practice recruited them
-                # OriginSite column removed - using PatientPractice only
                 'PatientPractice': recruitment_site,  # Recruitment site
                 'SiteSeenAt': site_seen_at,  # Visit location
                 'Pathway': selected_pathway  # Enrollment pathway variant
@@ -1228,17 +1208,41 @@ def get_calculated_study_values(study: str, site: str, patients_df: pd.DataFrame
     study_patients = patients_df[
         (patients_df['Study'] == study)
     ]
-    
+
     fpfv = None
     lpfv = None
     recruitment_count = 0
-    
-    if not study_patients.empty and 'StartDate' in study_patients.columns:
-        start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
-        if not start_dates.empty:
-            fpfv = start_dates.min().date()
-            lpfv = start_dates.max().date()
+
+    if not study_patients.empty:
+        # REFACTOR: Count recruited patients based on Status
+        if 'Status' in study_patients.columns:
+            recruited_statuses = ['randomized', 'withdrawn', 'deceased', 'completed', 'lost_to_followup']
+            recruited_patients = study_patients[study_patients['Status'].isin(recruited_statuses)]
+            recruitment_count = len(recruited_patients)
+
+            # Use RandomizationDate for FPFV/LPFV if available, else ScreeningDate, else StartDate
+            if 'RandomizationDate' in recruited_patients.columns:
+                date_col = 'RandomizationDate'
+            elif 'ScreeningDate' in recruited_patients.columns:
+                date_col = 'ScreeningDate'
+            elif 'StartDate' in recruited_patients.columns:
+                date_col = 'StartDate'
+            else:
+                date_col = None
+
+            if date_col and not recruited_patients.empty:
+                dates = pd.to_datetime(recruited_patients[date_col], errors='coerce').dropna()
+                if not dates.empty:
+                    fpfv = dates.min().date()
+                    lpfv = dates.max().date()
+        else:
+            # Backward compatibility: no Status column, count all patients
             recruitment_count = len(study_patients)
+            if 'StartDate' in study_patients.columns:
+                start_dates = pd.to_datetime(study_patients['StartDate'], errors='coerce').dropna()
+                if not start_dates.empty:
+                    fpfv = start_dates.min().date()
+                    lpfv = start_dates.max().date()
     
     # Get visits for this study (regardless of visit location)
     study_visits = visits_df[
@@ -1527,7 +1531,7 @@ def study_settings_navigation_modal():
         # Load patients and visits for calculated values
         patients_df = db.fetch_all_patients()
         if patients_df is None:
-            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
+            patients_df = pd.DataFrame(columns=['PatientID', 'Study', 'ScreeningDate', 'RandomizationDate', 'Status', 'PatientPractice', 'SiteSeenAt', 'Pathway'])
         
         # Build visits_df from actual_visits and trial_schedules to get SiteofVisit
         visits_df = pd.DataFrame(columns=['Study', 'SiteofVisit', 'Date'])

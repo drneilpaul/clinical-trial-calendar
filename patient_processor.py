@@ -382,6 +382,29 @@ def process_scheduled_visit(patient_id, study, patient_origin, patient_seen_at, 
     )
     return [main_record] + tolerance_records, 0
 
+def update_patient_status_on_visit(patient_id, study, visit_name, visit_notes, visit_date):
+    """Update patient status when certain visits are recorded
+
+    This function automatically updates patient status based on visit type:
+    - V1/randomization visits trigger Status='randomized' + RandomizationDate
+    - Screen fail visits trigger Status='screen_failed'
+    """
+    from helpers import log_activity
+
+    # Check if this is a V1/randomization visit (using the V1 pattern)
+    v1_pattern = r"^V1(?:\.\d+)?(?:\s|$|/)"
+    is_randomization = pd.Series([visit_name]).str.match(v1_pattern, case=False, na=False).iloc[0]
+
+    if is_randomization and pd.notna(visit_date):
+        from database import update_patient_status
+        update_patient_status(patient_id, study, status='randomized', randomization_date=visit_date)
+        log_activity(f"  Auto-updated patient {patient_id} status to 'randomized' on {visit_date}", level='info')
+
+    if visit_notes and 'ScreenFail' in visit_notes:
+        from database import update_patient_status
+        update_patient_status(patient_id, study, status='screen_failed')
+        log_activity(f"  Auto-updated patient {patient_id} status to 'screen_failed'", level='info')
+
 def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=None):
     """Process all visits for a single patient
     
@@ -395,12 +418,20 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     
     patient_id = str(patient["PatientID"])
     study = str(patient["Study"])
-    start_date = patient["StartDate"]
+
+    # REFACTOR: Use ScreeningDate as baseline (Day 1), with backward compatibility
+    if "ScreeningDate" in patient and pd.notna(patient["ScreeningDate"]):
+        screening_date = patient["ScreeningDate"]
+    elif "StartDate" in patient:
+        screening_date = patient["StartDate"]
+    else:
+        screening_date = None
+
     patient_origin = str(patient.get("PatientPractice", "Unknown Site"))
     patient_seen_at = patient.get("SiteSeenAt") or patient_origin
-    
-    log_activity(f"Processing patient {patient_id} (Study: {study}, StartDate: {start_date}, Origin: {patient_origin})", level='info')
-    
+
+    log_activity(f"Processing patient {patient_id} (Study: {study}, ScreeningDate: {screening_date}, Origin: {patient_origin})", level='info')
+
     visit_records = []
     actual_visits_used = 0
     unmatched_visits = []
@@ -408,10 +439,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     out_of_window_visits = []
     processing_messages = []
     patient_needs_recalc = False
-    
-    if pd.isna(start_date):
+
+    if pd.isna(screening_date):
         from helpers import log_activity
-        log_activity(f"Patient {patient_id} has invalid start_date: {start_date}", level='warning')
+        log_activity(f"Patient {patient_id} has invalid screening_date: {screening_date}", level='warning')
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
     
     # Use patient-specific stoppage key (includes both screen failures and withdrawals)
@@ -441,20 +472,14 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     if len(study_visits) == 0:
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
 
-    # Get baseline visit - FIXED: Find V1 by name, not hardcoded Day 1
-    # This supports pathways where V1 might be at Day 28 (e.g., with_run_in)
-    # Use word boundary to avoid matching V16, V17, etc.
-    v1_visits = study_visits[study_visits["VisitName"].str.match(r"^V1(\s|$|/)", case=False, na=False)]
-    if len(v1_visits) > 0:
-        baseline_visit_name = str(v1_visits.iloc[0]["VisitName"])
+    # REFACTOR: Baseline is now always screening (Day 1), no V1 text parsing needed
+    # Find the Day 1 visit (screening visit) for baseline name
+    day_1_visits = study_visits[study_visits["Day"] == 1]
+    if len(day_1_visits) > 0:
+        baseline_visit_name = str(day_1_visits.iloc[0]["VisitName"])
     else:
-        # Fallback: use first visit with Day >= 1
-        positive_day_visits = study_visits[study_visits["Day"] >= 1]
-        if len(positive_day_visits) > 0:
-            baseline_visit_name = str(positive_day_visits.iloc[0]["VisitName"])
-        else:
-            # Last resort: use very first visit
-            baseline_visit_name = str(study_visits.iloc[0]["VisitName"])
+        # Fallback: use first visit
+        baseline_visit_name = str(study_visits.iloc[0]["VisitName"])
     
     # Process actual visits for this patient (including Day 0 visits for matching)
     patient_actual_visits, patient_actual_count, patient_unmatched = process_patient_actual_visits(
@@ -463,11 +488,11 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     actual_visits_used += patient_actual_count
     unmatched_visits.extend(patient_unmatched)
     
-    # Determine baseline date
-    baseline_date = start_date
+    # Determine baseline date (screening date)
+    baseline_date = screening_date
     if baseline_visit_name in patient_actual_visits:
         actual_baseline_date = patient_actual_visits[baseline_visit_name]["ActualDate"]
-        if actual_baseline_date != start_date:
+        if actual_baseline_date != screening_date:
             baseline_date = actual_baseline_date
             patient_needs_recalc = True
     

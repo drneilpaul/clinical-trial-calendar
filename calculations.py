@@ -146,8 +146,51 @@ def calculate_work_ratios(data_df, period_column, period_value):
     }
 
 def calculate_recruitment_ratios(patients_df, period_column, period_value):
-    """Calculate patient recruitment ratios for a specific period"""
-    if patients_df.empty or 'StartDate' not in patients_df.columns:
+    """Calculate patient recruitment ratios for a specific period
+
+    REFACTOR: Now uses RandomizationDate and Status to determine recruited patients
+    - Only patients with Status IN ('randomized', 'withdrawn', 'completed', 'lost_to_followup') count as recruited
+    - Uses RandomizationDate for period filtering (not ScreeningDate)
+    - Falls back to StartDate for backward compatibility
+    """
+    # REFACTOR: Determine date column and filter recruited patients
+    if 'Status' in patients_df.columns:
+        # New model: filter by recruited status
+        recruited_statuses = ['randomized', 'withdrawn', 'deceased', 'completed', 'lost_to_followup']
+        recruited_df = patients_df[patients_df['Status'].isin(recruited_statuses)].copy()
+
+        # Use RandomizationDate if available, else ScreeningDate, else StartDate
+        if 'RandomizationDate' in recruited_df.columns:
+            date_column = 'RandomizationDate'
+        elif 'ScreeningDate' in recruited_df.columns:
+            date_column = 'ScreeningDate'
+        elif 'StartDate' in recruited_df.columns:
+            date_column = 'StartDate'
+        else:
+            return {
+                'ashfields_recruitment_ratio': 0,
+                'kiltearn_recruitment_ratio': 0,
+                'total_recruitment': 0,
+                'ashfields_recruitment_count': 0,
+                'kiltearn_recruitment_count': 0
+            }
+    else:
+        # Backward compatibility: use StartDate and assume all patients are recruited
+        recruited_df = patients_df.copy()
+        if 'StartDate' in recruited_df.columns:
+            date_column = 'StartDate'
+        elif 'ScreeningDate' in recruited_df.columns:
+            date_column = 'ScreeningDate'
+        else:
+            return {
+                'ashfields_recruitment_ratio': 0,
+                'kiltearn_recruitment_ratio': 0,
+                'total_recruitment': 0,
+                'ashfields_recruitment_count': 0,
+                'kiltearn_recruitment_count': 0
+            }
+
+    if recruited_df.empty:
         return {
             'ashfields_recruitment_ratio': 0,
             'kiltearn_recruitment_ratio': 0,
@@ -155,23 +198,23 @@ def calculate_recruitment_ratios(patients_df, period_column, period_value):
             'ashfields_recruitment_count': 0,
             'kiltearn_recruitment_count': 0
         }
-    
+
     try:
         # Create copies to avoid SettingWithCopyWarning when modifying
         if period_column == 'MonthYear':
-            period_patients = patients_df[patients_df['StartDate'].dt.to_period('M').astype(str) == str(period_value)].copy()
+            period_patients = recruited_df[recruited_df[date_column].dt.to_period('M').astype(str) == str(period_value)].copy()
         elif period_column == 'QuarterYear':
             # Convert both to strings for comparison
             # Handle NaN values before converting to int
             patients_quarter = (
-                patients_df['StartDate'].dt.year.fillna(0).astype(int).astype(str) + '-Q' + 
-                patients_df['StartDate'].dt.quarter.fillna(0).astype(int).astype(str)
+                recruited_df[date_column].dt.year.fillna(0).astype(int).astype(str) + '-Q' +
+                recruited_df[date_column].dt.quarter.fillna(0).astype(int).astype(str)
             )
-            period_patients = patients_df[patients_quarter == str(period_value)].copy()
+            period_patients = recruited_df[patients_quarter == str(period_value)].copy()
         elif period_column == 'FinancialYear':
             # FIXED: Use centralized FY calculation from helpers
-            patient_fy = get_financial_year_for_series(patients_df['StartDate'])
-            period_patients = patients_df[patient_fy == str(period_value)].copy()
+            patient_fy = get_financial_year_for_series(recruited_df[date_column])
+            period_patients = recruited_df[patient_fy == str(period_value)].copy()
         else:
             return {
                 'ashfields_recruitment_ratio': 0,

@@ -58,20 +58,30 @@ def _fetch_all_patients_cached() -> Optional[pd.DataFrame]:
         client = get_supabase_client()
         if client is None:
             return None
-        
+
         # OPTIMIZED: Select all columns (we need most columns for processing)
         # Future optimization: Could select specific columns if only certain views need them
         response = client.table('patients').select("*").execute()
-        
+
         if response.data:
             df = pd.DataFrame(response.data)
-            
+
             # Database columns are now PascalCase, no renaming needed
-            if 'StartDate' in df.columns:
+            # REFACTOR: Support both ScreeningDate (new) and StartDate (backward compat)
+            if 'ScreeningDate' in df.columns:
+                df['ScreeningDate'] = pd.to_datetime(df['ScreeningDate'], errors='coerce')
+
+            if 'RandomizationDate' in df.columns:
+                df['RandomizationDate'] = pd.to_datetime(df['RandomizationDate'], errors='coerce')
+
+            # Backward compatibility: if StartDate exists but ScreeningDate doesn't, map it
+            if 'StartDate' in df.columns and 'ScreeningDate' not in df.columns:
+                df['ScreeningDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
+            elif 'StartDate' in df.columns:
                 df['StartDate'] = pd.to_datetime(df['StartDate'], errors='coerce')
-            
+
             return df
-        return pd.DataFrame(columns=['PatientID', 'Study', 'StartDate', 'PatientPractice', 'SiteSeenAt'])
+        return pd.DataFrame(columns=['PatientID', 'Study', 'ScreeningDate', 'RandomizationDate', 'Status', 'PatientPractice', 'SiteSeenAt', 'Pathway'])
     except Exception as e:
         return None
 
@@ -122,6 +132,40 @@ def _fetch_all_trial_schedules_cached() -> Optional[pd.DataFrame]:
 def fetch_all_trial_schedules() -> Optional[pd.DataFrame]:
     """Fetch all trial schedules from database (with caching)"""
     return _fetch_all_trial_schedules_cached()
+
+def update_patient_status(patient_id: str, study: str, status: str, randomization_date=None) -> bool:
+    """Update patient status and optionally set randomization date
+
+    Args:
+        patient_id: Patient ID
+        study: Study name
+        status: New status ('screening', 'screen_failed', 'randomized', 'withdrawn', 'completed', 'lost_to_followup')
+        randomization_date: Optional randomization date (for status='randomized')
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return False
+
+        update_data = {"Status": status}
+        if randomization_date is not None:
+            if hasattr(randomization_date, 'strftime'):
+                update_data["RandomizationDate"] = randomization_date.strftime('%Y-%m-%d')
+            else:
+                update_data["RandomizationDate"] = str(randomization_date)
+
+        client.table('patients').update(update_data).eq('PatientID', patient_id).eq('Study', study).execute()
+
+        clear_database_cache()
+
+        log_activity(f"Updated patient {patient_id} status to '{status}'", level='info')
+        return True
+    except Exception as e:
+        log_activity(f"Failed to update patient status: {e}", level='error')
+        return False
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_all_actual_visits_cached() -> Optional[pd.DataFrame]:

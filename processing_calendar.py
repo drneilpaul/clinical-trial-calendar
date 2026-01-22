@@ -434,28 +434,23 @@ def validate_study_structure(patients_df, trials_df):
         has_pathways = 'Pathway' in study_visits.columns
 
         if has_pathways:
-            # Validate each pathway separately
+            # Validate each pathway separately - REFACTOR: baseline is now Day 1 (screening), not V1
             for pathway in study_visits['Pathway'].unique():
                 pathway_visits = study_visits[study_visits['Pathway'] == pathway]
 
-                # Look for V1 by name (baseline visit) - use word boundary to avoid matching V16, V17, etc.
-                # Match V1 followed by space, slash, end of string, or nothing
-                v1_visits = pathway_visits[pathway_visits["VisitName"].str.match(r"^V1(\s|$|/)", case=False, na=False)]
-
-                if len(v1_visits) == 0:
-                    # No V1 found - check if there's ANY Day 1 visit as fallback
-                    day_1_visits = pathway_visits[pathway_visits["Day"] == 1]
-                    if len(day_1_visits) == 0:
-                        raise ValueError(f"Study {study} (Pathway: {pathway}) has no baseline visit (V1 or Day 1). A baseline visit is required.")
-                elif len(v1_visits) > 1:
-                    visit_names = v1_visits["VisitName"].tolist()
-                    raise ValueError(f"Study {study} (Pathway: {pathway}) has multiple V1 visits: {visit_names}. Only one baseline visit allowed per pathway.")
+                # Check for Day 1 visit (screening - the baseline)
+                day_1_visits = pathway_visits[pathway_visits["Day"] == 1]
+                if len(day_1_visits) == 0:
+                    raise ValueError(f"Study {study} (Pathway: {pathway}) has no Day 1 visit (screening baseline). A Day 1 visit is required.")
+                elif len(day_1_visits) > 1:
+                    visit_names = day_1_visits["VisitName"].tolist()
+                    raise ValueError(f"Study {study} (Pathway: {pathway}) has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed per pathway.")
         else:
-            # No pathways - use original Day 1 validation
+            # No pathways - validate Day 1 exists
             day_1_visits = study_visits[study_visits["Day"] == 1]
 
             if len(day_1_visits) == 0:
-                raise ValueError(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+                raise ValueError(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline (screening).")
             elif len(day_1_visits) > 1:
                 visit_names = day_1_visits["VisitName"].tolist()
                 raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
