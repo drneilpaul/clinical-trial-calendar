@@ -122,7 +122,16 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
     
     if len(patient_actuals) > 0:
         log_activity(f"  Found {len(patient_actuals)} actual patient visits for {patient_id}", level='info')
-    
+
+    # DEBUG: Log study_visits for these specific patients
+    if patient_id in ['2801505', '2801507']:
+        log_activity(f"  DEBUG process_patient_actual_visits: {len(study_visits)} visits in study_visits", level='info')
+        log_activity(f"  DEBUG process_patient_actual_visits: Visit names: {study_visits['VisitName'].tolist()[:15]}", level='info')
+        if 'V1.1' in study_visits['VisitName'].values:
+            log_activity(f"  DEBUG process_patient_actual_visits: V1.1 IS in study_visits!", level='info')
+        else:
+            log_activity(f"  DEBUG process_patient_actual_visits: V1.1 NOT in study_visits!", level='warning')
+
     # OPTIMIZED: Pre-create lookup dictionaries for faster matching (O(1) instead of O(n))
     # Create exact match lookup
     study_visits_stripped = study_visits["VisitName"].str.strip()
