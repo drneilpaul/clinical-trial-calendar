@@ -421,15 +421,28 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     # PATHWAY FILTERING: Get patient's pathway and filter visits accordingly
     patient_pathway = patient.get('Pathway', 'standard')  # Default to 'standard' for backward compatibility
 
+    # DEBUG: Log pathway for these specific patients
+    if patient_id in ['2801505', '2801507']:
+        log_activity(f"  DEBUG: Patient {patient_id} has Pathway={patient_pathway}", level='info')
+
     # Filter by study and pathway
     if 'Pathway' in patient_visits.columns:
         study_visits = patient_visits[
             (patient_visits["Study"] == study) &
             (patient_visits["Pathway"] == patient_pathway)
         ].sort_values('Day').copy()
+        # DEBUG: Log visit count for these specific patients
+        if patient_id in ['2801505', '2801507']:
+            log_activity(f"  DEBUG: Found {len(study_visits)} visits for {study} pathway={patient_pathway}", level='info')
+            if 'V1.1' in study_visits['VisitName'].values:
+                log_activity(f"  DEBUG: V1.1 FOUND in study_visits!", level='info')
+            else:
+                log_activity(f"  DEBUG: V1.1 NOT in study_visits. Available: {study_visits['VisitName'].tolist()[:10]}", level='info')
     else:
         # Backward compatibility: if no Pathway column, use all visits for that study
         study_visits = patient_visits[patient_visits["Study"] == study].sort_values('Day').copy()
+        if patient_id in ['2801505', '2801507']:
+            log_activity(f"  DEBUG: No Pathway column in patient_visits!", level='warning')
     
     # Include Day 0 visits for matching actual visits (but not for scheduling)
     all_study_visits = study_visits.copy()
