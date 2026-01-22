@@ -163,30 +163,56 @@ class DatabaseValidator:
             site_counts = trials_df['SiteforVisit'].value_counts()
             self.info.append(f"📊 Trial visit sites: {dict(site_counts)}")
         
-        # Check 2: Each study has exactly one Day 1 visit
-        for study in trials_df['Study'].unique():
-            study_visits = trials_df[trials_df['Study'] == study]
-            day_1_visits = study_visits[study_visits['Day'] == 1]
-            
-            if len(day_1_visits) == 0:
-                self.errors.append(f"❌ Study '{study}' has no Day 1 visit (baseline required)")
-            elif len(day_1_visits) > 1:
-                visit_names = day_1_visits['VisitName'].tolist()
-                self.errors.append(
-                    f"❌ Study '{study}' has multiple Day 1 visits: {visit_names} (only one allowed)"
-                )
-            else:
-                pass  # Valid - exactly one Day 1 visit
-        
-        # Summary for Day 1 validation
-        studies_with_valid_day1 = 0
-        for study in trials_df['Study'].unique():
-            day_1_count = len(trials_df[(trials_df['Study'] == study) & (trials_df['Day'] == 1)])
-            if day_1_count == 1:
-                studies_with_valid_day1 += 1
-        
-        if studies_with_valid_day1 == len(trials_df['Study'].unique()):
-            self.info.append(f"✅ All {studies_with_valid_day1} studies have exactly one Day 1 baseline visit")
+        # Check 2: Each study (and pathway if applicable) has exactly one Day 1 visit or V1 baseline
+        has_pathways = 'Pathway' in trials_df.columns
+
+        if has_pathways:
+            # Validate each study-pathway combination separately
+            study_pathway_combos = trials_df.groupby(['Study', 'Pathway'])
+            valid_baseline_count = 0
+            total_combos = len(study_pathway_combos)
+
+            for (study, pathway), group in study_pathway_combos:
+                # Look for V1 by name (baseline visit)
+                v1_visits = group[group['VisitName'].str.contains('V1', case=False, na=False, regex=False)]
+
+                if len(v1_visits) == 0:
+                    # No V1 found - check if there's ANY Day 1 visit as fallback
+                    day_1_visits = group[group['Day'] == 1]
+                    if len(day_1_visits) == 0:
+                        self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has no baseline visit (V1 or Day 1)")
+                    elif len(day_1_visits) > 1:
+                        visit_names = day_1_visits['VisitName'].tolist()
+                        self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has multiple Day 1 visits: {visit_names}")
+                    else:
+                        valid_baseline_count += 1
+                elif len(v1_visits) > 1:
+                    visit_names = v1_visits['VisitName'].tolist()
+                    self.errors.append(f"❌ Study '{study}' (Pathway: {pathway}) has multiple V1 visits: {visit_names}")
+                else:
+                    valid_baseline_count += 1  # Valid - exactly one baseline
+
+            if valid_baseline_count == total_combos:
+                self.info.append(f"✅ All {total_combos} study-pathway combinations have valid baseline visits")
+        else:
+            # Original validation for studies without pathways
+            studies_with_valid_day1 = 0
+            for study in trials_df['Study'].unique():
+                study_visits = trials_df[trials_df['Study'] == study]
+                day_1_visits = study_visits[study_visits['Day'] == 1]
+
+                if len(day_1_visits) == 0:
+                    self.errors.append(f"❌ Study '{study}' has no Day 1 visit (baseline required)")
+                elif len(day_1_visits) > 1:
+                    visit_names = day_1_visits['VisitName'].tolist()
+                    self.errors.append(
+                        f"❌ Study '{study}' has multiple Day 1 visits: {visit_names} (only one allowed)"
+                    )
+                else:
+                    studies_with_valid_day1 += 1  # Valid - exactly one Day 1 visit
+
+            if studies_with_valid_day1 == len(trials_df['Study'].unique()):
+                self.info.append(f"✅ All {studies_with_valid_day1} studies have exactly one Day 1 baseline visit")
         
         # Check 3: Valid Payment values
         if 'Payment' in trials_df.columns:

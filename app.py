@@ -1074,17 +1074,43 @@ def main():
                     st.error(f"❌ Missing Study Definitions: {missing_studies}")
                     st.stop()
 
-                for study in patients_df["Study"].unique():
-                    study_visits = trials_df[trials_df["Study"] == study]
-                    day_1_visits = study_visits[study_visits["Day"] == 1]
-                    
-                    if len(day_1_visits) == 0:
-                        st.error(f"❌ Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
-                        st.stop()
-                    elif len(day_1_visits) > 1:
-                        visit_names = day_1_visits["VisitName"].tolist()
-                        st.error(f"❌ Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
-                        st.stop()
+                # Validate baseline visits per study (and pathway if applicable)
+                has_pathways = 'Pathway' in trials_df.columns
+
+                if has_pathways:
+                    # Validate each study-pathway combination
+                    for study in patients_df["Study"].unique():
+                        study_visits = trials_df[trials_df["Study"] == study]
+
+                        for pathway in study_visits['Pathway'].unique():
+                            pathway_visits = study_visits[study_visits['Pathway'] == pathway]
+
+                            # Look for V1 by name (baseline visit)
+                            v1_visits = pathway_visits[pathway_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
+
+                            if len(v1_visits) == 0:
+                                # No V1 found - check if there's ANY Day 1 visit as fallback
+                                day_1_visits = pathway_visits[pathway_visits["Day"] == 1]
+                                if len(day_1_visits) == 0:
+                                    st.error(f"❌ Study {study} (Pathway: {pathway}) has no baseline visit (V1 or Day 1). A baseline visit is required.")
+                                    st.stop()
+                            elif len(v1_visits) > 1:
+                                visit_names = v1_visits["VisitName"].tolist()
+                                st.error(f"❌ Study {study} (Pathway: {pathway}) has multiple V1 visits: {visit_names}. Only one baseline visit allowed per pathway.")
+                                st.stop()
+                else:
+                    # Original validation for studies without pathways
+                    for study in patients_df["Study"].unique():
+                        study_visits = trials_df[trials_df["Study"] == study]
+                        day_1_visits = study_visits[study_visits["Day"] == 1]
+
+                        if len(day_1_visits) == 0:
+                            st.error(f"❌ Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+                            st.stop()
+                        elif len(day_1_visits) > 1:
+                            visit_names = day_1_visits["VisitName"].tolist()
+                            st.error(f"❌ Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
+                            st.stop()
                 
             except Exception as e:
                 st.error(f"Error processing files: {str(e)}")

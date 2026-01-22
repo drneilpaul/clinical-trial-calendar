@@ -6,20 +6,28 @@ from typing import List, Tuple, Dict, Optional, Any
 from helpers import load_file, log_activity, get_visit_type_series, trigger_data_refresh
 import database as db
 
-def calculate_day_1_date(entered_date, study, trial_schedule_df):
+def calculate_day_1_date(entered_date, study, trial_schedule_df, pathway='standard'):
     """
     Calculate Day 1 date from screening date based on trial schedule.
-    
+
     Args:
         entered_date: The date entered by user (screening date)
         study: Selected study name
         trial_schedule_df: Trial schedule DataFrame
-    
+        pathway: Patient pathway variant (default: 'standard')
+
     Returns:
         tuple: (adjusted_date, offset_days, screening_day_found)
     """
-    # Filter trial schedule for selected study
-    study_visits = trial_schedule_df[trial_schedule_df['Study'] == study].copy()
+    # Filter trial schedule for selected study and pathway
+    if 'Pathway' in trial_schedule_df.columns:
+        study_visits = trial_schedule_df[
+            (trial_schedule_df['Study'] == study) &
+            (trial_schedule_df['Pathway'] == pathway)
+        ].copy()
+    else:
+        # Backward compatibility: if no Pathway column, use all visits for that study
+        study_visits = trial_schedule_df[trial_schedule_df['Study'] == study].copy()
     
     if study_visits.empty:
         return entered_date, 0, False
@@ -98,10 +106,20 @@ def handle_study_event_modal():
         finally:
             st.session_state.any_dialog_open = False
 
-# REMOVED: handle_switch_patient_modal() function
-# Switching pathways mid-study would be confusing and dangerous if visits are already recorded.
-# Users should select the correct pathway when adding a new patient.
-# Pathway can be edited directly in patient record if absolutely necessary (with caution).
+def handle_switch_patient_modal():
+    """Handle switch patient study modal"""
+    if st.session_state.get('show_switch_patient_form', False) and not st.session_state.get('any_dialog_open', False):
+        try:
+            st.session_state.any_dialog_open = True
+            switch_patient_study_modal()
+        except AttributeError:
+            st.error("Modal dialogs require Streamlit 1.28+")
+            st.session_state.show_switch_patient_form = False
+        except Exception as e:
+            st.error(f"Error opening switch patient form: {e}")
+            st.session_state.show_switch_patient_form = False
+        finally:
+            st.session_state.any_dialog_open = False
 
 def show_download_sections():
     """Show download sections for added patients/visits"""
@@ -288,10 +306,16 @@ def patient_entry_modal():
             selected_pathway = 'standard'
 
     with col2:
-        # Check if selected study has screening visits
+        # Check if selected study has screening visits (filtered by pathway if applicable)
         has_screening_visits = False
         if selected_study:
-            study_visits = trial_schedule_df[trial_schedule_df['Study'] == selected_study]
+            if 'Pathway' in trial_schedule_df.columns:
+                study_visits = trial_schedule_df[
+                    (trial_schedule_df['Study'] == selected_study) &
+                    (trial_schedule_df['Pathway'] == selected_pathway)
+                ]
+            else:
+                study_visits = trial_schedule_df[trial_schedule_df['Study'] == selected_study]
             screening_visits = study_visits[study_visits['Day'] < 1]
             has_screening_visits = not screening_visits.empty
         
@@ -339,7 +363,7 @@ def patient_entry_modal():
         # Calculate Day 1 date if screening is selected
         if date_type == "Screening Date" and has_screening_visits:
             adjusted_date, offset_days, screening_found = calculate_day_1_date(
-                start_date, selected_study, trial_schedule_df
+                start_date, selected_study, trial_schedule_df, selected_pathway
             )
             
             if screening_found:
@@ -374,7 +398,7 @@ def patient_entry_modal():
             # Calculate the final date to use as baseline
             if date_type == "Screening Date" and has_screening_visits:
                 final_date, offset_days, screening_found = calculate_day_1_date(
-                    start_date, selected_study, trial_schedule_df
+                    start_date, selected_study, trial_schedule_df, selected_pathway
                 )
                 if not screening_found:
                     final_date = start_date
@@ -394,7 +418,7 @@ def patient_entry_modal():
                 # OriginSite column removed - using PatientPractice only
                 'PatientPractice': recruitment_site,  # Recruitment site
                 'SiteSeenAt': site_seen_at,  # Visit location
-                'Pathway': selected_pathway  # Enrollment pathway (e.g., 'standard', 'with_run_in')
+                'Pathway': selected_pathway  # Enrollment pathway variant
             }
             
             # Handle database or file mode
@@ -499,11 +523,20 @@ def visit_entry_modal():
         # Extract patient ID from display string
         selected_patient_id = selected_patient_display.split(' (')[0]
         
-        # Get patient's study
-        patient_study = patients_df[patients_df['PatientID'] == selected_patient_id]['Study'].iloc[0]
-        
-        # Filter visits for this study
-        study_visits = trial_schedule_df[trial_schedule_df['Study'] == patient_study].copy()
+        # Get patient's study and pathway
+        patient_row = patients_df[patients_df['PatientID'] == selected_patient_id].iloc[0]
+        patient_study = patient_row['Study']
+        patient_pathway = patient_row.get('Pathway', 'standard') if 'Pathway' in patients_df.columns else 'standard'
+
+        # Filter visits for this study and pathway
+        if 'Pathway' in trial_schedule_df.columns:
+            study_visits = trial_schedule_df[
+                (trial_schedule_df['Study'] == patient_study) &
+                (trial_schedule_df['Pathway'] == patient_pathway)
+            ].copy()
+        else:
+            # Backward compatibility: if no Pathway column, use all visits for that study
+            study_visits = trial_schedule_df[trial_schedule_df['Study'] == patient_study].copy()
         
         if study_visits.empty:
             st.error(f"No visits defined for study {patient_study}.")
@@ -1810,6 +1843,254 @@ def switch_patient_study_modal():
     st.caption("ℹ️ Move a patient from one study to another (e.g., BaxDuo1 → BaxDuo2)")
     
     # Load required data based on mode
-# REMOVED: switch_patient_study_modal() function (lines 1813-2073)
-# Rationale: Switching pathways mid-study would be confusing and dangerous if visits already recorded.
-# Users select correct pathway when adding new patient. Pathway editable in patient record if necessary (with caution).
+    if load_from_database:
+        import database as db
+        patients_df = db.fetch_all_patients()
+        trial_schedule_df = db.fetch_all_trial_schedules()
+        actual_visits_df = db.fetch_all_actual_visits()
+    else:
+        st.error("Switch Patient Study is only available in database mode.")
+        if st.button("Close"):
+            st.session_state.show_switch_patient_form = False
+            st.rerun()
+        return
+    
+    if patients_df is None or patients_df.empty or trial_schedule_df is None or trial_schedule_df.empty:
+        st.error("Unable to load required data files.")
+        if st.button("Close"):
+            st.session_state.show_switch_patient_form = False
+            st.rerun()
+        return
+    
+    # Get unique studies from trial schedule
+    available_studies = sorted(trial_schedule_df['Study'].unique().tolist())
+    
+    # Create patient selection options with current study
+    patient_options = [
+        f"{row['PatientID']} ({row['Study']})"
+        for _, row in patients_df.iterrows()
+    ]
+    
+    if not patient_options:
+        st.warning("No patients available.")
+        if st.button("Close"):
+            st.session_state.show_switch_patient_form = False
+            st.rerun()
+        return
+    
+    # Form inputs
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Select Patient***")
+        selected_patient_display = st.selectbox(
+            "Select Patient*",
+            options=patient_options,
+            help="Choose the patient to switch",
+            label_visibility="collapsed"
+        )
+        
+        # Extract patient ID and current study
+        selected_patient_id = selected_patient_display.split(' (')[0]
+        current_study = selected_patient_display.split(' (')[1].rstrip(')')
+    
+    with col2:
+        # Filter out current study from available options
+        target_studies = [s for s in available_studies if s != current_study]
+        
+        if not target_studies:
+            st.error(f"No other studies available. Patient is already in {current_study}.")
+            if st.button("Close"):
+                st.session_state.show_switch_patient_form = False
+                st.rerun()
+            return
+        
+        st.markdown("**Switch To Study***")
+        target_study = st.selectbox(
+            "Switch To Study*",
+            options=target_studies,
+            help="Select the target study",
+            label_visibility="collapsed"
+        )
+    
+    # Analyze impact
+    if selected_patient_id and target_study:
+        st.markdown("---")
+        st.markdown("**📊 Impact Analysis**")
+        
+        # Get current and target study info
+        current_study_visits = trial_schedule_df[trial_schedule_df['Study'] == current_study]
+        target_study_visits = trial_schedule_df[trial_schedule_df['Study'] == target_study]
+        
+        # Find screening visits
+        current_screening = current_study_visits[current_study_visits['Day'] < 1]
+        target_screening = target_study_visits[target_study_visits['Day'] < 1]
+        
+        current_screening_day = current_screening['Day'].min() if not current_screening.empty else "None"
+        target_screening_day = target_screening['Day'].min() if not target_screening.empty else "None"
+        
+        # Get actual visits for this patient
+        patient_actual_visits = actual_visits_df[
+            (actual_visits_df['PatientID'] == selected_patient_id) & 
+            (actual_visits_df['Study'] == current_study)
+        ] if actual_visits_df is not None else pd.DataFrame()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.info(f"**Current:** {current_study}\n- Screening: Day {current_screening_day}")
+        with col2:
+            st.info(f"**Target:** {target_study}\n- Screening: Day {target_screening_day}")
+        
+        if not patient_actual_visits.empty:
+            st.write(f"**Actual visits to update:** {len(patient_actual_visits)}")
+            for _, visit in patient_actual_visits.iterrows():
+                st.write(f"  - {visit['VisitName']} ({visit['ActualDate']})")
+        else:
+            st.write("**Actual visits to update:** 0 (no actual visits recorded)")
+    
+    # Day 1 calculation
+    if selected_patient_id and target_study:
+        st.markdown("---")
+        st.markdown("**📅 Day 1 Calculation**")
+        
+        # Check for actual visits
+        if actual_visits_df is not None and not actual_visits_df.empty:
+            patient_visits = actual_visits_df[
+                (actual_visits_df['PatientID'] == selected_patient_id) & 
+                (actual_visits_df['Study'] == current_study)
+            ]
+            
+            # Check for actual screening visit
+            screening_visits = patient_visits[
+                patient_visits['VisitName'].str.contains('Screen', case=False, na=False)
+            ]
+            
+            # Check for actual Day 1 visit
+            day1_visits = patient_visits[
+                patient_visits['VisitName'].str.contains('Random', case=False, na=False) |
+                patient_visits['VisitName'].str.contains('Day 1', case=False, na=False) |
+                patient_visits['VisitName'].str.contains('Baseline', case=False, na=False)
+            ]
+            
+            if not screening_visits.empty and target_screening_day != "None":
+                # Auto-calculate from actual screening
+                actual_screening_date = pd.to_datetime(screening_visits.iloc[0]['ActualDate'])
+                offset_days = int(1 - target_screening_day)
+                new_day1_date = actual_screening_date + timedelta(days=offset_days)
+                
+                st.success(f"✅ **Auto-calculated from actual screening:**\n"
+                          f"New Day 1: {new_day1_date.strftime('%d/%m/%Y')}\n"
+                          f"({actual_screening_date.strftime('%d/%m/%Y')} + {offset_days} days)")
+                
+                final_start_date = new_day1_date.strftime('%d/%m/%Y')
+                
+            elif not day1_visits.empty:
+                # Use existing Day 1
+                actual_day1_date = pd.to_datetime(day1_visits.iloc[0]['ActualDate'])
+                
+                st.success(f"✅ **Using existing Day 1 from actual visit:**\n"
+                          f"Day 1: {actual_day1_date.strftime('%d/%m/%Y')}")
+                
+                final_start_date = actual_day1_date.strftime('%d/%m/%Y')
+                
+            else:
+                # No actual visits - ask user for date
+                st.warning("⚠️ **No actual visits found** - please specify the date to use:")
+                
+                date_type = st.radio(
+                    "Date Type*",
+                    ["Screening Date", "Randomization Date (Day 1)"],
+                    help="Which date should be used for Day 1 calculation?"
+                )
+                
+                start_date = st.date_input(
+                    "Date*",
+                    value=date.today(),
+                    format="DD/MM/YYYY",
+                    help="Enter the actual date"
+                )
+                
+                if date_type == "Screening Date" and target_screening_day != "None":
+                    # Calculate Day 1 from screening
+                    offset_days = int(1 - target_screening_day)
+                    new_day1_date = start_date + timedelta(days=offset_days)
+                    
+                    st.info(f"📅 **Calculated Day 1:** {new_day1_date.strftime('%d/%m/%Y')} "
+                           f"(Screening + {offset_days} days)")
+                    
+                    final_start_date = new_day1_date.strftime('%d/%m/%Y')
+                else:
+                    # Use as Day 1 directly
+                    st.info(f"📅 **Day 1:** {start_date.strftime('%d/%m/%Y')}")
+                    final_start_date = start_date.strftime('%d/%m/%Y')
+        else:
+            # No actual visits data - ask user
+            st.warning("⚠️ **No actual visits data available** - please specify the date to use:")
+            
+            date_type = st.radio(
+                "Date Type*",
+                ["Screening Date", "Randomization Date (Day 1)"],
+                help="Which date should be used for Day 1 calculation?"
+            )
+            
+            start_date = st.date_input(
+                "Date*",
+                value=date.today(),
+                format="DD/MM/YYYY",
+                help="Enter the actual date"
+            )
+            
+            if date_type == "Screening Date" and target_screening_day != "None":
+                # Calculate Day 1 from screening
+                offset_days = int(1 - target_screening_day)
+                new_day1_date = start_date + timedelta(days=offset_days)
+                
+                st.info(f"📅 **Calculated Day 1:** {new_day1_date.strftime('%d/%m/%Y')} "
+                       f"(Screening + {offset_days} days)")
+                
+                final_start_date = new_day1_date.strftime('%d/%m/%Y')
+            else:
+                # Use as Day 1 directly
+                st.info(f"📅 **Day 1:** {start_date.strftime('%d/%m/%Y')}")
+                final_start_date = start_date.strftime('%d/%m/%Y')
+    
+    # Validation and submission
+    col_submit, col_cancel = st.columns([1, 1])
+    
+    with col_submit:
+        if st.button("🔄 Switch Study", type="primary", width='stretch'):
+            # Validate required fields
+            if not selected_patient_id or not target_study:
+                st.error("Please select both patient and target study")
+                return
+            
+            try:
+                import database as db
+                success, message, visits_count = db.switch_patient_study(
+                    selected_patient_id, current_study, target_study, final_start_date
+                )
+                
+                if success:
+                    st.success(f"✅ **Patient switched successfully!**\n\n"
+                              f"- {selected_patient_id} moved from {current_study} → {target_study}\n"
+                              f"- Start Date updated to: {final_start_date}\n"
+                              f"- {visits_count} actual visits updated")
+                    
+                    log_activity(f"Successfully switched patient {selected_patient_id} from {current_study} to {target_study}", level='success')
+                    
+                    # Trigger data refresh
+                    trigger_data_refresh()
+                    st.session_state.show_switch_patient_form = False
+                    st.rerun()
+                else:
+                    st.error(f"❌ **Switch failed:**\n\n{message}")
+                    log_activity(f"Failed to switch patient: {message}", level='error')
+                    
+            except Exception as e:
+                st.error(f"Database error: {str(e)}")
+                log_activity(f"Database error switching patient: {str(e)}", level='error')
+    
+    with col_cancel:
+        if st.button("✖ Cancel", width='stretch'):
+            st.session_state.show_switch_patient_form = False
+            st.rerun()

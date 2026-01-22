@@ -17,7 +17,7 @@ def _get_processing_debug():
     try:
         from config import should_log_debug
         return should_log_debug()
-    except (ImportError, AttributeError):
+    except:
         return False
 
 @timeit
@@ -321,9 +321,9 @@ def prepare_trials_data(trials_df):
     
     try:
         trials_df["Day"] = pd.to_numeric(trials_df["Day"], errors='coerce').fillna(1).astype(int)
-    except (ValueError, TypeError, KeyError) as e:
-        st.error(f"Invalid 'Day' values in trials file. Days must be numeric. Error: {e}")
-        raise ValueError(f"Invalid Day column in trials file: {e}")
+    except:
+        st.error("Invalid 'Day' values in trials file. Days must be numeric.")
+        raise ValueError("Invalid Day column in trials file")
 
     # Optional interval-based scheduling columns
     try:
@@ -422,20 +422,42 @@ def prepare_patients_data(patients_df, trials_df):
     return patients_df
 
 def validate_study_structure(patients_df, trials_df):
-    """Validate that each study has proper Day 1 baseline"""
-    # OPTIMIZED: Use groupby to process all studies at once (2-3x faster than loop)
-    # Only validate studies that have patients
+    """Validate that each study has proper baseline visit (V1)"""
+    # PATHWAY FIX: Changed validation to check for V1 by name instead of Day 1
+    # This supports pathways where V1 might be at different days (e.g., Day 28 for with_run_in)
+
     studies_to_validate = patients_df["Study"].unique()
     study_groups = trials_df[trials_df["Study"].isin(studies_to_validate)].groupby("Study")
-    
+
     for study, study_visits in study_groups:
-        day_1_visits = study_visits[study_visits["Day"] == 1]
-        
-        if len(day_1_visits) == 0:
-            raise ValueError(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
-        elif len(day_1_visits) > 1:
-            visit_names = day_1_visits["VisitName"].tolist()
-            raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
+        # Check if study has Pathway column
+        has_pathways = 'Pathway' in study_visits.columns
+
+        if has_pathways:
+            # Validate each pathway separately
+            for pathway in study_visits['Pathway'].unique():
+                pathway_visits = study_visits[study_visits['Pathway'] == pathway]
+
+                # Look for V1 by name (baseline visit)
+                v1_visits = pathway_visits[pathway_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
+
+                if len(v1_visits) == 0:
+                    # No V1 found - check if there's ANY Day 1 visit as fallback
+                    day_1_visits = pathway_visits[pathway_visits["Day"] == 1]
+                    if len(day_1_visits) == 0:
+                        raise ValueError(f"Study {study} (Pathway: {pathway}) has no baseline visit (V1 or Day 1). A baseline visit is required.")
+                elif len(v1_visits) > 1:
+                    visit_names = v1_visits["VisitName"].tolist()
+                    raise ValueError(f"Study {study} (Pathway: {pathway}) has multiple V1 visits: {visit_names}. Only one baseline visit allowed per pathway.")
+        else:
+            # No pathways - use original Day 1 validation
+            day_1_visits = study_visits[study_visits["Day"] == 1]
+
+            if len(day_1_visits) == 0:
+                raise ValueError(f"Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
+            elif len(day_1_visits) > 1:
+                visit_names = day_1_visits["VisitName"].tolist()
+                raise ValueError(f"Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
 
 def separate_visit_types(trials_df):
     """Separate patient visits from study events"""

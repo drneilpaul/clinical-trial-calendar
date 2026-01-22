@@ -335,7 +335,7 @@ def process_scheduled_visit(patient_id, study, patient_origin, patient_seen_at, 
     
     try:
         payment = float(visit.get("Payment", 0) or 0)
-    except (ValueError, TypeError):
+    except:
         payment = 0.0
     
     # CHANGED: Use patient SiteSeenAt for visit location
@@ -440,7 +440,7 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
     
     if len(study_visits) == 0:
         return visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc
-    
+
     # Get baseline visit - FIXED: Find V1 by name, not hardcoded Day 1
     # This supports pathways where V1 might be at Day 28 (e.g., with_run_in)
     v1_visits = study_visits[study_visits["VisitName"].str.contains("V1", case=False, na=False, regex=False)]
