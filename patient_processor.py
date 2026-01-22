@@ -101,24 +101,42 @@ def get_debug_log_content():
     return None
 
 def process_patient_actual_visits(patient_id, study, actual_visits_df, study_visits):
-    """Process actual visits for a specific patient"""
+    """Process actual visits for a specific patient
+
+    Args:
+        actual_visits_df: Can be pre-filtered to this patient (for performance) or full DataFrame
+    """
     from helpers import log_activity
-    
+
     patient_actual_visits = {}
     actual_visits_used = 0
     unmatched_visits = []
-    
-    if actual_visits_df is None:
+
+    if actual_visits_df is None or actual_visits_df.empty:
         return patient_actual_visits, actual_visits_used, unmatched_visits
-    
-    from helpers import get_visit_type_series
-    visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
-    
-    patient_actuals = actual_visits_df[
-        (actual_visits_df["PatientID"] == patient_id) & 
-        (actual_visits_df["Study"] == study) &
-        (visit_type_series.isin(['patient', 'extra']))
-    ]
+
+    # OPTIMIZATION: Check if actual_visits_df is already filtered for this patient
+    # If pre-filtered, all rows should be for this patient+study
+    if not actual_visits_df.empty:
+        unique_patients = actual_visits_df['PatientID'].unique()
+        unique_studies = actual_visits_df['Study'].unique()
+
+        if len(unique_patients) == 1 and str(unique_patients[0]) == str(patient_id) and \
+           len(unique_studies) == 1 and str(unique_studies[0]) == str(study):
+            # Already pre-filtered - use directly (skip expensive filtering)
+            patient_actuals = actual_visits_df
+        else:
+            # Not pre-filtered - filter now (backward compatibility)
+            from helpers import get_visit_type_series
+            visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
+
+            patient_actuals = actual_visits_df[
+                (actual_visits_df["PatientID"] == patient_id) &
+                (actual_visits_df["Study"] == study) &
+                (visit_type_series.isin(['patient', 'extra']))
+            ]
+    else:
+        patient_actuals = actual_visits_df
     
     if len(patient_actuals) > 0:
         log_activity(f"  Found {len(patient_actuals)} actual patient visits for {patient_id}", level='info')

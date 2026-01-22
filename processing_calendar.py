@@ -544,7 +544,7 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
     recalculated_patients = []
     patients_with_no_visits = []
 
-    # OPTIMIZATION: Pre-compute study/pathway visit filters to avoid repeated DataFrame filtering
+    # OPTIMIZATION 1: Pre-compute study/pathway visit filters to avoid repeated DataFrame filtering
     # This creates a lookup cache: study_visit_cache[study][pathway] -> filtered DataFrame
     # Reduces O(N × M) filter operations to O(N) lookups
     study_visit_cache = {}
@@ -565,8 +565,22 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
                 'standard': patient_visits[patient_visits['Study'] == study].sort_values('Day').copy()
             }
 
+    # OPTIMIZATION 2: Pre-filter actual visits by patient for O(1) lookups
+    # Instead of filtering actual_visits_df for each patient (O(N × M)),
+    # create a dictionary: patient_actual_visits_cache[patient_id_study] -> DataFrame
+    patient_actual_visits_cache = {}
+    if actual_visits_df is not None and not actual_visits_df.empty:
+        from helpers import get_visit_type_series
+        visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
+        # Filter for patient visits only (exclude siv, monitor)
+        patient_actuals_only = actual_visits_df[visit_type_series.isin(['patient', 'extra'])].copy()
+        # Group by patient+study
+        for (patient_id, study), group_df in patient_actuals_only.groupby(['PatientID', 'Study']):
+            cache_key = f"{patient_id}_{study}"
+            patient_actual_visits_cache[cache_key] = group_df
+
     if _get_processing_debug():
-        log_activity(f"Pre-computed visit filters for {len(study_visit_cache)} studies", level='info')
+        log_activity(f"Pre-computed visit filters for {len(study_visit_cache)} studies and {len(patient_actual_visits_cache)} patients", level='info')
 
     # OPTIMIZED: Process patients and generate visits using itertuples (faster than iterrows)
     # itertuples() is 2-3x faster than iterrows() because it returns namedtuples instead of Series
@@ -597,8 +611,13 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
             # Ultimate fallback: empty DataFrame
             study_specific_visits = pd.DataFrame()
 
+        # OPTIMIZATION: Get pre-filtered actual visits for this patient
+        # Instead of passing entire actual_visits_df, pass only this patient's visits
+        cache_key = f"{patient_id}_{study}"
+        patient_specific_actuals = patient_actual_visits_cache.get(cache_key, None)
+
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(
-            patient, study_specific_visits, screen_failures, actual_visits_df
+            patient, study_specific_visits, screen_failures, patient_specific_actuals
         )
         
         if _get_processing_debug():
