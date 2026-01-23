@@ -38,7 +38,14 @@ def build_overdue_predicted_export(
     calendar_start
 ) -> Tuple[io.BytesIO, str]:
     """
-    Build Excel export for overdue predicted visits.
+    Build Excel export for overdue predicted visits (scheduled but not yet completed).
+
+    Filters:
+    - Only PREDICTED visits (IsActual != True, IsProposed != True)
+    - Only dates BEFORE today (overdue)
+    - Only patient visits (not study events like SIV, monitoring)
+    - Excludes placeholder visits ("-", "+")
+
     Returns (BytesIO or None, message).
     """
     if visits_df is None or visits_df.empty:
@@ -48,20 +55,53 @@ def build_overdue_predicted_export(
     if "Date" not in df.columns:
         return None, "Visits data is missing Date column."
 
+    initial_count = len(df)
+
+    # Parse dates
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"])
 
-    is_actual = df.get("IsActual", False) == True
-    is_proposed = df.get("IsProposed", False) == True if "IsProposed" in df.columns else False
-    is_study_event = df.get("IsStudyEvent", False) == True if "IsStudyEvent" in df.columns else False
+    # CRITICAL: Filter for predicted visits only (not actual, not proposed, not study events)
+    # Exclude actual visits (visits that have already occurred and been recorded)
+    if "IsActual" in df.columns:
+        df = df[df["IsActual"] != True]
 
-    df = df[~is_actual & ~is_proposed & ~is_study_event]
-    df = df[~df["Visit"].isin(["-", "+"])]
+    # Exclude proposed visits (future visits beyond schedule window)
+    if "IsProposed" in df.columns:
+        df = df[df["IsProposed"] != True]
 
+    # Exclude study events (SIV, monitoring, closeout, etc.)
+    if "IsStudyEvent" in df.columns:
+        df = df[df["IsStudyEvent"] != True]
+
+    # Alternative: Filter by VisitType if IsStudyEvent not available
+    if "VisitType" in df.columns:
+        # Only include 'patient' and 'extra' visits, exclude 'siv', 'monitor', 'closeout', etc.
+        df = df[df["VisitType"].isin(["patient", "extra"])]
+
+    # Exclude placeholder visits ("-" and "+")
+    if "Visit" in df.columns:
+        df = df[~df["Visit"].isin(["-", "+"])]
+
+    # CRITICAL: Exclude visits for inactive patients (withdrawn, screen failed, deceased, completed)
+    # These patients shouldn't have "overdue" visits since they're no longer in the study
+    if "PatientStatus" in df.columns:
+        # Only include active patients (screening, randomized, lost_to_followup)
+        # Exclude: withdrawn, screen_failed, deceased, completed, dna_screening
+        active_statuses = ["screening", "randomized", "lost_to_followup"]
+        df = df[df["PatientStatus"].isin(active_statuses)]
+
+    # CRITICAL: Only include visits BEFORE today (overdue)
     today = pd.Timestamp(date.today())
     df = df[df["Date"] < today]
+
+    # Apply calendar start filter if provided
     if calendar_start is not None:
         df = df[df["Date"] >= pd.to_datetime(calendar_start)]
+
+    # Log filtering results for debugging
+    from helpers import log_activity
+    log_activity(f"Overdue predicted visits export: Started with {initial_count} total visits, filtered to {len(df)} overdue predicted visits", level='info')
 
     if df.empty:
         return None, "No overdue predicted visits found."

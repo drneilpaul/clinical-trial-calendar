@@ -521,28 +521,38 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             baseline_date = actual_baseline_date
             patient_needs_recalc = True
     
-    # CRITICAL: Identify proposed visits BEFORE creating predicted visits (for suppression logic)
+    # CRITICAL: Identify proposed visits AND latest actual visit BEFORE creating predicted visits (for suppression logic)
     today = pd.Timestamp(date.today()).normalize()
     proposed_visits = {}  # visit_name -> proposed_date
     proposed_visit_dates = []  # List of all proposed dates for this patient
-    
+    actual_visit_dates = []  # List of all completed (past) actual visit dates
+
     for visit_name, actual_visit_data in patient_actual_visits.items():
         visit_date = actual_visit_data["ActualDate"]
         if not isinstance(visit_date, pd.Timestamp):
             visit_date = pd.Timestamp(visit_date)
         visit_date = pd.Timestamp(visit_date.date()).normalize()
-        
+
         if visit_date > today:
-            # This is a proposed visit
+            # This is a proposed visit (future)
             proposed_visits[visit_name] = visit_date
             proposed_visit_dates.append(visit_date)
             log_activity(f"  Found proposed visit: {visit_name} on {visit_date.strftime('%Y-%m-%d')}", level='info')
+        else:
+            # This is a completed actual visit (past or today)
+            actual_visit_dates.append(visit_date)
     
     # Sort proposed dates for suppression logic
     # We need both earliest (for individual checks) and latest (for suppression range)
     proposed_visit_dates.sort()
     earliest_proposed_date = proposed_visit_dates[0] if proposed_visit_dates else None
     latest_proposed_date = proposed_visit_dates[-1] if proposed_visit_dates else None
+
+    # Find the most recent actual (completed) visit date
+    # We'll use this to suppress "missed" predicted visits that occurred before the latest actual visit
+    latest_actual_date = max(actual_visit_dates) if actual_visit_dates else None
+    if latest_actual_date:
+        log_activity(f"  Latest actual visit date: {latest_actual_date.strftime('%Y-%m-%d')} - will suppress predicted visits before this date", level='info')
     
     # Check if any proposed visit is among the last visits in the trial schedule
     # If so, we should suppress ALL visits after the latest proposed date (study ending early)
@@ -615,12 +625,12 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 # SUPPRESSION LOGIC: Check if this predicted visit should be suppressed
                 should_suppress = False
                 suppress_reason = None
-                
+
                 # Rule 1: If predicted visit name matches a proposed visit → skip
                 if visit_name in proposed_visits:
                     should_suppress = True
                     suppress_reason = f"proposed visit exists for {visit_name}"
-                
+
                 # Rule 2: Suppress ALL predicted visits between today and latest proposed date
                 # If multiple proposed visits exist (e.g., V-EOT and V-FU), suppress everything
                 # between now and the latest proposed date
@@ -633,9 +643,13 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                     elif is_terminal_proposed_visit and predicted_date > latest_proposed_date:
                         should_suppress = True
                         suppress_reason = f"after terminal proposed visit on {latest_proposed_date.strftime('%Y-%m-%d')} (study ending early)"
-                
-                # Keep predicted visits from the past (date < today) - they may have happened but not been recorded yet
-                # (should_suppress remains False for past dates)
+
+                # Rule 4: NEW - Suppress predicted visits in the PAST if there's a LATER actual visit
+                # This handles "missed visits" - if patient came for V5 but missed V3, don't show V3 as overdue
+                elif predicted_date < today and latest_actual_date is not None:
+                    if predicted_date < latest_actual_date:
+                        should_suppress = True
+                        suppress_reason = f"missed visit (before latest actual visit on {latest_actual_date.strftime('%Y-%m-%d')})"
                 
                 if should_suppress:
                     log_activity(f"  Suppressing predicted visit {visit_name} on {predicted_date.strftime('%Y-%m-%d')} - {suppress_reason}", level='info')
