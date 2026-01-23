@@ -210,6 +210,10 @@ def setup_file_uploaders():
     st.sidebar.divider()
     st.sidebar.header("Pages")
     page_options = ["Site Busy", "Calendar", "Gantt", "Recruitment", "Financials"]
+    # Import/Export page available to all logged-in users
+    if st.session_state.get('database_available', False):
+        page_options.append("Import/Export")
+    # DB Admin only for admin users
     if st.session_state.get('auth_level') == 'admin':
         page_options.append("DB Admin")
     if 'current_page' not in st.session_state:
@@ -1604,16 +1608,7 @@ def main():
                     if not site_summary_df.empty:
                         display_site_statistics(site_summary_df)
                 
-                if current_page == 'Calendar':
-                    display_download_buttons(
-                        calendar_df_filtered,
-                        filtered_site_column_mapping,
-                        filtered_unique_visit_sites,
-                        patients_df,
-                        visits_df_filtered,
-                        trials_df,
-                        actual_visits_df
-                    )
+                # Download buttons moved to Import/Export page
             
             if current_page == 'Recruitment':
                 st.subheader("📊 Recruitment Tracking")
@@ -1650,7 +1645,23 @@ def main():
                     st.error(f"Error building recruitment dashboard: {e}")
                     log_activity(f"Error building recruitment dashboard: {e}", level='error')
                     st.exception(e)
-            
+
+            if current_page == 'Import/Export':
+                st.subheader("📦 Import/Export")
+                st.caption("Download calendar data and import completed visits in bulk.")
+
+                # Download Options
+                st.markdown("### 📥 Download Options")
+                display_download_buttons(
+                    calendar_df_filtered,
+                    filtered_site_column_mapping,
+                    filtered_unique_visit_sites,
+                    patients_df,
+                    visits_df_filtered,
+                    trials_df,
+                    actual_visits_df
+                )
+
             if current_page == 'Financials':
                 # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
                 # This avoids heavy calculations for non-admin users (20-30% faster for regular users)

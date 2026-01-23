@@ -126,6 +126,133 @@ def build_overdue_predicted_export(
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, sheet_name="OverduePredicted", index=False)
 
+        # Add data validation dropdowns for Outcome column
+        try:
+            from openpyxl.worksheet.datavalidation import DataValidation
+            workbook = writer.book
+            worksheet = writer.sheets["OverduePredicted"]
+
+            # Outcome dropdown options
+            outcome_options = '"Completed,DNA,Withdrawn,ScreenFail,Deceased,Cancelled,Rescheduled"'
+            outcome_validation = DataValidation(
+                type="list",
+                formula1=outcome_options,
+                allow_blank=True,
+                showErrorMessage=True,
+                error="Please select a valid outcome from the dropdown",
+                errorTitle="Invalid Outcome"
+            )
+            # Apply to Outcome column (column J, rows 2 onwards, assuming up to 1000 rows)
+            outcome_col_idx = export_df.columns.get_loc("Outcome") + 1  # +1 because Excel is 1-indexed
+            outcome_col_letter = chr(64 + outcome_col_idx)  # Convert to letter (A=65)
+            outcome_validation.add(f"{outcome_col_letter}2:{outcome_col_letter}1000")
+            worksheet.add_data_validation(outcome_validation)
+        except Exception as e:
+            log_activity(f"Could not add data validation dropdowns: {e}", level='warning')
+
+        # Add instructions sheet
+        instructions_data = {
+            "Instructions": [
+                "OVERDUE PREDICTED VISITS - BULK COMPLETION WORKFLOW",
+                "",
+                "This file contains visits that were scheduled to occur but have not been recorded yet.",
+                "These are 'predicted' visits from the study schedule that are now overdue (past their scheduled date).",
+                "",
+                "WHAT ARE OVERDUE PREDICTED VISITS?",
+                "• Visits that were scheduled before today",
+                "• Have NOT been marked as completed in the system",
+                "• Are for patients still active in the study",
+                "• Occur AFTER the patient's most recent completed visit",
+                "",
+                "NOTE: Visits BEFORE a patient's most recent visit are considered 'missed' and not included.",
+                "Example: If patient came for V5 but missed V3, only visits after V5 show as overdue.",
+                "",
+                "HOW TO USE THIS FILE:",
+                "1. Review each overdue visit in the 'OverduePredicted' sheet",
+                "2. Fill in the required fields based on what happened:",
+                "",
+                "REQUIRED FIELDS:",
+                "   • ActualDate = When the visit actually occurred (DD/MM/YYYY format)",
+                "   • Outcome = What happened at this visit",
+                "",
+                "OUTCOME OPTIONS:",
+                "   • Completed = Visit occurred and completed normally",
+                "   • DNA = Patient Did Not Attend (no show for this visit)",
+                "   • Withdrawn = Patient withdrew from study at/after this visit",
+                "   • ScreenFail = Patient failed screening criteria",
+                "   • Deceased = Patient passed away",
+                "   • Cancelled = Visit cancelled (study ended, protocol change, etc.)",
+                "   • Rescheduled = Visit moved to different date (enter new date in ActualDate)",
+                "",
+                "PATIENT STATUS CONTEXT:",
+                "The system tracks 8 patient statuses throughout their journey:",
+                "   • screening = Patient in screening phase",
+                "   • screen_failed = Patient failed screening criteria",
+                "   • dna_screening = Patient did not attend screening",
+                "   • randomized = Patient successfully randomized into study",
+                "   • withdrawn = Patient withdrew from study",
+                "   • deceased = Patient passed away",
+                "   • completed = Patient completed all study visits",
+                "   • lost_to_followup = Patient lost contact",
+                "",
+                "The Outcome you select will update the patient's status accordingly.",
+                "",
+                "NOTES FIELD (OPTIONAL):",
+                "Use the Notes column to add any relevant information:",
+                "   • Reason for DNA (sick, forgot, conflicting appointment)",
+                "   • Reason for withdrawal",
+                "   • Any adverse events or protocol deviations",
+                "   • Reason for rescheduling",
+                "",
+                "AFTER COMPLETING THIS FILE:",
+                "1. Save the file",
+                "2. Go to Import/Export page in the application",
+                "3. Upload this file in the 'Import Completed Visits' section",
+                "4. The system will:",
+                "   - Validate all entries",
+                "   - Add completed visits to actual_visits table",
+                "   - Update patient statuses based on Outcome",
+                "   - Show any errors or warnings",
+                "",
+                "IMPORTANT NOTES:",
+                "• Do NOT modify PatientID, Study, VisitName, or ScheduledDate columns",
+                "• ActualDate format MUST be DD/MM/YYYY (e.g., 15/06/2026)",
+                "• Outcome field is case-insensitive (completed = Completed)",
+                "• Leave ActualDate blank for DNA visits (system will use scheduled date)",
+                "• For Withdrawn/Deceased outcomes, all future visits will be suppressed",
+                "• SiteofVisit, ContractSite, PatientOrigin are auto-filled from schedule",
+                "",
+                "EXAMPLES:",
+                "",
+                "Example 1 - Completed Visit:",
+                "PatientID | Study  | VisitName | ScheduledDate | ActualDate | Outcome   | Notes",
+                "P001      | BaxDuo | V5        | 15/05/2026    | 15/05/2026 | Completed | On time",
+                "",
+                "Example 2 - DNA (Did Not Attend):",
+                "PatientID | Study | VisitName | ScheduledDate | ActualDate | Outcome | Notes",
+                "P002      | Zeus  | V3        | 20/05/2026    |            | DNA     | Patient forgot appointment",
+                "",
+                "Example 3 - Rescheduled:",
+                "PatientID | Study  | VisitName | ScheduledDate | ActualDate | Outcome     | Notes",
+                "P003      | FluSn  | V2        | 25/05/2026    | 02/06/2026 | Completed   | Rescheduled due to vacation",
+                "",
+                "Example 4 - Patient Withdrew:",
+                "PatientID | Study  | VisitName | ScheduledDate | ActualDate | Outcome   | Notes",
+                "P004      | BaxDuo | V4        | 30/05/2026    | 28/05/2026 | Withdrawn | Patient moved cities",
+                "",
+                "VALIDATION:",
+                "The system will check for:",
+                "   • Valid dates in DD/MM/YYYY format",
+                "   • Recognized Outcome values",
+                "   • Patient and Study exist in database",
+                "   • No duplicate entries",
+                "",
+                "Any errors will be reported before saving to prevent data issues.",
+            ]
+        }
+        instructions_df = pd.DataFrame(instructions_data)
+        instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
+
     output.seek(0)
     return output, f"Prepared {len(export_df)} overdue predicted visit(s)."
 
@@ -229,6 +356,93 @@ def build_proposed_visits_export(actual_visits_df: pd.DataFrame) -> Tuple[io.Byt
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, sheet_name="ProposedVisits", index=False)
+
+        # Add data validation dropdowns for Status column
+        try:
+            from openpyxl.worksheet.datavalidation import DataValidation
+            workbook = writer.book
+            worksheet = writer.sheets["ProposedVisits"]
+
+            # Status dropdown options
+            status_options = '"Confirmed,Rescheduled,Cancelled,DNA"'
+            status_validation = DataValidation(
+                type="list",
+                formula1=status_options,
+                allow_blank=True,
+                showErrorMessage=True,
+                error="Please select a valid status from the dropdown",
+                errorTitle="Invalid Status"
+            )
+            # Apply to Status column (column F, rows 2 onwards, assuming up to 1000 rows)
+            status_col_idx = export_df.columns.get_loc("Status") + 1  # +1 because Excel is 1-indexed
+            status_col_letter = chr(64 + status_col_idx)  # Convert to letter (A=65)
+            status_validation.add(f"{status_col_letter}2:{status_col_letter}1000")
+            worksheet.add_data_validation(status_validation)
+        except Exception as e:
+            log_activity(f"Could not add data validation dropdowns: {e}", level='warning')
+
+        # Add instructions sheet
+        instructions_data = {
+            "Instructions": [
+                "PROPOSED VISITS CONFIRMATION WORKFLOW",
+                "",
+                "This file contains visits that are currently marked as 'Proposed' (tentative bookings).",
+                "These visits need to be confirmed or updated based on actual patient attendance.",
+                "",
+                "HOW TO USE THIS FILE:",
+                "1. Review each proposed visit in the 'ProposedVisits' sheet",
+                "2. Update the Status column based on what happened:",
+                "",
+                "STATUS OPTIONS:",
+                "   • Confirmed = Visit occurred as scheduled",
+                "   • Rescheduled = Visit moved to different date (update ActualDate to new date)",
+                "   • Cancelled = Visit cancelled (patient withdrew, study ended, etc.)",
+                "   • DNA = Patient Did Not Attend (no show)",
+                "   • [Leave blank] = Still proposed/tentative (no change)",
+                "",
+                "PATIENT STATUS CONTEXT:",
+                "The system tracks 8 patient statuses throughout their journey:",
+                "   • screening = Patient in screening phase",
+                "   • screen_failed = Patient failed screening criteria",
+                "   • dna_screening = Patient did not attend screening",
+                "   • randomized = Patient successfully randomized into study",
+                "   • withdrawn = Patient withdrew from study",
+                "   • deceased = Patient passed away",
+                "   • completed = Patient completed all study visits",
+                "   • lost_to_followup = Patient lost contact",
+                "",
+                "NOTES FIELD:",
+                "Use the Notes column to add any relevant information:",
+                "   • Reason for DNA (sick, forgot, etc.)",
+                "   • Reason for cancellation",
+                "   • Any special circumstances",
+                "",
+                "AFTER COMPLETING THIS FILE:",
+                "1. Save the file",
+                "2. Go to Import/Export page in the application",
+                "3. Upload this file in the 'Proposed Visits Confirmation' section",
+                "4. The system will:",
+                "   - Convert 'Confirmed' visits to actual visits",
+                "   - Update dates for 'Rescheduled' visits",
+                "   - Remove 'Cancelled' and 'DNA' visits",
+                "   - Keep blank Status visits as proposed",
+                "",
+                "IMPORTANT NOTES:",
+                "• Do NOT modify PatientID, Study, or VisitName columns",
+                "• ActualDate format must be DD/MM/YYYY",
+                "• Status field is case-insensitive (confirmed = Confirmed)",
+                "• For rescheduled visits, make sure to update ActualDate to the new date",
+                "",
+                "EXAMPLE:",
+                "PatientID | Study | VisitName | ActualDate | Status     | Notes",
+                "P001      | BaxDuo| V5        | 15/06/2026 | Confirmed  | Patient attended",
+                "P002      | Zeus  | V3        | 20/06/2026 | DNA        | Patient forgot",
+                "P003      | FluSn | V2        | 25/06/2026 | Rescheduled| Moved to 02/07/2026 (update ActualDate)",
+                "P004      | BaxDuo| V-EOT     | 30/06/2026 | Cancelled  | Study terminated early",
+            ]
+        }
+        instructions_df = pd.DataFrame(instructions_data)
+        instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
 
     output.seek(0)
     return output, f"Prepared {len(export_df)} proposed visit(s)."
