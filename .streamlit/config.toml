@@ -1,0 +1,13 @@
+# Streamlit Configuration
+
+[server]
+# Disable file watcher to avoid inotify watch limit errors on deployment
+fileWatcherType = "none"
+
+[runner]
+# Faster startup by not watching for changes
+fastReruns = true
+
+[browser]
+# Server address
+serverAddress = "0.0.0.0"
