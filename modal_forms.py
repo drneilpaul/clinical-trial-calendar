@@ -1791,11 +1791,11 @@ def study_settings_navigation_modal():
                     if db.save_study_site_details(selected_study, selected_site, details):
                         st.success(f"✅ Successfully updated settings for {selected_study} at {selected_site}")
                         log_activity(f"Updated study settings: {selected_study}/{selected_site} - Status: {selected_status}, Target: {recruitment_target}", level='success')
-                        
+
                         # Clear cache and refresh
                         db.clear_database_cache()
                         trigger_data_refresh()
-                        
+
                         # Reset clear flags for this study
                         if clear_key_base in st.session_state:
                             st.session_state[clear_key_base] = {
@@ -1807,10 +1807,10 @@ def study_settings_navigation_modal():
                                 'description': False,
                                 'eoi_date': False
                             }
-                        
-                        # Optionally auto-advance to next study
-                        # st.session_state[session_key] = (current_index + 1) % len(combinations)
-                        # st.rerun()
+
+                        # Close the modal after successful save
+                        st.session_state.show_study_settings_form = False
+                        st.rerun()
                     else:
                         st.error("Failed to update settings. Please try again.")
                         
