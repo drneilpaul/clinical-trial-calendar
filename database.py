@@ -1500,8 +1500,9 @@ def clear_study_site_details_table() -> bool:
         if client is None:
             return False
 
-        # Delete all rows - use neq filter to match all rows (Supabase requires WHERE clause)
-        client.table('study_site_details').delete().neq('id', 0).execute()
+        # Delete all rows - use neq filter on Study column (table has no id column)
+        # This matches all rows since Study is never empty (Supabase requires WHERE clause)
+        client.table('study_site_details').delete().neq('Study', '').execute()
         log_activity("Cleared all study site details from database", level='info')
         _fetch_all_study_site_details_cached.clear()
         return True
