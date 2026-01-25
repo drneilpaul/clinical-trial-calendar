@@ -275,7 +275,7 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
             xaxis=dict(tickangle=-45)
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("No studies with targets available for chart display.")
     
