@@ -1267,11 +1267,17 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
         
         records = []
         for row in details_df.itertuples(index=False):
-            study = str(getattr(row, 'Study', '')).strip()
-            site = str(getattr(row, 'ContractSite', '')).strip()
+            def safe_str(val, default=''):
+                """Convert value to string, handling None and 'None' strings"""
+                if pd.isna(val) or val in [None, '', 'None', 'none']:
+                    return default
+                return str(val).strip()
+
+            study = safe_str(getattr(row, 'Study', ''))
+            site = safe_str(getattr(row, 'ContractSite', ''))
             if not study or not site:
                 continue
-            
+
             def parse_date(val):
                 if pd.isna(val) or val in ['', None]:
                     return None
@@ -1280,18 +1286,35 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
                     return None
                 return str(parsed.date())
             
+            # Handle RecruitmentTarget - convert to int or None
+            recruitment_target = getattr(row, 'RecruitmentTarget', None)
+            if pd.isna(recruitment_target) or recruitment_target in ['', None, 'None']:
+                recruitment_target = None
+            elif isinstance(recruitment_target, (int, float)):
+                recruitment_target = int(recruitment_target)
+            else:
+                try:
+                    recruitment_target = int(float(str(recruitment_target)))
+                except (ValueError, TypeError):
+                    recruitment_target = None
+
+            # Handle StudyStatus with safe_str and ensure valid value
+            study_status = safe_str(getattr(row, 'StudyStatus', 'active'), 'active').lower()
+            if study_status not in ['active', 'completed', 'on_hold', 'cancelled', 'expression_of_interest', 'eoi_didnt_get']:
+                study_status = 'active'
+
             record = {
                 'Study': study,
                 'ContractSite': site,
-                'StudyStatus': str(getattr(row, 'StudyStatus', 'active')).strip().lower() or 'active',
-                'RecruitmentTarget': getattr(row, 'RecruitmentTarget', None),
+                'StudyStatus': study_status,
+                'RecruitmentTarget': recruitment_target,
                 'FPFV': parse_date(getattr(row, 'FPFV', None)),
                 'LPFV': parse_date(getattr(row, 'LPFV', None)),
                 'LPLV': parse_date(getattr(row, 'LPLV', None)),
-                'Description': str(getattr(row, 'Description', '')).strip(),
+                'Description': safe_str(getattr(row, 'Description', '')) or None,
                 'EOIDate': parse_date(getattr(row, 'EOIDate', None)),
-                'StudyURL': str(getattr(row, 'StudyURL', '')).strip(),
-                'DocumentLinks': str(getattr(row, 'DocumentLinks', '')).strip()
+                'StudyURL': safe_str(getattr(row, 'StudyURL', '')) or None,
+                'DocumentLinks': safe_str(getattr(row, 'DocumentLinks', '')) or None
             }
             records.append(record)
         
