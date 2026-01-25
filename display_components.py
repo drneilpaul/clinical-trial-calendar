@@ -2184,32 +2184,19 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
                         with st.expander("Preview import records", expanded=False):
                             st.dataframe(records_df_display, width="stretch", hide_index=True)
 
-                        if st.session_state.get('use_database'):
-                            if st.button("Apply Bulk Update", type="primary", key="apply_bulk_update"):
-                                try:
-                                    import database as db
-                                    success, message, code = db.append_visit_to_database(records_df)
-                                    if success:
-                                        st.success(message)
-                                        trigger_data_refresh()
-                                        rerun_app()
-                                    else:
-                                        st.error(message)
-                                except Exception as e:
-                                    st.error(f"Failed to append visits: {e}")
-                        else:
-                            csv_update = records_df_display.to_csv(index=False)
-                            date_suffix = date.today().strftime('%d-%m-%Y')
-                            csv_filename = f"actual_visits_updates_{date_suffix}.csv"
-                            st.download_button(
-                                "⬇️ Download Actual Visits CSV (append to actual_visits file)",
-                                data=csv_update,
-                                file_name=csv_filename,
-                                mime="text/csv",
-                                help="Download the prepared actual visits for manual merging.",
-                                width="stretch",
-                                key="bulk_overdue_download_updates"
-                            )
+                        # Always use database for bulk updates
+                        if st.button("Apply Bulk Update", type="primary", key="apply_bulk_update"):
+                            try:
+                                import database as db
+                                success, message, code = db.append_visit_to_database(records_df)
+                                if success:
+                                    st.success(message)
+                                    trigger_data_refresh()
+                                    rerun_app()
+                                else:
+                                    st.error(message)
+                            except Exception as e:
+                                st.error(f"Failed to append visits: {e}")
 
     except Exception as e:
         st.error(f"Error creating download options: {e}")

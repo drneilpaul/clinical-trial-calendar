@@ -150,12 +150,12 @@ def check_and_refresh_data():
     """Check if data refresh is needed and reload from database"""
     if st.session_state.get('data_refresh_needed', False):
         try:
-            if st.session_state.get('use_database', False):
-                st.session_state.patients_df = db.fetch_all_patients()
-                st.session_state.trials_df = db.fetch_all_trial_schedules()
-                st.session_state.actual_visits_df = db.fetch_all_actual_visits()
+            # Always refresh from database
+            st.session_state.patients_df = db.fetch_all_patients()
+            st.session_state.trials_df = db.fetch_all_trial_schedules()
+            st.session_state.actual_visits_df = db.fetch_all_actual_visits()
 
-                log_activity("Data refreshed from database", level='success')
+            log_activity("Data refreshed from database", level='success')
 
             clear_build_calendar_cache()
             clear_database_cache()
@@ -168,21 +168,14 @@ def check_and_refresh_data():
 def setup_file_uploaders():
     """Setup file uploaders and store in session state"""
     
-    st.sidebar.header("Data Source")
-    
-    # Database toggle
-    if st.session_state.get('database_available', False):
-        st.sidebar.success("Database Connected")
-        use_database = st.sidebar.checkbox(
-            "Load from Database", 
-            value=True,
-            help="Load existing data from database instead of files"
-        )
-        st.session_state.use_database = use_database
-    else:
-        st.session_state.use_database = False
-        if st.session_state.get('database_status'):
-            st.sidebar.info(f"Database: {st.session_state.database_status}")
+    # Supabase connection is REQUIRED - no toggle needed
+    if not st.session_state.get('database_available', False):
+        st.error("❌ Database connection failed. Please check Supabase configuration.")
+        st.error(f"Status: {st.session_state.get('database_status', 'Unknown error')}")
+        st.info("💡 Contact admin to verify Supabase secrets are configured correctly.")
+        st.stop()
+
+    st.sidebar.success("✅ Connected to Database")
     
     st.sidebar.divider()
     
@@ -209,10 +202,8 @@ def setup_file_uploaders():
     
     st.sidebar.divider()
     st.sidebar.header("Pages")
-    page_options = ["Site Busy", "Calendar", "Gantt", "Recruitment", "Financials"]
-    # Import/Export page available to all logged-in users
-    if st.session_state.get('database_available', False):
-        page_options.append("Import/Export")
+    page_options = ["Site Busy", "Calendar", "Gantt", "Recruitment", "Financials", "Import/Export"]
+
     # DB Admin only for admin users
     if st.session_state.get('auth_level') == 'admin':
         page_options.append("DB Admin")
@@ -237,272 +228,257 @@ def setup_file_uploaders():
     actual_visits_file = None
     study_site_details_file = None
     
-    if st.session_state.get('database_available', False):
-        if st.session_state.get('auth_level') == 'admin':
-            with st.sidebar.expander("📁 File Upload Options", expanded=True):
-                st.caption("Use these if you want to upload new files instead of using database")
-                
-                trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-                patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-                actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
-                study_site_details_file = st.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
+    if st.session_state.get('auth_level') == 'admin':
+        with st.sidebar.expander("📁 Restore from CSV Backup", expanded=False):
+            st.caption("Upload CSV files to overwrite database tables (use for data recovery)")
+
+            trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+            patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+            actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+            study_site_details_file = st.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
+
+        # Selective overwrite buttons
+        if patients_file or trials_file or actual_visits_file or study_site_details_file:
+            st.divider()
+            st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
             
-            # Selective overwrite buttons
-            if patients_file or trials_file or actual_visits_file or study_site_details_file:
-                st.divider()
-                st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
-                
-                # Patients overwrite
-                if patients_file:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        if st.session_state.get('overwrite_in_progress', False):
-                            st.button("🔄 Overwrite Patients Table", help="Another overwrite operation in progress", disabled=True)
-                        elif st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
-                            if st.session_state.get('overwrite_patients_confirmed', False):
-                                try:
-                                    st.session_state.overwrite_in_progress = True
-                                    
-                                    patients_df, validation_messages = validate_file_upload(patients_file, 'patients')
-                                    
-                                    if patients_df is None:
-                                        st.error("❌ File validation failed!")
-                                        for msg in validation_messages:
-                                            st.error(f"  • {msg}")
-                                        st.session_state.overwrite_patients_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                        st.rerun()
-                                        return
-                                    
-                                    validation_summary = get_validation_summary(
-                                        [msg for msg in validation_messages if msg.startswith('❌')],
-                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
-                                    )
-                                    st.markdown(validation_summary)
-                                    
-                                    if db.safe_overwrite_table('patients', patients_df, db.save_patients_to_database):
-                                        st.success("✅ Patients table overwritten successfully!")
-                                        
-                                        # === ADD THIS ===
-                                        # Run validation after overwrite
-                                        from database_validator import run_startup_validation
-                                        validation_results = run_startup_validation(
-                                            patients_df, 
-                                            db.fetch_all_trial_schedules(), 
-                                            db.fetch_all_actual_visits()
-                                        )
-                                        st.session_state.validation_results = validation_results
-                                        # === END ADDITION ===
-                                        
-                                        st.session_state.use_database = True
-                                        st.session_state.overwrite_patients_confirmed = False
-                                        trigger_data_refresh()
-                                        st.session_state.overwrite_in_progress = False
-                                    else:
-                                        st.error("❌ Failed to overwrite patients table")
-                                        st.session_state.overwrite_patients_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                except Exception as e:
-                                    st.error(f"❌ Error processing patients file: {e}")
-                                    log_activity(f"Error processing patients file: {e}", level='error')
+            # Patients overwrite
+            if patients_file:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.session_state.get('overwrite_in_progress', False):
+                        st.button("🔄 Overwrite Patients Table", help="Another overwrite operation in progress", disabled=True)
+                    elif st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
+                        if st.session_state.get('overwrite_patients_confirmed', False):
+                            try:
+                                st.session_state.overwrite_in_progress = True
+                                
+                                patients_df, validation_messages = validate_file_upload(patients_file, 'patients')
+                                
+                                if patients_df is None:
+                                    st.error("❌ File validation failed!")
+                                    for msg in validation_messages:
+                                        st.error(f"  • {msg}")
                                     st.session_state.overwrite_patients_confirmed = False
                                     st.session_state.overwrite_in_progress = False
-                            else:
-                                st.session_state.overwrite_patients_confirmed = True
-                                st.warning("⚠️ Click again to confirm overwrite")
-                    with col2:
-                        if st.button("❌ Cancel", help="Cancel patients overwrite", key="cancel_patients"):
-                            st.session_state.overwrite_patients_confirmed = False
-                            st.rerun()
-                
-                # Trials overwrite
-                if trials_file:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        if st.session_state.get('overwrite_in_progress', False):
-                            st.button("🔄 Overwrite Trials Table", help="Another overwrite operation in progress", disabled=True)
-                        elif st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
-                            if st.session_state.get('overwrite_trials_confirmed', False):
-                                try:
-                                    st.session_state.overwrite_in_progress = True
+                                    st.rerun()
+                                    return
+                                
+                                validation_summary = get_validation_summary(
+                                    [msg for msg in validation_messages if msg.startswith('❌')],
+                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                )
+                                st.markdown(validation_summary)
+                                
+                                if db.safe_overwrite_table('patients', patients_df, db.save_patients_to_database):
+                                    st.success("✅ Patients table overwritten successfully!")
                                     
-                                    trials_df, validation_messages = validate_file_upload(trials_file, 'trials')
-                                    
-                                    if trials_df is None:
-                                        st.error("❌ File validation failed!")
-                                        for msg in validation_messages:
-                                            st.error(f"  • {msg}")
-                                        st.session_state.overwrite_trials_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                        st.rerun()
-                                        return
-                                    
-                                    validation_summary = get_validation_summary(
-                                        [msg for msg in validation_messages if msg.startswith('❌')],
-                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    # === ADD THIS ===
+                                    # Run validation after overwrite
+                                    from database_validator import run_startup_validation
+                                    validation_results = run_startup_validation(
+                                        patients_df, 
+                                        db.fetch_all_trial_schedules(), 
+                                        db.fetch_all_actual_visits()
                                     )
-                                    st.markdown(validation_summary)
+                                    st.session_state.validation_results = validation_results
+                                    # === END ADDITION ===
                                     
-                                    if db.safe_overwrite_table('trial_schedules', trials_df, db.save_trial_schedules_to_database):
-                                        st.success("✅ Trials table overwritten successfully!")
-                                        
-                                        # === ADD THIS ===
-                                        # Run validation after overwrite
-                                        from database_validator import run_startup_validation
-                                        validation_results = run_startup_validation(
-                                            db.fetch_all_patients(), 
-                                            trials_df, 
-                                            db.fetch_all_actual_visits()
-                                        )
-                                        st.session_state.validation_results = validation_results
-                                        # === END ADDITION ===
-                                        
-                                        st.session_state.use_database = True
-                                        st.session_state.overwrite_trials_confirmed = False
-                                        trigger_data_refresh()
-                                        st.session_state.overwrite_in_progress = False
-                                    else:
-                                        st.error("❌ Failed to overwrite trials table")
-                                        st.session_state.overwrite_trials_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                except Exception as e:
-                                    st.error(f"❌ Error processing trials file: {e}")
-                                    log_activity(f"Error processing trials file: {e}", level='error')
+                                    st.session_state.overwrite_patients_confirmed = False
+                                    trigger_data_refresh()
+                                    st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.error("❌ Failed to overwrite patients table")
+                                    st.session_state.overwrite_patients_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
+                            except Exception as e:
+                                st.error(f"❌ Error processing patients file: {e}")
+                                log_activity(f"Error processing patients file: {e}", level='error')
+                                st.session_state.overwrite_patients_confirmed = False
+                                st.session_state.overwrite_in_progress = False
+                        else:
+                            st.session_state.overwrite_patients_confirmed = True
+                            st.warning("⚠️ Click again to confirm overwrite")
+                with col2:
+                    if st.button("❌ Cancel", help="Cancel patients overwrite", key="cancel_patients"):
+                        st.session_state.overwrite_patients_confirmed = False
+                        st.rerun()
+            
+            # Trials overwrite
+            if trials_file:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.session_state.get('overwrite_in_progress', False):
+                        st.button("🔄 Overwrite Trials Table", help="Another overwrite operation in progress", disabled=True)
+                    elif st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
+                        if st.session_state.get('overwrite_trials_confirmed', False):
+                            try:
+                                st.session_state.overwrite_in_progress = True
+                                
+                                trials_df, validation_messages = validate_file_upload(trials_file, 'trials')
+                                
+                                if trials_df is None:
+                                    st.error("❌ File validation failed!")
+                                    for msg in validation_messages:
+                                        st.error(f"  • {msg}")
                                     st.session_state.overwrite_trials_confirmed = False
                                     st.session_state.overwrite_in_progress = False
-                            else:
-                                st.session_state.overwrite_trials_confirmed = True
-                                st.warning("⚠️ Click again to confirm overwrite")
-                    with col2:
-                        if st.button("❌ Cancel", help="Cancel trials overwrite", key="cancel_trials"):
-                            st.session_state.overwrite_trials_confirmed = False
-                            st.rerun()
-                
-                # Visits overwrite
-                if actual_visits_file:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        if st.session_state.get('overwrite_in_progress', False):
-                            st.button("🔄 Overwrite Visits Table", help="Another overwrite operation in progress", disabled=True)
-                        elif st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
-                            if st.session_state.get('overwrite_visits_confirmed', False):
-                                try:
-                                    st.session_state.overwrite_in_progress = True
+                                    st.rerun()
+                                    return
+                                
+                                validation_summary = get_validation_summary(
+                                    [msg for msg in validation_messages if msg.startswith('❌')],
+                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                )
+                                st.markdown(validation_summary)
+                                
+                                if db.safe_overwrite_table('trial_schedules', trials_df, db.save_trial_schedules_to_database):
+                                    st.success("✅ Trials table overwritten successfully!")
                                     
-                                    actual_visits_df, validation_messages = validate_file_upload(actual_visits_file, 'visits')
-                                    
-                                    if actual_visits_df is None:
-                                        st.error("❌ File validation failed!")
-                                        for msg in validation_messages:
-                                            st.error(f"  • {msg}")
-                                        st.session_state.overwrite_visits_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                        st.rerun()
-                                        return
-                                    
-                                    validation_summary = get_validation_summary(
-                                        [msg for msg in validation_messages if msg.startswith('❌')],
-                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    # === ADD THIS ===
+                                    # Run validation after overwrite
+                                    from database_validator import run_startup_validation
+                                    validation_results = run_startup_validation(
+                                        db.fetch_all_patients(), 
+                                        trials_df, 
+                                        db.fetch_all_actual_visits()
                                     )
-                                    st.markdown(validation_summary)
+                                    st.session_state.validation_results = validation_results
+                                    # === END ADDITION ===
                                     
-                                    if db.safe_overwrite_table('actual_visits', actual_visits_df, db.save_actual_visits_to_database):
-                                        st.success("✅ Visits table overwritten successfully!")
-                                        
-                                        # === ADD THIS ===
-                                        # Run validation after overwrite
-                                        from database_validator import run_startup_validation
-                                        validation_results = run_startup_validation(
-                                            db.fetch_all_patients(), 
-                                            db.fetch_all_trial_schedules(), 
-                                            actual_visits_df
-                                        )
-                                        st.session_state.validation_results = validation_results
-                                        # === END ADDITION ===
-                                        
-                                        st.session_state.use_database = True
-                                        st.session_state.overwrite_visits_confirmed = False
-                                        trigger_data_refresh()
-                                        st.session_state.overwrite_in_progress = False
-                                    else:
-                                        st.error("❌ Failed to overwrite visits table")
-                                        st.session_state.overwrite_visits_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                except Exception as e:
-                                    st.error(f"❌ Error processing visits file: {e}")
-                                    log_activity(f"Error processing visits file: {e}", level='error')
+                                    st.session_state.overwrite_trials_confirmed = False
+                                    trigger_data_refresh()
+                                    st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.error("❌ Failed to overwrite trials table")
+                                    st.session_state.overwrite_trials_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
+                            except Exception as e:
+                                st.error(f"❌ Error processing trials file: {e}")
+                                log_activity(f"Error processing trials file: {e}", level='error')
+                                st.session_state.overwrite_trials_confirmed = False
+                                st.session_state.overwrite_in_progress = False
+                        else:
+                            st.session_state.overwrite_trials_confirmed = True
+                            st.warning("⚠️ Click again to confirm overwrite")
+                with col2:
+                    if st.button("❌ Cancel", help="Cancel trials overwrite", key="cancel_trials"):
+                        st.session_state.overwrite_trials_confirmed = False
+                        st.rerun()
+            
+            # Visits overwrite
+            if actual_visits_file:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.session_state.get('overwrite_in_progress', False):
+                        st.button("🔄 Overwrite Visits Table", help="Another overwrite operation in progress", disabled=True)
+                    elif st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
+                        if st.session_state.get('overwrite_visits_confirmed', False):
+                            try:
+                                st.session_state.overwrite_in_progress = True
+                                
+                                actual_visits_df, validation_messages = validate_file_upload(actual_visits_file, 'visits')
+                                
+                                if actual_visits_df is None:
+                                    st.error("❌ File validation failed!")
+                                    for msg in validation_messages:
+                                        st.error(f"  • {msg}")
                                     st.session_state.overwrite_visits_confirmed = False
                                     st.session_state.overwrite_in_progress = False
-                            else:
-                                st.session_state.overwrite_visits_confirmed = True
-                                st.warning("⚠️ Click again to confirm overwrite")
-                    with col2:
-                        if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
-                            st.session_state.overwrite_visits_confirmed = False
-                            st.rerun()
-                
-                # Study site details overwrite
-                if study_site_details_file:
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        if st.session_state.get('overwrite_in_progress', False):
-                            st.button("🔄 Overwrite Study Site Details", help="Another overwrite operation in progress", disabled=True)
-                        elif st.button("🔄 Overwrite Study Site Details", help="Replace only study site details in database"):
-                            if st.session_state.get('overwrite_study_details_confirmed', False):
-                                try:
-                                    st.session_state.overwrite_in_progress = True
+                                    st.rerun()
+                                    return
+                                
+                                validation_summary = get_validation_summary(
+                                    [msg for msg in validation_messages if msg.startswith('❌')],
+                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                )
+                                st.markdown(validation_summary)
+                                
+                                if db.safe_overwrite_table('actual_visits', actual_visits_df, db.save_actual_visits_to_database):
+                                    st.success("✅ Visits table overwritten successfully!")
                                     
-                                    details_df, validation_messages = validate_file_upload(study_site_details_file, 'study_site_details')
-                                    
-                                    if details_df is None:
-                                        st.error("❌ File validation failed!")
-                                        for msg in validation_messages:
-                                            st.error(f"  • {msg}")
-                                        st.session_state.overwrite_study_details_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                        st.rerun()
-                                        return
-                                    
-                                    validation_summary = get_validation_summary(
-                                        [msg for msg in validation_messages if msg.startswith('❌')],
-                                        [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                    # === ADD THIS ===
+                                    # Run validation after overwrite
+                                    from database_validator import run_startup_validation
+                                    validation_results = run_startup_validation(
+                                        db.fetch_all_patients(), 
+                                        db.fetch_all_trial_schedules(), 
+                                        actual_visits_df
                                     )
-                                    st.markdown(validation_summary)
+                                    st.session_state.validation_results = validation_results
+                                    # === END ADDITION ===
                                     
-                                    if db.safe_overwrite_table('study_site_details', details_df, db.save_study_site_details_to_database):
-                                        st.success("✅ Study site details overwritten successfully!")
-                                        st.session_state.use_database = True
-                                        st.session_state.overwrite_study_details_confirmed = False
-                                        trigger_data_refresh()
-                                        st.session_state.overwrite_in_progress = False
-                                    else:
-                                        st.error("❌ Failed to overwrite study site details")
-                                        st.session_state.overwrite_study_details_confirmed = False
-                                        st.session_state.overwrite_in_progress = False
-                                except Exception as e:
-                                    st.error(f"❌ Error processing study site details file: {e}")
-                                    log_activity(f"Error processing study site details file: {e}", level='error')
+                                    st.session_state.overwrite_visits_confirmed = False
+                                    trigger_data_refresh()
+                                    st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.error("❌ Failed to overwrite visits table")
+                                    st.session_state.overwrite_visits_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
+                            except Exception as e:
+                                st.error(f"❌ Error processing visits file: {e}")
+                                log_activity(f"Error processing visits file: {e}", level='error')
+                                st.session_state.overwrite_visits_confirmed = False
+                                st.session_state.overwrite_in_progress = False
+                        else:
+                            st.session_state.overwrite_visits_confirmed = True
+                            st.warning("⚠️ Click again to confirm overwrite")
+                with col2:
+                    if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
+                        st.session_state.overwrite_visits_confirmed = False
+                        st.rerun()
+            
+            # Study site details overwrite
+            if study_site_details_file:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.session_state.get('overwrite_in_progress', False):
+                        st.button("🔄 Overwrite Study Site Details", help="Another overwrite operation in progress", disabled=True)
+                    elif st.button("🔄 Overwrite Study Site Details", help="Replace only study site details in database"):
+                        if st.session_state.get('overwrite_study_details_confirmed', False):
+                            try:
+                                st.session_state.overwrite_in_progress = True
+                                
+                                details_df, validation_messages = validate_file_upload(study_site_details_file, 'study_site_details')
+                                
+                                if details_df is None:
+                                    st.error("❌ File validation failed!")
+                                    for msg in validation_messages:
+                                        st.error(f"  • {msg}")
                                     st.session_state.overwrite_study_details_confirmed = False
                                     st.session_state.overwrite_in_progress = False
-                            else:
-                                st.session_state.overwrite_study_details_confirmed = True
-                                st.warning("⚠️ Click again to confirm overwrite")
-                    with col2:
-                        if st.button("❌ Cancel", help="Cancel study site details overwrite", key="cancel_study_details"):
-                            st.session_state.overwrite_study_details_confirmed = False
-                            st.rerun()
-        else:
-            st.sidebar.info("🔒 Admin login required to upload files")
+                                    st.rerun()
+                                    return
+                                
+                                validation_summary = get_validation_summary(
+                                    [msg for msg in validation_messages if msg.startswith('❌')],
+                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                )
+                                st.markdown(validation_summary)
+                                
+                                if db.safe_overwrite_table('study_site_details', details_df, db.save_study_site_details_to_database):
+                                    st.success("✅ Study site details overwritten successfully!")
+                                    st.session_state.overwrite_study_details_confirmed = False
+                                    trigger_data_refresh()
+                                    st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.error("❌ Failed to overwrite study site details")
+                                    st.session_state.overwrite_study_details_confirmed = False
+                                    st.session_state.overwrite_in_progress = False
+                            except Exception as e:
+                                st.error(f"❌ Error processing study site details file: {e}")
+                                log_activity(f"Error processing study site details file: {e}", level='error')
+                                st.session_state.overwrite_study_details_confirmed = False
+                                st.session_state.overwrite_in_progress = False
+                        else:
+                            st.session_state.overwrite_study_details_confirmed = True
+                            st.warning("⚠️ Click again to confirm overwrite")
+                with col2:
+                    if st.button("❌ Cancel", help="Cancel study site details overwrite", key="cancel_study_details"):
+                        st.session_state.overwrite_study_details_confirmed = False
+                        st.rerun()
     else:
-        if st.session_state.get('auth_level') == 'admin':
-            st.sidebar.caption("Upload your data files to get started")
-            
-            trials_file = st.sidebar.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-            patients_file = st.sidebar.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-            actual_visits_file = st.sidebar.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
-            study_site_details_file = st.sidebar.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
-        else:
-            st.sidebar.info("🔒 Admin login required to upload files")
+        st.sidebar.info("🔒 Admin login required to upload files")
     
     # Log file uploads
     if trials_file and 'last_trials_file' not in st.session_state:
@@ -833,7 +809,7 @@ def main():
     
     # === ADD THIS SECTION ===
     # Run startup validation if using database
-    if st.session_state.get('use_database', False) and st.session_state.get('database_available', False):
+    if st.session_state.get('database_available', False):
         # Only run validation once per session or after data refresh
         if st.session_state.get('data_refresh_needed', False) or 'validation_run' not in st.session_state:
             try:
@@ -967,261 +943,159 @@ def main():
     
     patients_file, trials_file, actual_visits_file = setup_file_uploaders()
 
-    # Show action buttons if we have either database mode OR file uploads
-    use_database = st.session_state.get('use_database', False)
-    has_files = patients_file and trials_file
-    
-    if use_database or has_files:
-        display_action_buttons()
+    # Always load from database (database_available check done in sidebar)
+    display_action_buttons()
 
-        # Load data based on mode
-        if use_database:
-            # Only log if actually refreshing (not on cache hits)
-            if st.session_state.get('data_refresh_needed', False):
-                log_activity("Refreshing data from database...", level='info')
-                st.session_state.data_refresh_needed = False
-            
-            patients_df = db.fetch_all_patients()
-            trials_df = db.fetch_all_trial_schedules()
-            actual_visits_df = db.fetch_all_actual_visits()
-            
-            if patients_df is None or trials_df is None:
-                st.error("Failed to load from database. Please upload files instead.")
-                st.session_state.use_database = False
-                st.stop()
-            
-            # Only log summary if data was actually loaded (not cached)
-            if st.session_state.get('data_refresh_needed', False) or not hasattr(st.session_state, '_last_data_summary'):
-                log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
-                st.session_state._last_data_summary = f"{len(patients_df)}_{len(trials_df)}"
-            
-            # Show debug info only at VERBOSE level or higher
-            if should_show_debug_ui():
-                st.write("**Data Summary:**")
-                st.write(f"Patients: {len(patients_df)} | Trials: {len(trials_df)} | Actual Visits: {len(actual_visits_df) if actual_visits_df is not None else 0}")
-                
-                if 'Payment' in trials_df.columns:
-                    payment_count = (trials_df['Payment'] > 0).sum()
-                    st.write(f"Trials with payments: {payment_count}/{len(trials_df)}")
-                else:
-                    st.write("❌ No Payment column in trials")
-                
-                # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
-                if not patients_df.empty:
-                    date_column = None
-                    if 'ScreeningDate' in patients_df.columns:
-                        date_column = 'ScreeningDate'
-                    elif 'StartDate' in patients_df.columns:
-                        date_column = 'StartDate'
+    # Load from Supabase
+    patients_df = db.fetch_all_patients()
+    trials_df = db.fetch_all_trial_schedules()
+    actual_visits_df = db.fetch_all_actual_visits()
+    study_site_details_df = db.fetch_all_study_site_details()
 
-                    if date_column:
-                        st.write(f"Patient date range: {patients_df[date_column].min().strftime('%Y-%m-%d')} to {patients_df[date_column].max().strftime('%Y-%m-%d')}")
-                        st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
+    if patients_df is None or trials_df is None:
+        st.error("❌ Failed to load required data from database.")
+        st.error("Please check database connection or restore from CSV backup.")
+        st.stop()
+
+    if patients_df.empty or trials_df.empty:
+        st.warning("⚠️ Database is empty. Use 'Restore from CSV Backup' to load initial data.")
+        st.stop()
+
+    # Data loaded successfully - log summary
+    if not hasattr(st.session_state, '_last_data_summary') or st.session_state._last_data_summary != f"{len(patients_df)}_{len(trials_df)}":
+        log_activity(f"Loaded {len(patients_df)} patients, {len(trials_df)} trials from database", level='info')
+        st.session_state._last_data_summary = f"{len(patients_df)}_{len(trials_df)}"
+
+    # Show debug info only at VERBOSE level or higher
+    if should_show_debug_ui():
+        st.write("**Data Summary:**")
+        st.write(f"Patients: {len(patients_df)} | Trials: {len(trials_df)} | Actual Visits: {len(actual_visits_df) if actual_visits_df is not None else 0}")
+
+        if 'Payment' in trials_df.columns:
+            payment_count = (trials_df['Payment'] > 0).sum()
+            st.write(f"Trials with payments: {payment_count}/{len(trials_df)}")
         else:
-            # File processing
-            try:
-                init_error_system()
-                
-                patients_df, patients_validation = validate_file_upload(patients_file, 'patients')
-                if patients_df is None:
-                    st.error("❌ Patients file validation failed!")
-                    for msg in patients_validation:
-                        st.error(f"  • {msg}")
-                    st.stop()
-                
-                # Block processing if validation found errors
-                if any(msg.startswith('❌') for msg in patients_validation):
-                    st.error("❌ Patients file has validation errors - processing stopped")
-                    st.stop()
-                
-                trials_df, trials_validation = validate_file_upload(trials_file, 'trials')
-                if trials_df is None:
-                    st.error("❌ Trials file validation failed!")
-                    for msg in trials_validation:
-                        st.error(f"  • {msg}")
-                    st.stop()
-                
-                # Block processing if validation found errors
-                if any(msg.startswith('❌') for msg in trials_validation):
-                    st.error("❌ Trials file has validation errors - processing stopped")
-                    st.stop()
-                
-                actual_visits_df = None
-                if actual_visits_file:
-                    actual_visits_df, visits_validation = validate_file_upload(actual_visits_file, 'visits')
-                    if actual_visits_df is None:
-                        st.error("❌ Visits file validation failed!")
-                        for msg in visits_validation:
-                            st.error(f"  • {msg}")
-                        st.stop()
-                    
-                    # Block processing if validation found errors
-                    if any(msg.startswith('❌') for msg in visits_validation):
-                        st.error("❌ Visits file has validation errors - processing stopped")
-                        st.stop()
-                
-                st.markdown("**📋 File Validation Results:**")
-                
-                patients_summary = get_validation_summary(
-                    [msg for msg in patients_validation if msg.startswith('❌')],
-                    [msg for msg in patients_validation if msg.startswith('⚠️')]
-                )
-                st.markdown(f"**Patients:** {patients_summary}")
-                
-                trials_summary = get_validation_summary(
-                    [msg for msg in trials_validation if msg.startswith('❌')],
-                    [msg for msg in trials_validation if msg.startswith('⚠️')]
-                )
-                st.markdown(f"**Trials:** {trials_summary}")
-                
-                if actual_visits_df is not None:
-                    visits_summary = get_validation_summary(
-                        [msg for msg in visits_validation if msg.startswith('❌')],
-                        [msg for msg in visits_validation if msg.startswith('⚠️')]
-                    )
-                    st.markdown(f"**Visits:** {visits_summary}")
-                
-                missing_studies = set(patients_df["Study"]) - set(trials_df["Study"])
-                if missing_studies:
-                    st.error(f"❌ Missing Study Definitions: {missing_studies}")
-                    st.stop()
+            st.write("❌ No Payment column in trials")
 
-                # Validate baseline visits per study (and pathway if applicable)
-                has_pathways = 'Pathway' in trials_df.columns
+        # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
+        if not patients_df.empty:
+            date_column = None
+            if 'ScreeningDate' in patients_df.columns:
+                date_column = 'ScreeningDate'
+            elif 'StartDate' in patients_df.columns:
+                date_column = 'StartDate'
 
-                if has_pathways:
-                    # Validate each study-pathway combination
-                    for study in patients_df["Study"].unique():
-                        study_visits = trials_df[trials_df["Study"] == study]
+            if date_column:
+                st.write(f"Patient date range: {patients_df[date_column].min().strftime('%Y-%m-%d')} to {patients_df[date_column].max().strftime('%Y-%m-%d')}")
+                st.write(f"Studies: {', '.join(patients_df['Study'].unique())}")
 
-                        for pathway in study_visits['Pathway'].unique():
-                            pathway_visits = study_visits[study_visits['Pathway'] == pathway]
+    # Handle modals
+    handle_patient_modal()
+    handle_visit_modal()
+    handle_study_event_modal()
+    if SWITCH_PATIENT_AVAILABLE:
+        handle_switch_patient_modal()
+    handle_study_settings_modal()
+    show_download_sections()
 
-                            # Look for V1 by name (baseline visit) - use word boundary to avoid matching V16, V17, etc.
-                            v1_visits = pathway_visits[pathway_visits["VisitName"].str.match(r"^V1(\s|$|/)", case=False, na=False)]
-
-                            if len(v1_visits) == 0:
-                                # No V1 found - check if there's ANY Day 1 visit as fallback
-                                day_1_visits = pathway_visits[pathway_visits["Day"] == 1]
-                                if len(day_1_visits) == 0:
-                                    st.error(f"❌ Study {study} (Pathway: {pathway}) has no baseline visit (V1 or Day 1). A baseline visit is required.")
-                                    st.stop()
-                            elif len(v1_visits) > 1:
-                                visit_names = v1_visits["VisitName"].tolist()
-                                st.error(f"❌ Study {study} (Pathway: {pathway}) has multiple V1 visits: {visit_names}. Only one baseline visit allowed per pathway.")
-                                st.stop()
-                else:
-                    # Original validation for studies without pathways
-                    for study in patients_df["Study"].unique():
-                        study_visits = trials_df[trials_df["Study"] == study]
-                        day_1_visits = study_visits[study_visits["Day"] == 1]
-
-                        if len(day_1_visits) == 0:
-                            st.error(f"❌ Study {study} has no Day 1 visit defined. Day 1 is required as baseline.")
-                            st.stop()
-                        elif len(day_1_visits) > 1:
-                            visit_names = day_1_visits["VisitName"].tolist()
-                            st.error(f"❌ Study {study} has multiple Day 1 visits: {visit_names}. Only one Day 1 visit allowed.")
-                            st.stop()
-                
-            except Exception as e:
-                st.error(f"Error processing files: {str(e)}")
-                st.stop()
+    try:
+        hide_inactive = st.session_state.get('hide_inactive_patients', False)
+        cache_buster = st.session_state.get('calendar_cache_buster', 0)
+        import calendar_builder
+        calendar_builder.CALENDAR_DEBUG = st.session_state.get('calendar_debug', False)
+        visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
+            patients_df=patients_df, 
+            trials_df=trials_df, 
+            actual_visits_df=actual_visits_df, 
+            cache_buster=cache_buster, 
+            hide_inactive=hide_inactive
+        )
         
-        # Handle modals
-        handle_patient_modal()
-        handle_visit_modal()
-        handle_study_event_modal()
-        if SWITCH_PATIENT_AVAILABLE:
-            handle_switch_patient_modal()
-        handle_study_settings_modal()
-        show_download_sections()
+        screen_failures = extract_screen_failures(actual_visits_df)
+        withdrawals = extract_withdrawals(actual_visits_df)
 
-        try:
-            hide_inactive = st.session_state.get('hide_inactive_patients', False)
-            cache_buster = st.session_state.get('calendar_cache_buster', 0)
-            import calendar_builder
-            calendar_builder.CALENDAR_DEBUG = st.session_state.get('calendar_debug', False)
-            visits_df, calendar_df, stats, messages, site_column_mapping, unique_visit_sites, patients_df = build_calendar(
-                patients_df=patients_df, 
-                trials_df=trials_df, 
-                actual_visits_df=actual_visits_df, 
-                cache_buster=cache_buster, 
-                hide_inactive=hide_inactive
-            )
-            
-            screen_failures = extract_screen_failures(actual_visits_df)
-            withdrawals = extract_withdrawals(actual_visits_df)
+        display_processing_messages(messages)
+        
+        # Calendar range selector moved to col_options[3] (same line as other controls)
+        available_sites = sorted([site for site in unique_visit_sites])
+        available_studies = []
+        if 'Study' in visits_df.columns:
+            available_studies = sorted(visits_df['Study'].dropna().astype(str).unique().tolist())
 
-            display_processing_messages(messages)
-            
-            # Calendar range selector moved to col_options[3] (same line as other controls)
-            available_sites = sorted([site for site in unique_visit_sites])
-            available_studies = []
-            if 'Study' in visits_df.columns:
-                available_studies = sorted(visits_df['Study'].dropna().astype(str).unique().tolist())
+        # Build combined site/study selector
+        # Note: Use visits_df (not filtered) for building filter options - filtering happens later
+        site_field = None
+        for candidate in ['SiteofVisit', 'VisitSite', 'Site', 'OriginSite', 'Practice']:
+            if candidate in visits_df.columns:
+                site_field = candidate
+                break
 
-            # Build combined site/study selector
-            # Note: Use visits_df (not filtered) for building filter options - filtering happens later
-            site_field = None
-            for candidate in ['SiteofVisit', 'VisitSite', 'Site', 'OriginSite', 'Practice']:
-                if candidate in visits_df.columns:
-                    site_field = candidate
-                    break
-
-            site_label_fallback = 'Unknown Site'
+        site_label_fallback = 'Unknown Site'
+        
+        # Build site-study relationship mapping for dynamic filtering
+        site_study_map = {}  # {site: set of studies}
+        study_site_map = {}  # {study: set of sites}
+        
+        if available_studies and site_field:
+            if site_field not in visits_df.columns:
+                temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
+                temp_df[site_field] = site_label_fallback
+            else:
+                temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
             
-            # Build site-study relationship mapping for dynamic filtering
-            site_study_map = {}  # {site: set of studies}
-            study_site_map = {}  # {study: set of sites}
+            temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
+            temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
+            temp_df = temp_df.drop_duplicates()
             
-            if available_studies and site_field:
-                if site_field not in visits_df.columns:
-                    temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
-                    temp_df[site_field] = site_label_fallback
-                else:
-                    temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
+            # Build relationship maps
+            for _, row in temp_df.iterrows():
+                site_val = row[site_field]
+                study_val = row['Study']
                 
-                temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
-                temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
-                temp_df = temp_df.drop_duplicates()
+                if site_val not in site_study_map:
+                    site_study_map[site_val] = set()
+                site_study_map[site_val].add(study_val)
                 
-                # Build relationship maps
-                for _, row in temp_df.iterrows():
-                    site_val = row[site_field]
-                    study_val = row['Study']
-                    
-                    if site_val not in site_study_map:
-                        site_study_map[site_val] = set()
-                    site_study_map[site_val].add(study_val)
-                    
-                    if study_val not in study_site_map:
-                        study_site_map[study_val] = set()
-                    study_site_map[study_val].add(site_val)
-            
-            # Build combo options for legacy compatibility (not used in new UI, but keeping for now)
-            combo_options = {}
-            if available_studies:
-                if site_field is None:
-                    temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
-                    temp_df['__site'] = site_label_fallback
-                    site_field = '__site'
-                else:
-                    temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
-                temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
-                temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
-                temp_df = temp_df.drop_duplicates()
+                if study_val not in study_site_map:
+                    study_site_map[study_val] = set()
+                study_site_map[study_val].add(site_val)
+        
+        # Build combo options for legacy compatibility (not used in new UI, but keeping for now)
+        combo_options = {}
+        if available_studies:
+            if site_field is None:
+                temp_df = visits_df[['Study']].dropna(subset=['Study']).copy()
+                temp_df['__site'] = site_label_fallback
+                site_field = '__site'
+            else:
+                temp_df = visits_df[[site_field, 'Study']].dropna(subset=['Study']).copy()
+            temp_df[site_field] = temp_df[site_field].astype(str).str.strip().replace({'nan': site_label_fallback})
+            temp_df['Study'] = temp_df['Study'].astype(str).str.strip()
+            temp_df = temp_df.drop_duplicates()
 
-                # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
-                signature = tuple(sorted((getattr(row, site_field, site_label_fallback), row.Study) for row in temp_df.itertuples(index=False)))
-                
-                # Cache relationship maps in session state (after signature is created)
-                st.session_state['site_study_relationship_map'] = {
-                    'site_to_studies': site_study_map,
-                    'study_to_sites': study_site_map
-                }
-                cached_signature = st.session_state.get('calendar_combo_signature')
-                if signature != cached_signature:
+            # OPTIMIZED: Use itertuples for faster iteration (2-3x faster than iterrows)
+            signature = tuple(sorted((getattr(row, site_field, site_label_fallback), row.Study) for row in temp_df.itertuples(index=False)))
+            
+            # Cache relationship maps in session state (after signature is created)
+            st.session_state['site_study_relationship_map'] = {
+                'site_to_studies': site_study_map,
+                'study_to_sites': study_site_map
+            }
+            cached_signature = st.session_state.get('calendar_combo_signature')
+            if signature != cached_signature:
+                combo_options = {}
+                for row in temp_df.itertuples(index=False):
+                    site_value = getattr(row, site_field, site_label_fallback)
+                    label = f"{site_value} • {row.Study}"
+                    combo_options[label] = {
+                        'site': site_value,
+                        'study': row.Study
+                    }
+                st.session_state['calendar_combo_options'] = combo_options
+                st.session_state['calendar_combo_signature'] = signature
+            else:
+                cached_options = st.session_state.get('calendar_combo_options')
+                if cached_options is None:
                     combo_options = {}
                     for row in temp_df.itertuples(index=False):
                         site_value = getattr(row, site_field, site_label_fallback)
@@ -1231,501 +1105,485 @@ def main():
                             'study': row.Study
                         }
                     st.session_state['calendar_combo_options'] = combo_options
-                    st.session_state['calendar_combo_signature'] = signature
                 else:
-                    cached_options = st.session_state.get('calendar_combo_options')
-                    if cached_options is None:
-                        combo_options = {}
-                        for row in temp_df.itertuples(index=False):
-                            site_value = getattr(row, site_field, site_label_fallback)
-                            label = f"{site_value} • {row.Study}"
-                            combo_options[label] = {
-                                'site': site_value,
-                                'study': row.Study
-                            }
-                        st.session_state['calendar_combo_options'] = combo_options
-                    else:
-                        combo_options = cached_options
+                    combo_options = cached_options
 
-            # Initialize filter state variables - default to all selected on first load only
-            if 'pending_site_filter' not in st.session_state:
-                st.session_state.pending_site_filter = available_sites.copy() if available_sites else []
-            if 'pending_study_filter' not in st.session_state:
-                st.session_state.pending_study_filter = available_studies.copy() if available_studies else []
-            if 'active_site_filter' not in st.session_state:
-                st.session_state.active_site_filter = available_sites.copy() if available_sites else []
-            if 'active_study_filter' not in st.session_state:
-                st.session_state.active_study_filter = available_studies.copy() if available_studies else []
-            if 'filters_user_set' not in st.session_state:
-                st.session_state.filters_user_set = False
-            
-            # If user hasn't adjusted filters yet, default to all available options
-            if not st.session_state.filters_user_set:
-                if available_sites and not st.session_state.active_site_filter:
-                    st.session_state.active_site_filter = available_sites.copy()
-                if available_studies and not st.session_state.active_study_filter:
-                    st.session_state.active_study_filter = available_studies.copy()
-                if available_sites and not st.session_state.pending_site_filter:
-                    st.session_state.pending_site_filter = available_sites.copy()
-                if available_studies and not st.session_state.pending_study_filter:
-                    st.session_state.pending_study_filter = available_studies.copy()
-            
-            current_page = st.session_state.get('current_page', 'Site Busy')
-            if current_page == 'Calendar':
-                calendar_view = 'Standard'
-            elif current_page == 'Site Busy':
-                calendar_view = 'Site Busy'
-            else:
-                calendar_view = 'Gantt'
-            
-            # Calendar display options (Calendar only - not Site Busy since compact mode doesn't apply there)
-            if current_page == 'Calendar':
-                col_options = st.columns([1, 1, 1, 1, 1, 1])
-                with col_options[0]:
-                    prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
-                    hide_inactive = st.checkbox(
-                        "Hide inactive patients",
-                        value=prev_hide_inactive,
-                        help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
-                        key="hide_inactive_checkbox"
-                    )
-                    # Check if value changed and clear cache if so
-                    if hide_inactive != prev_hide_inactive:
-                        clear_build_calendar_cache()
-                        st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
-                        st.session_state.hide_inactive_patients = hide_inactive
-                        st.rerun()
-                    else:
-                        st.session_state.hide_inactive_patients = hide_inactive
-                with col_options[1]:
-                    prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
-                    compact_mode = st.checkbox(
-                        "Compact view",
-                        value=prev_compact_mode,
-                        help="Narrow columns with vertical headers and icons",
-                        key="compact_mode_checkbox"
-                    )
-                    # Check if value changed and trigger rerun
-                    if compact_mode != prev_compact_mode:
-                        st.session_state.compact_calendar_mode = compact_mode
-                        st.rerun()
-                    else:
-                        st.session_state.compact_calendar_mode = compact_mode
-                with col_options[2]:
-                    prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
-                    show_scrollbars = st.checkbox(
-                        "Show scrollbars",
-                        value=prev_show_scrollbars,
-                        help="Always show vertical and horizontal scrollbars (useful on Windows)",
-                        key="show_scrollbars_checkbox"
-                    )
-                    # Check if value changed and trigger rerun
-                    if show_scrollbars != prev_show_scrollbars:
-                        st.session_state.show_scrollbars = show_scrollbars
-                        st.rerun()
-                    else:
-                        st.session_state.show_scrollbars = show_scrollbars
-                with col_options[3]:
-                    if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
-                        st.session_state.scroll_to_today = True
-                        st.rerun()
-                with col_options[4]:
-                    calendar_start_date = None
-                with col_options[5]:
-                    # Build filter summary for expander header
-                    active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
-                    active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
-                    total_sites = len(available_sites) if available_sites else 0
-                    total_studies = len(available_studies) if available_studies else 0
-
-                    if active_sites_count == total_sites and active_studies_count == total_studies:
-                        filter_summary = "Filter Calendar (All)"
-                    else:
-                        filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
-
-                    # Determine if filter is active (expanded if active, closed if showing all)
-                    has_active_filter = (
-                        (active_sites_count < total_sites or active_studies_count < total_studies)
-                        if (total_sites > 0 and total_studies > 0)
-                        else False
-                    )
-
-                    with st.expander(filter_summary, expanded=has_active_filter):
-                        # Wrap filter UI in form to prevent reruns on checkbox clicks
-                        with st.form(key="calendar_filter_form"):
-                            # Get relationship maps for site-study relationships
-                            relationship_map = st.session_state.get('site_study_relationship_map', {})
-                            site_to_studies = relationship_map.get('site_to_studies', {})
-                            study_to_sites = relationship_map.get('study_to_sites', {})
-
-                            # Always use Site → Study mode (simplified)
-                            # Sites: show all available sites
-                            available_site_options = available_sites.copy() if available_sites else []
-
-                            # Studies: show all studies, but some may be disabled based on selected sites
-                            available_study_options = available_studies.copy() if available_studies else []
-
-                            study_label = "Study:"
-
-                            # Site selector
-                            st.markdown("**Site:**")
-
-                            # Individual checkboxes for each site (Select All removed)
-                            pending_sites = st.session_state.pending_site_filter or []
-                            selected_sites = []
-
-                            for site in available_site_options:
-                                is_selected = site in pending_sites
-                                site_key = f"site_checkbox_{site}"
-                                checked = st.checkbox(
-                                    site,
-                                    value=is_selected,
-                                    key=site_key
-                                )
-                                if checked:
-                                    selected_sites.append(site)
-
-                            # Update pending site filter based on form values (no rerun until form submission)
-                            st.session_state.pending_site_filter = selected_sites
-
-                            # Determine which studies are enabled based on CURRENT form selections (not session state)
-                            enabled_studies = set()
-                            for site in selected_sites:
-                                if site in site_to_studies:
-                                    enabled_studies.update(site_to_studies[site])
-
-                            st.markdown("")  # Spacing
-
-                            # Study selector
-                            st.markdown(f"**{study_label}**")
-
-                            # Individual checkboxes for each study - disabled if site not selected (Select All removed)
-                            pending_studies = st.session_state.pending_study_filter or []
-                            selected_studies = []
-
-                            for study in available_study_options:
-                                is_selected = study in pending_studies
-                                study_key = f"study_checkbox_{study}"
-                                is_enabled = study in enabled_studies
-
-                                checked = st.checkbox(
-                                    study,
-                                    value=is_selected if is_enabled else False,  # Uncheck if disabled
-                                    disabled=not is_enabled,
-                                    key=study_key,
-                                    help=f"Disabled because no associated site is selected" if not is_enabled else None
-                                )
-                                if checked and is_enabled:
-                                    selected_studies.append(study)
-
-                            # Clean up: remove studies that are no longer enabled
-                            final_selected_studies = [s for s in selected_studies if s in enabled_studies]
-
-                            # Update pending study filter based on form values (no rerun until form submission)
-                            st.session_state.pending_study_filter = final_selected_studies
-
-                            st.markdown("")  # Spacing
-
-                            # Apply Filter button - form submit button (triggers rerun only on submit)
-                            submitted = st.form_submit_button("Apply Filter", type="primary", width='stretch')
-                            if submitted:
-                                # Copy pending to active - form submission automatically triggers rerun
-                                # Defensive check: ensure we have lists before calling .copy()
-                                st.session_state.active_site_filter = (
-                                    st.session_state.pending_site_filter.copy()
-                                    if st.session_state.pending_site_filter else []
-                                )
-                                st.session_state.active_study_filter = (
-                                    st.session_state.pending_study_filter.copy()
-                                    if st.session_state.pending_study_filter else []
-                                )
-                                st.session_state.filters_user_set = True
-
-            # Site Busy page has its own simpler options (no compact mode or filters)
-            elif current_page == 'Site Busy':
-                col_options = st.columns([1, 5])
-                with col_options[0]:
-                    prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
-                    hide_inactive = st.checkbox(
-                        "Hide inactive patients",
-                        value=prev_hide_inactive,
-                        help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
-                        key="hide_inactive_checkbox_site"
-                    )
-                    # Check if value changed and clear cache if so
-                    if hide_inactive != prev_hide_inactive:
-                        clear_build_calendar_cache()
-                        st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
-                        st.session_state.hide_inactive_patients = hide_inactive
-                        st.rerun()
-                    else:
-                        st.session_state.hide_inactive_patients = hide_inactive
+        # Initialize filter state variables - default to all selected on first load only
+        if 'pending_site_filter' not in st.session_state:
+            st.session_state.pending_site_filter = available_sites.copy() if available_sites else []
+        if 'pending_study_filter' not in st.session_state:
+            st.session_state.pending_study_filter = available_studies.copy() if available_studies else []
+        if 'active_site_filter' not in st.session_state:
+            st.session_state.active_site_filter = available_sites.copy() if available_sites else []
+        if 'active_study_filter' not in st.session_state:
+            st.session_state.active_study_filter = available_studies.copy() if available_studies else []
+        if 'filters_user_set' not in st.session_state:
+            st.session_state.filters_user_set = False
+        
+        # If user hasn't adjusted filters yet, default to all available options
+        if not st.session_state.filters_user_set:
+            if available_sites and not st.session_state.active_site_filter:
+                st.session_state.active_site_filter = available_sites.copy()
+            if available_studies and not st.session_state.active_study_filter:
+                st.session_state.active_study_filter = available_studies.copy()
+            if available_sites and not st.session_state.pending_site_filter:
+                st.session_state.pending_site_filter = available_sites.copy()
+            if available_studies and not st.session_state.pending_study_filter:
+                st.session_state.pending_study_filter = available_studies.copy()
+        
+        current_page = st.session_state.get('current_page', 'Site Busy')
+        if current_page == 'Calendar':
+            calendar_view = 'Standard'
+        elif current_page == 'Site Busy':
+            calendar_view = 'Site Busy'
+        else:
+            calendar_view = 'Gantt'
+        
+        # Calendar display options (Calendar only - not Site Busy since compact mode doesn't apply there)
+        if current_page == 'Calendar':
+            col_options = st.columns([1, 1, 1, 1, 1, 1])
+            with col_options[0]:
+                prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
+                hide_inactive = st.checkbox(
+                    "Hide inactive patients",
+                    value=prev_hide_inactive,
+                    help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
+                    key="hide_inactive_checkbox"
+                )
+                # Check if value changed and clear cache if so
+                if hide_inactive != prev_hide_inactive:
+                    clear_build_calendar_cache()
+                    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                    st.session_state.hide_inactive_patients = hide_inactive
+                    st.rerun()
+                else:
+                    st.session_state.hide_inactive_patients = hide_inactive
+            with col_options[1]:
+                prev_compact_mode = st.session_state.get('compact_calendar_mode', False)
+                compact_mode = st.checkbox(
+                    "Compact view",
+                    value=prev_compact_mode,
+                    help="Narrow columns with vertical headers and icons",
+                    key="compact_mode_checkbox"
+                )
+                # Check if value changed and trigger rerun
+                if compact_mode != prev_compact_mode:
+                    st.session_state.compact_calendar_mode = compact_mode
+                    st.rerun()
+                else:
+                    st.session_state.compact_calendar_mode = compact_mode
+            with col_options[2]:
+                prev_show_scrollbars = st.session_state.get('show_scrollbars', True)
+                show_scrollbars = st.checkbox(
+                    "Show scrollbars",
+                    value=prev_show_scrollbars,
+                    help="Always show vertical and horizontal scrollbars (useful on Windows)",
+                    key="show_scrollbars_checkbox"
+                )
+                # Check if value changed and trigger rerun
+                if show_scrollbars != prev_show_scrollbars:
+                    st.session_state.show_scrollbars = show_scrollbars
+                    st.rerun()
+                else:
+                    st.session_state.show_scrollbars = show_scrollbars
+            with col_options[3]:
+                if st.button("Scroll to Today", key="scroll_calendar_today", help="Re-center the calendar on today's date."):
+                    st.session_state.scroll_to_today = True
+                    st.rerun()
+            with col_options[4]:
                 calendar_start_date = None
-            
-            else:
-                calendar_start_date = None
-            
-            # Apply filters to dataframes using calendar start date (calendar views only)
-            if current_page in ['Calendar', 'Site Busy']:
-                calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
-                visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
-            else:
-                calendar_df_filtered = calendar_df
-                visits_df_filtered = visits_df
-            
-            # Use active filters for calendar filtering (empty selection means show none)
-            selected_sites = st.session_state.active_site_filter
-            selected_studies = st.session_state.active_study_filter
+            with col_options[5]:
+                # Build filter summary for expander header
+                active_sites_count = len(st.session_state.active_site_filter) if st.session_state.active_site_filter else 0
+                active_studies_count = len(st.session_state.active_study_filter) if st.session_state.active_study_filter else 0
+                total_sites = len(available_sites) if available_sites else 0
+                total_studies = len(available_studies) if available_studies else 0
 
-            effective_studies = selected_studies if selected_studies is not None else available_studies
-            effective_sites = selected_sites if selected_sites is not None else available_sites
+                if active_sites_count == total_sites and active_studies_count == total_studies:
+                    filter_summary = "Filter Calendar (All)"
+                else:
+                    filter_summary = f"Filter Calendar ({active_sites_count} site{'s' if active_sites_count != 1 else ''}, {active_studies_count} stud{'ies' if active_studies_count != 1 else 'y'})"
 
-            apply_filters = current_page in ['Calendar', 'Site Busy']
-            if apply_filters:
-                if effective_studies is not None and 'Study' in visits_df_filtered.columns:
-                    visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
-                if effective_sites is not None and site_field and site_field in visits_df_filtered.columns:
-                    visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
+                # Determine if filter is active (expanded if active, closed if showing all)
+                has_active_filter = (
+                    (active_sites_count < total_sites or active_studies_count < total_studies)
+                    if (total_sites > 0 and total_studies > 0)
+                    else False
+                )
 
-            # Filter site column mapping to match selections
-            filtered_site_column_mapping = {}
-            for site, site_data in site_column_mapping.items():
-                if apply_filters and effective_sites is not None and site not in effective_sites:
+                with st.expander(filter_summary, expanded=has_active_filter):
+                    # Wrap filter UI in form to prevent reruns on checkbox clicks
+                    with st.form(key="calendar_filter_form"):
+                        # Get relationship maps for site-study relationships
+                        relationship_map = st.session_state.get('site_study_relationship_map', {})
+                        site_to_studies = relationship_map.get('site_to_studies', {})
+                        study_to_sites = relationship_map.get('study_to_sites', {})
+
+                        # Always use Site → Study mode (simplified)
+                        # Sites: show all available sites
+                        available_site_options = available_sites.copy() if available_sites else []
+
+                        # Studies: show all studies, but some may be disabled based on selected sites
+                        available_study_options = available_studies.copy() if available_studies else []
+
+                        study_label = "Study:"
+
+                        # Site selector
+                        st.markdown("**Site:**")
+
+                        # Individual checkboxes for each site (Select All removed)
+                        pending_sites = st.session_state.pending_site_filter or []
+                        selected_sites = []
+
+                        for site in available_site_options:
+                            is_selected = site in pending_sites
+                            site_key = f"site_checkbox_{site}"
+                            checked = st.checkbox(
+                                site,
+                                value=is_selected,
+                                key=site_key
+                            )
+                            if checked:
+                                selected_sites.append(site)
+
+                        # Update pending site filter based on form values (no rerun until form submission)
+                        st.session_state.pending_site_filter = selected_sites
+
+                        # Determine which studies are enabled based on CURRENT form selections (not session state)
+                        enabled_studies = set()
+                        for site in selected_sites:
+                            if site in site_to_studies:
+                                enabled_studies.update(site_to_studies[site])
+
+                        st.markdown("")  # Spacing
+
+                        # Study selector
+                        st.markdown(f"**{study_label}**")
+
+                        # Individual checkboxes for each study - disabled if site not selected (Select All removed)
+                        pending_studies = st.session_state.pending_study_filter or []
+                        selected_studies = []
+
+                        for study in available_study_options:
+                            is_selected = study in pending_studies
+                            study_key = f"study_checkbox_{study}"
+                            is_enabled = study in enabled_studies
+
+                            checked = st.checkbox(
+                                study,
+                                value=is_selected if is_enabled else False,  # Uncheck if disabled
+                                disabled=not is_enabled,
+                                key=study_key,
+                                help=f"Disabled because no associated site is selected" if not is_enabled else None
+                            )
+                            if checked and is_enabled:
+                                selected_studies.append(study)
+
+                        # Clean up: remove studies that are no longer enabled
+                        final_selected_studies = [s for s in selected_studies if s in enabled_studies]
+
+                        # Update pending study filter based on form values (no rerun until form submission)
+                        st.session_state.pending_study_filter = final_selected_studies
+
+                        st.markdown("")  # Spacing
+
+                        # Apply Filter button - form submit button (triggers rerun only on submit)
+                        submitted = st.form_submit_button("Apply Filter", type="primary", width='stretch')
+                        if submitted:
+                            # Copy pending to active - form submission automatically triggers rerun
+                            # Defensive check: ensure we have lists before calling .copy()
+                            st.session_state.active_site_filter = (
+                                st.session_state.pending_site_filter.copy()
+                                if st.session_state.pending_site_filter else []
+                            )
+                            st.session_state.active_study_filter = (
+                                st.session_state.pending_study_filter.copy()
+                                if st.session_state.pending_study_filter else []
+                            )
+                            st.session_state.filters_user_set = True
+
+        # Site Busy page has its own simpler options (no compact mode or filters)
+        elif current_page == 'Site Busy':
+            col_options = st.columns([1, 5])
+            with col_options[0]:
+                prev_hide_inactive = st.session_state.get('hide_inactive_patients', False)
+                hide_inactive = st.checkbox(
+                    "Hide inactive patients",
+                    value=prev_hide_inactive,
+                    help="Hide patients who have withdrawn, screen failed, died, or finished all visits",
+                    key="hide_inactive_checkbox_site"
+                )
+                # Check if value changed and clear cache if so
+                if hide_inactive != prev_hide_inactive:
+                    clear_build_calendar_cache()
+                    st.session_state.calendar_cache_buster = st.session_state.get('calendar_cache_buster', 0) + 1
+                    st.session_state.hide_inactive_patients = hide_inactive
+                    st.rerun()
+                else:
+                    st.session_state.hide_inactive_patients = hide_inactive
+            calendar_start_date = None
+        
+        else:
+            calendar_start_date = None
+        
+        # Apply filters to dataframes using calendar start date (calendar views only)
+        if current_page in ['Calendar', 'Site Busy']:
+            calendar_df_filtered = apply_calendar_start_filter(calendar_df, calendar_start_date)
+            visits_df_filtered = apply_calendar_start_filter(visits_df, calendar_start_date)
+        else:
+            calendar_df_filtered = calendar_df
+            visits_df_filtered = visits_df
+        
+        # Use active filters for calendar filtering (empty selection means show none)
+        selected_sites = st.session_state.active_site_filter
+        selected_studies = st.session_state.active_study_filter
+
+        effective_studies = selected_studies if selected_studies is not None else available_studies
+        effective_sites = selected_sites if selected_sites is not None else available_sites
+
+        apply_filters = current_page in ['Calendar', 'Site Busy']
+        if apply_filters:
+            if effective_studies is not None and 'Study' in visits_df_filtered.columns:
+                visits_df_filtered = visits_df_filtered[visits_df_filtered['Study'].isin(effective_studies)]
+            if effective_sites is not None and site_field and site_field in visits_df_filtered.columns:
+                visits_df_filtered = visits_df_filtered[visits_df_filtered[site_field].isin(effective_sites)]
+
+        # Filter site column mapping to match selections
+        filtered_site_column_mapping = {}
+        for site, site_data in site_column_mapping.items():
+            if apply_filters and effective_sites is not None and site not in effective_sites:
+                continue
+
+            patient_info = site_data.get('patient_info', [])
+            events_col = site_data.get('events_column')
+
+            filtered_patient_info = []
+            filtered_columns = []
+
+            for info in patient_info:
+                study_name = str(info.get('study', '')).strip()
+                if apply_filters and effective_studies is not None and study_name not in effective_studies:
                     continue
+                filtered_columns.append(info.get('col_id'))
+                filtered_patient_info.append(info)
 
-                patient_info = site_data.get('patient_info', [])
-                events_col = site_data.get('events_column')
+            if events_col:
+                filtered_columns.append(events_col)
 
-                filtered_patient_info = []
-                filtered_columns = []
+            if filtered_columns or not apply_filters:
+                filtered_site_column_mapping[site] = {
+                    **site_data,
+                    'columns': filtered_columns,
+                    'patient_info': filtered_patient_info,
+                    'events_column': events_col
+                }
 
-                for info in patient_info:
-                    study_name = str(info.get('study', '')).strip()
-                    if apply_filters and effective_studies is not None and study_name not in effective_studies:
-                        continue
-                    filtered_columns.append(info.get('col_id'))
-                    filtered_patient_info.append(info)
+        # Ensure we always have at least one site mapping to display
+        if not filtered_site_column_mapping:
+            filtered_site_column_mapping = {}
 
-                if events_col:
-                    filtered_columns.append(events_col)
+        allowed_columns = set()
+        base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
+        allowed_columns.update(base_columns)
+        for site_data in filtered_site_column_mapping.values():
+            site_columns = site_data.get('columns', [])
+            allowed_columns.update(site_columns)
 
-                if filtered_columns or not apply_filters:
-                    filtered_site_column_mapping[site] = {
-                        **site_data,
-                        'columns': filtered_columns,
-                        'patient_info': filtered_patient_info,
-                        'events_column': events_col
-                    }
+        keep_columns = [col for col in calendar_df_filtered.columns if col in allowed_columns]
+        if keep_columns:
+            calendar_df_filtered = calendar_df_filtered[keep_columns]
 
-            # Ensure we always have at least one site mapping to display
-            if not filtered_site_column_mapping:
-                filtered_site_column_mapping = {}
+        filtered_unique_visit_sites = [site for site in unique_visit_sites if site in filtered_site_column_mapping]
 
-            allowed_columns = set()
-            base_columns = [col for col in ['Date', 'Day'] if col in calendar_df_filtered.columns]
-            allowed_columns.update(base_columns)
-            for site_data in filtered_site_column_mapping.values():
-                site_columns = site_data.get('columns', [])
-                allowed_columns.update(site_columns)
+        # If filters are explicitly empty, show nothing
+        no_filter_results = (effective_sites == [] or effective_studies == [])
+        if apply_filters and no_filter_results:
+            st.info("No sites or studies selected. Apply a selection to display the calendar.")
 
-            keep_columns = [col for col in calendar_df_filtered.columns if col in allowed_columns]
-            if keep_columns:
-                calendar_df_filtered = calendar_df_filtered[keep_columns]
+        if current_page in ['Calendar', 'Site Busy']:
+            st.caption("Showing all recorded visits.")
 
-            filtered_unique_visit_sites = [site for site in unique_visit_sites if site in filtered_site_column_mapping]
-
-            # If filters are explicitly empty, show nothing
-            no_filter_results = (effective_sites == [] or effective_studies == [])
+            # Public - Always show
+            compact_mode = st.session_state.get('compact_calendar_mode', False)
+            hide_inactive_status = "enabled" if st.session_state.get('hide_inactive_patients', False) else "disabled"
+            compact_status = "enabled" if compact_mode else "disabled"
+            if hide_inactive_status == "enabled" or compact_status == "enabled":
+                st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
+        
+        if current_page == 'DB Admin':
+            render_db_admin_page()
+        else:
+            # Display appropriate view
             if apply_filters and no_filter_results:
-                st.info("No sites or studies selected. Apply a selection to display the calendar.")
-
-            if current_page in ['Calendar', 'Site Busy']:
-                st.caption("Showing all recorded visits.")
-
-                # Public - Always show
-                compact_mode = st.session_state.get('compact_calendar_mode', False)
-                hide_inactive_status = "enabled" if st.session_state.get('hide_inactive_patients', False) else "disabled"
-                compact_status = "enabled" if compact_mode else "disabled"
-                if hide_inactive_status == "enabled" or compact_status == "enabled":
-                    st.caption(f"📊 Display options: Hide inactive = {hide_inactive_status}, Compact mode = {compact_status}")
-            
-            if current_page == 'DB Admin':
-                render_db_admin_page()
-            else:
-                # Display appropriate view
-                if apply_filters and no_filter_results:
-                    pass
-                elif current_page == 'Site Busy':
-                    # Build site busy calendar
-                    from calendar_builder import build_site_busy_calendar
-                    # Determine date range for site busy calendar
-                    date_range = None
-                    
-                    site_busy_df = build_site_busy_calendar(
-                        visits_df_filtered,
-                        trials_df=trials_df,
-                        actual_visits_df=actual_visits_df,
-                        date_range=date_range
-                    )
-                    # Get site columns (exclude Date and Day)
-                    site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
-                    display_site_busy_calendar(site_busy_df, site_columns)
-                elif current_page == 'Gantt':
-                    # Build and display Gantt chart
-                    try:
-                        gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
-                        
-                        # Option to show recruitment overlay
-                        show_recruitment_overlay = st.checkbox(
-                            "Show Recruitment Overlay",
-                            value=False,
-                            help="Overlay recruitment progress on Gantt chart"
-                        )
-                        
-                        recruitment_data = None
-                        if show_recruitment_overlay:
-                            recruitment_data = build_recruitment_data(patients_df, trials_df)
-                            gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
-                        
-                        display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
-                    except Exception as e:
-                        st.error(f"Error building Gantt chart: {e}")
-                        log_activity(f"Error building Gantt chart: {e}", level='error')
-                        st.exception(e)
-                elif current_page == 'Calendar':
-                    display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
-            
-            if current_page in ['Calendar', 'Site Busy']:
-                # Show view-specific legend
-                show_legend(actual_visits_df, view=calendar_view)
+                pass
+            elif current_page == 'Site Busy':
+                # Build site busy calendar
+                from calendar_builder import build_site_busy_calendar
+                # Determine date range for site busy calendar
+                date_range = None
                 
-                if current_page == 'Site Busy':
-                    site_summary_df = extract_site_summary(patients_df, screen_failures)
-                    if not site_summary_df.empty and effective_sites:
-                        site_column_candidates = [col for col in ['Site', 'Visit Site', 'VisitSite'] if col in site_summary_df.columns]
-                        if site_column_candidates:
-                            site_summary_df = site_summary_df[site_summary_df[site_column_candidates[0]].isin(effective_sites)]
-                    if not site_summary_df.empty:
-                        display_site_statistics(site_summary_df)
-                
-                # Download buttons moved to Import/Export page
-            
-            if current_page == 'Recruitment':
-                st.subheader("📊 Recruitment Tracking")
+                site_busy_df = build_site_busy_calendar(
+                    visits_df_filtered,
+                    trials_df=trials_df,
+                    actual_visits_df=actual_visits_df,
+                    date_range=date_range
+                )
+                # Get site columns (exclude Date and Day)
+                site_columns = [col for col in site_busy_df.columns if col not in ['Date', 'Day']]
+                display_site_busy_calendar(site_busy_df, site_columns)
+            elif current_page == 'Gantt':
+                # Build and display Gantt chart
                 try:
-                    reporting_selection = render_reporting_year_selector(
-                        visits_df=visits_df,
-                        patients_df=patients_df,
-                        show_label=True
-                    )
-                    fy_start = reporting_selection.get("start")
-                    fy_end = reporting_selection.get("end")
+                    gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
                     
+                    # Option to show recruitment overlay
+                    show_recruitment_overlay = st.checkbox(
+                        "Show Recruitment Overlay",
+                        value=False,
+                        help="Overlay recruitment progress on Gantt chart"
+                    )
+                    
+                    recruitment_data = None
+                    if show_recruitment_overlay:
+                        recruitment_data = build_recruitment_data(patients_df, trials_df)
+                        gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
+                    
+                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
+                except Exception as e:
+                    st.error(f"Error building Gantt chart: {e}")
+                    log_activity(f"Error building Gantt chart: {e}", level='error')
+                    st.exception(e)
+            elif current_page == 'Calendar':
+                display_calendar(calendar_df_filtered, filtered_site_column_mapping, filtered_unique_visit_sites, compact_mode=compact_mode)
+        
+        if current_page in ['Calendar', 'Site Busy']:
+            # Show view-specific legend
+            show_legend(actual_visits_df, view=calendar_view)
+            
+            if current_page == 'Site Busy':
+                site_summary_df = extract_site_summary(patients_df, screen_failures)
+                if not site_summary_df.empty and effective_sites:
+                    site_column_candidates = [col for col in ['Site', 'Visit Site', 'VisitSite'] if col in site_summary_df.columns]
+                    if site_column_candidates:
+                        site_summary_df = site_summary_df[site_summary_df[site_column_candidates[0]].isin(effective_sites)]
+                if not site_summary_df.empty:
+                    display_site_statistics(site_summary_df)
+            
+            # Download buttons moved to Import/Export page
+        
+        if current_page == 'Recruitment':
+            st.subheader("📊 Recruitment Tracking")
+            try:
+                reporting_selection = render_reporting_year_selector(
+                    visits_df=visits_df,
+                    patients_df=patients_df,
+                    show_label=True
+                )
+                fy_start = reporting_selection.get("start")
+                fy_end = reporting_selection.get("end")
+                
+                # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
+                recruitment_patients_df = patients_df
+                if fy_start is not None and fy_end is not None:
+                    date_column = None
+                    if 'RandomizationDate' in recruitment_patients_df.columns:
+                        date_column = 'RandomizationDate'
+                    elif 'ScreeningDate' in recruitment_patients_df.columns:
+                        date_column = 'ScreeningDate'
+                    elif 'StartDate' in recruitment_patients_df.columns:
+                        date_column = 'StartDate'
+
+                    if date_column:
+                        dates = pd.to_datetime(recruitment_patients_df[date_column], errors='coerce')
+                        recruitment_patients_df = recruitment_patients_df[
+                            (dates >= pd.Timestamp(fy_start)) &
+                            (dates <= pd.Timestamp(fy_end))
+                        ].copy()
+                
+                recruitment_data = build_recruitment_data(recruitment_patients_df, trials_df)
+                display_recruitment_dashboard(recruitment_data)
+            except Exception as e:
+                st.error(f"Error building recruitment dashboard: {e}")
+                log_activity(f"Error building recruitment dashboard: {e}", level='error')
+                st.exception(e)
+
+        if current_page == 'Import/Export':
+            st.subheader("📦 Import/Export")
+            st.caption("Download calendar data and import completed visits in bulk.")
+
+            # Download Options
+            st.markdown("### 📥 Download Options")
+            display_download_buttons(
+                calendar_df_filtered,
+                filtered_site_column_mapping,
+                filtered_unique_visit_sites,
+                patients_df,
+                visits_df_filtered,
+                trials_df,
+                actual_visits_df
+            )
+
+        if current_page == 'Financials':
+            # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
+            # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
+            if st.session_state.get('auth_level') == 'admin':
+                reporting_selection = render_reporting_year_selector(
+                    visits_df=visits_df,
+                    patients_df=patients_df,
+                    show_label=True
+                )
+                fy_start = reporting_selection.get("start")
+                fy_end = reporting_selection.get("end")
+                
+                financial_visits_df = visits_df_filtered
+                financial_patients_df = patients_df
+                if fy_start is not None and fy_end is not None:
+                    if financial_visits_df is not None and not financial_visits_df.empty and 'Date' in financial_visits_df.columns:
+                        visit_dates = pd.to_datetime(financial_visits_df['Date'], errors='coerce')
+                        financial_visits_df = financial_visits_df[
+                            (visit_dates >= pd.Timestamp(fy_start)) &
+                            (visit_dates <= pd.Timestamp(fy_end))
+                        ].copy()
                     # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
-                    recruitment_patients_df = patients_df
-                    if fy_start is not None and fy_end is not None:
+                    if financial_patients_df is not None and not financial_patients_df.empty:
                         date_column = None
-                        if 'RandomizationDate' in recruitment_patients_df.columns:
+                        if 'RandomizationDate' in financial_patients_df.columns:
                             date_column = 'RandomizationDate'
-                        elif 'ScreeningDate' in recruitment_patients_df.columns:
+                        elif 'ScreeningDate' in financial_patients_df.columns:
                             date_column = 'ScreeningDate'
-                        elif 'StartDate' in recruitment_patients_df.columns:
+                        elif 'StartDate' in financial_patients_df.columns:
                             date_column = 'StartDate'
 
                         if date_column:
-                            dates = pd.to_datetime(recruitment_patients_df[date_column], errors='coerce')
-                            recruitment_patients_df = recruitment_patients_df[
+                            dates = pd.to_datetime(financial_patients_df[date_column], errors='coerce')
+                            financial_patients_df = financial_patients_df[
                                 (dates >= pd.Timestamp(fy_start)) &
                                 (dates <= pd.Timestamp(fy_end))
                             ].copy()
-                    
-                    recruitment_data = build_recruitment_data(recruitment_patients_df, trials_df)
-                    display_recruitment_dashboard(recruitment_data)
-                except Exception as e:
-                    st.error(f"Error building recruitment dashboard: {e}")
-                    log_activity(f"Error building recruitment dashboard: {e}", level='error')
-                    st.exception(e)
+                
+                display_monthly_income_tables(financial_visits_df)
+                
+                financial_df = prepare_financial_data(financial_visits_df)
+                if not financial_df.empty:
+                    display_quarterly_profit_sharing_tables(financial_df, financial_patients_df)
 
-            if current_page == 'Import/Export':
-                st.subheader("📦 Import/Export")
-                st.caption("Download calendar data and import completed visits in bulk.")
+                display_income_realization_analysis(financial_visits_df, trials_df, financial_patients_df)
 
-                # Download Options
-                st.markdown("### 📥 Download Options")
-                display_download_buttons(
-                    calendar_df_filtered,
-                    filtered_site_column_mapping,
-                    filtered_unique_visit_sites,
-                    patients_df,
-                    visits_df_filtered,
-                    trials_df,
-                    actual_visits_df
-                )
+                display_site_income_by_fy(financial_visits_df, trials_df)
+                
+                # By-study income summary (current FY by default)
+                display_study_income_summary(financial_visits_df)
 
-            if current_page == 'Financials':
-                # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
-                # This avoids heavy calculations for non-admin users (20-30% faster for regular users)
-                if st.session_state.get('auth_level') == 'admin':
-                    reporting_selection = render_reporting_year_selector(
-                        visits_df=visits_df,
-                        patients_df=patients_df,
-                        show_label=True
-                    )
-                    fy_start = reporting_selection.get("start")
-                    fy_end = reporting_selection.get("end")
-                    
-                    financial_visits_df = visits_df_filtered
-                    financial_patients_df = patients_df
-                    if fy_start is not None and fy_end is not None:
-                        if financial_visits_df is not None and not financial_visits_df.empty and 'Date' in financial_visits_df.columns:
-                            visit_dates = pd.to_datetime(financial_visits_df['Date'], errors='coerce')
-                            financial_visits_df = financial_visits_df[
-                                (visit_dates >= pd.Timestamp(fy_start)) &
-                                (visit_dates <= pd.Timestamp(fy_end))
-                            ].copy()
-                        # REFACTOR: Use RandomizationDate for recruited patients, with fallbacks
-                        if financial_patients_df is not None and not financial_patients_df.empty:
-                            date_column = None
-                            if 'RandomizationDate' in financial_patients_df.columns:
-                                date_column = 'RandomizationDate'
-                            elif 'ScreeningDate' in financial_patients_df.columns:
-                                date_column = 'ScreeningDate'
-                            elif 'StartDate' in financial_patients_df.columns:
-                                date_column = 'StartDate'
+                # Site-wise statistics (includes financial data)
+                display_site_wise_statistics(financial_visits_df, financial_patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
+            else:
+                st.info("🔒 Login as admin to view financial reports and income analysis")
 
-                            if date_column:
-                                dates = pd.to_datetime(financial_patients_df[date_column], errors='coerce')
-                                financial_patients_df = financial_patients_df[
-                                    (dates >= pd.Timestamp(fy_start)) &
-                                    (dates <= pd.Timestamp(fy_end))
-                                ].copy()
-                    
-                    display_monthly_income_tables(financial_visits_df)
-                    
-                    financial_df = prepare_financial_data(financial_visits_df)
-                    if not financial_df.empty:
-                        display_quarterly_profit_sharing_tables(financial_df, financial_patients_df)
+        display_error_log_section()
 
-                    display_income_realization_analysis(financial_visits_df, trials_df, financial_patients_df)
-
-                    display_site_income_by_fy(financial_visits_df, trials_df)
-                    
-                    # By-study income summary (current FY by default)
-                    display_study_income_summary(financial_visits_df)
-
-                    # Site-wise statistics (includes financial data)
-                    display_site_wise_statistics(financial_visits_df, financial_patients_df, filtered_unique_visit_sites, screen_failures, withdrawals)
-                else:
-                    st.info("🔒 Login as admin to view financial reports and income analysis")
-
-            display_error_log_section()
-
-        except Exception as e:
-            st.error(f"Error processing files: {e}")
-            st.exception(e)
-
-    else:
-        st.info("Please upload both Patients and Trials files to get started.")
+    except Exception as e:
+        st.error(f"Error building calendar: {e}")
+        st.exception(e)
         
         st.subheader("Required File Structure")
         

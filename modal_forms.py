@@ -235,7 +235,7 @@ def patient_entry_modal():
     """Modal dialog for adding new patients"""
     
     # Check if we're using database
-    load_from_database = st.session_state.get('use_database', False)
+    load_from_database = True  # Always use database
     
     st.markdown("### Enter New Patient Information")
     
@@ -441,7 +441,7 @@ def visit_entry_modal():
     """Modal dialog for recording patient visits"""
     
     # Check if we're using database
-    load_from_database = st.session_state.get('use_database', False)
+    load_from_database = True  # Always use database
     
     st.markdown("### Record Patient Visit")
     st.caption("ℹ️ **Patient Visits**: Includes all scheduled visits (V1-V21, Screening, Randomisation) and Day 0 visits (Unscheduled, V1.1, Extra Visits). These appear in the patient's column on the calendar.")
@@ -894,7 +894,7 @@ def study_event_entry_modal():
     """Modal dialog for recording actual SIV/Monitor events"""
     
     # Check if we're using database
-    load_from_database = st.session_state.get('use_database', False)
+    load_from_database = True  # Always use database
     
     st.markdown("### Record Site Event (SIV/Monitor)")
     st.caption("ℹ️ **Site Events**: Site-wide events that appear in the Events column. Event Name automatically matches Event Type (SIV or Monitor).")
@@ -1841,7 +1841,7 @@ def switch_patient_study_modal():
     """Modal dialog for switching a patient from one study to another"""
     
     # Check if we're using database
-    load_from_database = st.session_state.get('use_database', False)
+    load_from_database = True  # Always use database
     
     st.markdown("### Switch Patient Study")
     st.caption("ℹ️ Move a patient from one study to another (e.g., BaxDuo1 → BaxDuo2)")
