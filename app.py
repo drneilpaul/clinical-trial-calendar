@@ -118,6 +118,7 @@ def render_db_admin_page():
                     trigger_data_refresh()
                 else:
                     st.error("Failed to save table.")
+                    st.error("Check the logs in Database Operations & Debug section below for details.")
     
     with col2:
         if st.button("Reload Table"):

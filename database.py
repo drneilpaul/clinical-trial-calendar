@@ -1305,7 +1305,16 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
         return True
         
     except Exception as e:
-        log_activity(f"Error saving study site details: {e}", level='error')
+        error_msg = f"Error saving study site details: {e}"
+        st.error(error_msg)
+        log_activity(error_msg, level='error')
+        # Show more details if available
+        if hasattr(e, 'message'):
+            st.error(f"  Detail: {e.message}")
+            log_activity(f"  Detail: {e.message}", level='error')
+        if hasattr(e, 'details'):
+            st.error(f"  Details: {e.details}")
+            log_activity(f"  Details: {e.details}", level='error')
         return False
 
 def create_backup_zip() -> Optional[io.BytesIO]:
@@ -1508,8 +1517,14 @@ def clear_study_site_details_table() -> bool:
         return True
 
     except Exception as e:
-        st.error(f"Error clearing study site details table: {e}")
-        log_activity(f"Error clearing study site details table: {e}", level='error')
+        error_msg = f"Error clearing study site details table: {e}"
+        st.error(error_msg)
+        log_activity(error_msg, level='error')
+        # Show more details if available
+        if hasattr(e, 'message'):
+            log_activity(f"  Detail: {e.message}", level='error')
+        if hasattr(e, 'details'):
+            log_activity(f"  Details: {e.details}", level='error')
         return False
 
 def overwrite_database_with_files(
@@ -1673,13 +1688,15 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             clear_function = clear_study_site_details_table
         
         if not clear_function():
-            log_activity(f"Failed to clear {table_name} table", level='error')
+            log_activity(f"Failed to clear {table_name} table - check clear function for errors", level='error')
+            st.error(f"Failed to clear {table_name} table. Check Database Operations & Debug logs.")
             return False
-        
+
         log_activity(f"Successfully cleared {table_name} table", level='info')
-        
+
         if not save_function(df):
             log_activity(f"Failed to save new data to {table_name}, attempting restore", level='error')
+            st.error(f"Failed to save new data to {table_name}. Check Database Operations & Debug logs.")
             if backup_df is not None and not backup_df.empty:
                 if table_name == 'patients':
                     save_patients_to_database(backup_df)
