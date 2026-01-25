@@ -1448,11 +1448,12 @@ def clear_patients_table() -> bool:
         client = get_supabase_client()
         if client is None:
             return False
-        
-        client.table('patients').delete().execute()
+
+        # Delete all rows - use neq filter to match all rows (Supabase requires WHERE clause)
+        client.table('patients').delete().neq('id', 0).execute()
         log_activity("Cleared all patients from database", level='info')
         return True
-        
+
     except Exception as e:
         st.error(f"Error clearing patients table: {e}")
         log_activity(f"Error clearing patients table: {e}", level='error')
@@ -1464,11 +1465,12 @@ def clear_trial_schedules_table() -> bool:
         client = get_supabase_client()
         if client is None:
             return False
-        
-        client.table('trial_schedules').delete().execute()
+
+        # Delete all rows - use neq filter to match all rows (Supabase requires WHERE clause)
+        client.table('trial_schedules').delete().neq('id', 0).execute()
         log_activity("Cleared all trial schedules from database", level='info')
         return True
-        
+
     except Exception as e:
         st.error(f"Error clearing trial schedules table: {e}")
         log_activity(f"Error clearing trial schedules table: {e}", level='error')
@@ -1480,11 +1482,12 @@ def clear_actual_visits_table() -> bool:
         client = get_supabase_client()
         if client is None:
             return False
-        
-        client.table('actual_visits').delete().execute()
+
+        # Delete all rows - use neq filter to match all rows (Supabase requires WHERE clause)
+        client.table('actual_visits').delete().neq('id', 0).execute()
         log_activity("Cleared all actual visits from database", level='info')
         return True
-        
+
     except Exception as e:
         st.error(f"Error clearing actual visits table: {e}")
         log_activity(f"Error clearing actual visits table: {e}", level='error')
@@ -1496,12 +1499,13 @@ def clear_study_site_details_table() -> bool:
         client = get_supabase_client()
         if client is None:
             return False
-        
-        client.table('study_site_details').delete().execute()
+
+        # Delete all rows - use neq filter to match all rows (Supabase requires WHERE clause)
+        client.table('study_site_details').delete().neq('id', 0).execute()
         log_activity("Cleared all study site details from database", level='info')
         _fetch_all_study_site_details_cached.clear()
         return True
-        
+
     except Exception as e:
         st.error(f"Error clearing study site details table: {e}")
         log_activity(f"Error clearing study site details table: {e}", level='error')
