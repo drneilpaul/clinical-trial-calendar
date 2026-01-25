@@ -796,10 +796,8 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         hovermode='closest',
         barmode='overlay'
     )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show legend
+
+    # Show legend (moved above chart for better visibility)
     st.markdown("### Status Legend")
     if has_recruitment_overlay:
         # Show recruitment overlay legend
@@ -816,7 +814,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
         with col6:
             st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
-        
+
         st.markdown("### Recruitment Overlay Legend")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -843,6 +841,8 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
         with col6:
             st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
+
+    st.plotly_chart(fig, use_container_width=True)
     
     # Show capacity summary
     st.markdown("### Site Capacity Summary")
