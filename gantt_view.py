@@ -359,10 +359,11 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         st.info("No Gantt data available to display.")
         return
     
-    # Filter out rows without dates for visualization (except EOI which may not have dates)
+    # Filter out rows without dates for visualization (except studies that should show even without dates)
+    # Allow: EOI, contracted, in_setup, and active studies to show even without dates
     gantt_filtered = gantt_data[
-        (gantt_data['StartDate'].notna()) | 
-        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get']))
+        (gantt_data['StartDate'].notna()) |
+        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active']))
     ].copy()
     
     if gantt_filtered.empty:
@@ -404,13 +405,12 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             if not fy_patients.empty and 'Study' in fy_patients.columns:
                 studies_with_activity.update(fy_patients['Study'].dropna().unique())
     
-    # Filter: Keep studies with activity in current FY, or EOI/contracted/in_setup studies
-    # (EOI, contracted, in_setup are future/potential studies and should still be shown)
+    # Filter: Keep studies with activity in current FY, or studies that should always show
+    # Active studies should show even without FY activity (they're live studies)
+    # EOI, contracted, in_setup are pipeline studies and should also show
     gantt_filtered = gantt_filtered[
         (gantt_filtered['Study'].isin(studies_with_activity)) |
-        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])) |
-        (gantt_filtered['Status'] == 'contracted') |
-        (gantt_filtered['Status'] == 'in_setup')
+        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active']))
     ].copy()
     
     if gantt_filtered.empty:

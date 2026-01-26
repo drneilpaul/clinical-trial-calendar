@@ -1688,8 +1688,12 @@ def study_settings_navigation_modal():
             fpfv_date = st.date_input(
                 "FPFV (First Patient First Visit)",
                 value=fpfv_value,
-                key=f"study_settings_fpfv_{current_index}"
+                key=f"study_settings_fpfv_{current_index}",
+                help="Click to select the date when the first patient had their first visit"
             )
+            # DEBUG: Show what the date input returned
+            if fpfv_date != fpfv_value:
+                st.caption(f"📅 Selected: {fpfv_date}")
         with col_fpfv2:
             if st.button("Clear", key=f"clear_fpfv_{current_index}", help="Remove override"):
                 clear_flags['fpfv'] = True
@@ -1720,8 +1724,12 @@ def study_settings_navigation_modal():
             lplv_date = st.date_input(
                 "LPLV (Last Patient Last Visit)",
                 value=lplv_value,
-                key=f"study_settings_lplv_{current_index}"
+                key=f"study_settings_lplv_{current_index}",
+                help="Click to select the date when the last patient will have their last visit"
             )
+            # DEBUG: Show what the date input returned
+            if lplv_date != lplv_value:
+                st.caption(f"📅 Selected: {lplv_date}")
         with         col_lplv2:
             if st.button("Clear", key=f"clear_lplv_{current_index}", help="Remove override"):
                 clear_flags['lplv'] = True
