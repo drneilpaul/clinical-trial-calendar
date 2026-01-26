@@ -281,10 +281,11 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     gantt_df = pd.DataFrame(gantt_rows)
     
     # Filter out rows with no dates (studies with no patients/visits yet)
-    # But keep them if status is 'expression_of_interest', 'eoi_didnt_get', or 'in_setup'
+    # But keep them if status indicates study should be visible even without dates
+    # (EOI, in_setup, contracted, or active studies should show even if dates not yet set)
     gantt_df = gantt_df[
-        (gantt_df['StartDate'].notna()) | 
-        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup']))
+        (gantt_df['StartDate'].notna()) |
+        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup', 'contracted', 'active']))
     ]
     
     return gantt_df, patient_recruitment_data
@@ -496,7 +497,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         start = row['StartDate']
         status = str(row.get('Status', 'active')).lower()
         
-        # Handle EOI studies without dates - use approximate dates based on EOIDate or current date
+        # Handle studies without dates - use approximate dates based on status
         if pd.isna(start):
             if status in ['expression_of_interest', 'eoi_didnt_get']:
                 # EOI without dates - try to use EOIDate if available, otherwise use current date
@@ -513,6 +514,11 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 else:
                     start = date.today()
                     end = start + timedelta(days=90)
+            elif status in ['active', 'contracted', 'in_setup']:
+                # Active/contracted/in_setup studies without dates - show 1 year bar from today
+                # This indicates study is live but dates haven't been entered yet
+                start = date.today()
+                end = start + timedelta(days=365)  # 1 year bar
             else:
                 continue
         

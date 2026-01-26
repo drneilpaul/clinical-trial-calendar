@@ -1777,6 +1777,9 @@ def study_settings_navigation_modal():
                         eoi_date = None
                     
                     # Prepare update data for study_site_details
+                    # DEBUG: Log what dates we're trying to save
+                    log_activity(f"DEBUG Study Settings Save - FPFV: {fpfv_date}, LPFV: {lpfv_date}, LPLV: {lplv_date}", level='info')
+
                     details = {
                         'StudyStatus': selected_status,
                         'RecruitmentTarget': recruitment_target,
