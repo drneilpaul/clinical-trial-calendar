@@ -769,7 +769,6 @@ def visit_entry_modal():
                 primary_visit_type = 'patient'
             
             # Auto-detect proposed visit if date is in the future
-            from datetime import date
             today = date.today()
             visit_date_obj = visit_date if isinstance(visit_date, date) else pd.to_datetime(visit_date).date()
             is_future_date = visit_date_obj > today
@@ -1065,7 +1064,6 @@ def study_event_entry_modal():
             pseudo_patient_id = f"{event_type.upper()}_{selected_study}"
             
             # Auto-detect proposed event if date is in the future or status is "Proposed"
-            from datetime import date
             today = date.today()
             event_date_obj = event_date if isinstance(event_date, date) else pd.to_datetime(event_date).date()
             is_future_date = event_date_obj > today
