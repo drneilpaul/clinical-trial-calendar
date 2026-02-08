@@ -775,25 +775,33 @@ def display_action_buttons():
     
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     
+    # Helper to clear all modal flags before opening a new one
+    # (prevents conflicts when user closes a modal via X instead of Cancel)
+    def _open_modal(flag_name):
+        for flag in ['show_patient_form', 'show_visit_form', 'show_study_event_form',
+                     'show_study_settings_form', 'show_switch_patient_form']:
+            st.session_state[flag] = False
+        st.session_state[flag_name] = True
+
     with col1:
         if st.button("➕ Add New Patient", width="stretch",
                      help="Add a new patient to the calendar"):
-            st.session_state.show_patient_form = True
-    
+            _open_modal('show_patient_form')
+
     with col2:
         if st.button("📝 Record Patient Visit", width="stretch",
                      help="Record visits for specific patients (Screening, Randomisation, V1-V21, V1.1, Unscheduled)"):
-            st.session_state.show_visit_form = True
-    
+            _open_modal('show_visit_form')
+
     with col3:
         if st.button("📅 Record Site Event", width="stretch",
                      help="Record site-wide events (SIV, Monitor, Closeout) - not patient-specific"):
-            st.session_state.show_study_event_form = True
-    
+            _open_modal('show_study_event_form')
+
     with col4:
         if st.button("⚙️ Study Settings", width="stretch",
                      help="Edit study status, recruitment targets, and date overrides"):
-            st.session_state.show_study_settings_form = True
+            _open_modal('show_study_settings_form')
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
