@@ -1382,7 +1382,6 @@ def main():
 
                     if confirmed_file:
                         from bulk_visits import parse_proposed_confirmation_upload
-                        import database as db
 
                         result = parse_proposed_confirmation_upload(confirmed_file, actual_visits_df)
 
@@ -1410,7 +1409,6 @@ def main():
                             update_df = pd.DataFrame(update_records)
 
                             try:
-                                import database as db
                                 client = db.get_supabase_client()
                                 if client:
                                     for record in records:
