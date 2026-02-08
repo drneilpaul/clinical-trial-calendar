@@ -22,12 +22,6 @@ from display_components import (
 from gantt_view import build_gantt_data, display_gantt_chart
 from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard, overlay_recruitment_on_gantt
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections, handle_study_settings_modal
-try:
-    from modal_forms import handle_switch_patient_modal
-    SWITCH_PATIENT_AVAILABLE = True
-except ImportError as e:
-    print(f"Switch patient modal not available: {e}")
-    SWITCH_PATIENT_AVAILABLE = False
 from data_analysis import (
     extract_screen_failures, extract_withdrawals, display_site_wise_statistics, display_processing_messages
 )
@@ -64,6 +58,14 @@ def render_db_admin_page():
     """Admin-only database editor page using inline table editing."""
     st.subheader("🗄️ Database Admin")
     st.caption("Edit database tables directly. Changes overwrite the selected table.")
+
+    if st.button("⚙️ Study Settings", width="stretch",
+                 help="Edit study status, recruitment targets, and date overrides"):
+        for flag in ['show_patient_form', 'show_visit_form', 'show_study_event_form',
+                     'show_study_settings_form']:
+            st.session_state[flag] = False
+        st.session_state['show_study_settings_form'] = True
+        st.rerun()
     
     table_configs = {
         "Patients": {
@@ -222,287 +224,6 @@ def setup_file_uploaders():
     
     st.sidebar.divider()
     
-    # File uploaders - Admin only
-    # Initialize to None first
-    trials_file = None
-    patients_file = None
-    actual_visits_file = None
-    study_site_details_file = None
-    
-    if st.session_state.get('auth_level') == 'admin':
-        with st.sidebar.expander("📁 Restore from CSV Backup", expanded=False):
-            st.caption("Upload CSV files to overwrite database tables (use for data recovery)")
-
-            trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
-            patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
-            actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
-            study_site_details_file = st.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
-
-        # Selective overwrite buttons
-        if patients_file or trials_file or actual_visits_file or study_site_details_file:
-            st.divider()
-            st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
-            
-            # Patients overwrite
-            if patients_file:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    if st.session_state.get('overwrite_in_progress', False):
-                        st.button("🔄 Overwrite Patients Table", help="Another overwrite operation in progress", disabled=True)
-                    elif st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
-                        if st.session_state.get('overwrite_patients_confirmed', False):
-                            try:
-                                st.session_state.overwrite_in_progress = True
-                                
-                                patients_df, validation_messages = validate_file_upload(patients_file, 'patients')
-                                
-                                if patients_df is None:
-                                    st.error("❌ File validation failed!")
-                                    for msg in validation_messages:
-                                        st.error(f"  • {msg}")
-                                    st.session_state.overwrite_patients_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                                    st.rerun()
-                                    return
-                                
-                                validation_summary = get_validation_summary(
-                                    [msg for msg in validation_messages if msg.startswith('❌')],
-                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
-                                )
-                                st.markdown(validation_summary)
-                                
-                                if db.safe_overwrite_table('patients', patients_df, db.save_patients_to_database):
-                                    st.success("✅ Patients table overwritten successfully!")
-                                    
-                                    # === ADD THIS ===
-                                    # Run validation after overwrite
-                                    from database_validator import run_startup_validation
-                                    validation_results = run_startup_validation(
-                                        patients_df, 
-                                        db.fetch_all_trial_schedules(), 
-                                        db.fetch_all_actual_visits()
-                                    )
-                                    st.session_state.validation_results = validation_results
-                                    # === END ADDITION ===
-                                    
-                                    st.session_state.overwrite_patients_confirmed = False
-                                    trigger_data_refresh()
-                                    st.session_state.overwrite_in_progress = False
-                                else:
-                                    st.error("❌ Failed to overwrite patients table")
-                                    st.session_state.overwrite_patients_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                            except Exception as e:
-                                st.error(f"❌ Error processing patients file: {e}")
-                                log_activity(f"Error processing patients file: {e}", level='error')
-                                st.session_state.overwrite_patients_confirmed = False
-                                st.session_state.overwrite_in_progress = False
-                        else:
-                            st.session_state.overwrite_patients_confirmed = True
-                            st.warning("⚠️ Click again to confirm overwrite")
-                with col2:
-                    if st.button("❌ Cancel", help="Cancel patients overwrite", key="cancel_patients"):
-                        st.session_state.overwrite_patients_confirmed = False
-                        st.rerun()
-            
-            # Trials overwrite
-            if trials_file:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    if st.session_state.get('overwrite_in_progress', False):
-                        st.button("🔄 Overwrite Trials Table", help="Another overwrite operation in progress", disabled=True)
-                    elif st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
-                        if st.session_state.get('overwrite_trials_confirmed', False):
-                            try:
-                                st.session_state.overwrite_in_progress = True
-                                
-                                trials_df, validation_messages = validate_file_upload(trials_file, 'trials')
-                                
-                                if trials_df is None:
-                                    st.error("❌ File validation failed!")
-                                    for msg in validation_messages:
-                                        st.error(f"  • {msg}")
-                                    st.session_state.overwrite_trials_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                                    st.rerun()
-                                    return
-                                
-                                validation_summary = get_validation_summary(
-                                    [msg for msg in validation_messages if msg.startswith('❌')],
-                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
-                                )
-                                st.markdown(validation_summary)
-                                
-                                if db.safe_overwrite_table('trial_schedules', trials_df, db.save_trial_schedules_to_database):
-                                    st.success("✅ Trials table overwritten successfully!")
-                                    
-                                    # === ADD THIS ===
-                                    # Run validation after overwrite
-                                    from database_validator import run_startup_validation
-                                    validation_results = run_startup_validation(
-                                        db.fetch_all_patients(), 
-                                        trials_df, 
-                                        db.fetch_all_actual_visits()
-                                    )
-                                    st.session_state.validation_results = validation_results
-                                    # === END ADDITION ===
-                                    
-                                    st.session_state.overwrite_trials_confirmed = False
-                                    trigger_data_refresh()
-                                    st.session_state.overwrite_in_progress = False
-                                else:
-                                    st.error("❌ Failed to overwrite trials table")
-                                    st.session_state.overwrite_trials_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                            except Exception as e:
-                                st.error(f"❌ Error processing trials file: {e}")
-                                log_activity(f"Error processing trials file: {e}", level='error')
-                                st.session_state.overwrite_trials_confirmed = False
-                                st.session_state.overwrite_in_progress = False
-                        else:
-                            st.session_state.overwrite_trials_confirmed = True
-                            st.warning("⚠️ Click again to confirm overwrite")
-                with col2:
-                    if st.button("❌ Cancel", help="Cancel trials overwrite", key="cancel_trials"):
-                        st.session_state.overwrite_trials_confirmed = False
-                        st.rerun()
-            
-            # Visits overwrite
-            if actual_visits_file:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    if st.session_state.get('overwrite_in_progress', False):
-                        st.button("🔄 Overwrite Visits Table", help="Another overwrite operation in progress", disabled=True)
-                    elif st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
-                        if st.session_state.get('overwrite_visits_confirmed', False):
-                            try:
-                                st.session_state.overwrite_in_progress = True
-                                
-                                actual_visits_df, validation_messages = validate_file_upload(actual_visits_file, 'visits')
-                                
-                                if actual_visits_df is None:
-                                    st.error("❌ File validation failed!")
-                                    for msg in validation_messages:
-                                        st.error(f"  • {msg}")
-                                    st.session_state.overwrite_visits_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                                    st.rerun()
-                                    return
-                                
-                                validation_summary = get_validation_summary(
-                                    [msg for msg in validation_messages if msg.startswith('❌')],
-                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
-                                )
-                                st.markdown(validation_summary)
-                                
-                                if db.safe_overwrite_table('actual_visits', actual_visits_df, db.save_actual_visits_to_database):
-                                    st.success("✅ Visits table overwritten successfully!")
-                                    
-                                    # === ADD THIS ===
-                                    # Run validation after overwrite
-                                    from database_validator import run_startup_validation
-                                    validation_results = run_startup_validation(
-                                        db.fetch_all_patients(), 
-                                        db.fetch_all_trial_schedules(), 
-                                        actual_visits_df
-                                    )
-                                    st.session_state.validation_results = validation_results
-                                    # === END ADDITION ===
-                                    
-                                    st.session_state.overwrite_visits_confirmed = False
-                                    trigger_data_refresh()
-                                    st.session_state.overwrite_in_progress = False
-                                else:
-                                    st.error("❌ Failed to overwrite visits table")
-                                    st.session_state.overwrite_visits_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                            except Exception as e:
-                                st.error(f"❌ Error processing visits file: {e}")
-                                log_activity(f"Error processing visits file: {e}", level='error')
-                                st.session_state.overwrite_visits_confirmed = False
-                                st.session_state.overwrite_in_progress = False
-                        else:
-                            st.session_state.overwrite_visits_confirmed = True
-                            st.warning("⚠️ Click again to confirm overwrite")
-                with col2:
-                    if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
-                        st.session_state.overwrite_visits_confirmed = False
-                        st.rerun()
-            
-            # Study site details overwrite
-            if study_site_details_file:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    if st.session_state.get('overwrite_in_progress', False):
-                        st.button("🔄 Overwrite Study Site Details", help="Another overwrite operation in progress", disabled=True)
-                    elif st.button("🔄 Overwrite Study Site Details", help="Replace only study site details in database"):
-                        if st.session_state.get('overwrite_study_details_confirmed', False):
-                            try:
-                                st.session_state.overwrite_in_progress = True
-                                
-                                details_df, validation_messages = validate_file_upload(study_site_details_file, 'study_site_details')
-                                
-                                if details_df is None:
-                                    st.error("❌ File validation failed!")
-                                    for msg in validation_messages:
-                                        st.error(f"  • {msg}")
-                                    st.session_state.overwrite_study_details_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                                    st.rerun()
-                                    return
-                                
-                                validation_summary = get_validation_summary(
-                                    [msg for msg in validation_messages if msg.startswith('❌')],
-                                    [msg for msg in validation_messages if msg.startswith('⚠️')]
-                                )
-                                st.markdown(validation_summary)
-                                
-                                if db.safe_overwrite_table('study_site_details', details_df, db.save_study_site_details_to_database):
-                                    st.success("✅ Study site details overwritten successfully!")
-                                    st.session_state.overwrite_study_details_confirmed = False
-                                    trigger_data_refresh()
-                                    st.session_state.overwrite_in_progress = False
-                                else:
-                                    st.error("❌ Failed to overwrite study site details")
-                                    st.session_state.overwrite_study_details_confirmed = False
-                                    st.session_state.overwrite_in_progress = False
-                            except Exception as e:
-                                st.error(f"❌ Error processing study site details file: {e}")
-                                log_activity(f"Error processing study site details file: {e}", level='error')
-                                st.session_state.overwrite_study_details_confirmed = False
-                                st.session_state.overwrite_in_progress = False
-                        else:
-                            st.session_state.overwrite_study_details_confirmed = True
-                            st.warning("⚠️ Click again to confirm overwrite")
-                with col2:
-                    if st.button("❌ Cancel", help="Cancel study site details overwrite", key="cancel_study_details"):
-                        st.session_state.overwrite_study_details_confirmed = False
-                        st.rerun()
-    else:
-        st.sidebar.info("🔒 Admin login required to upload files")
-    
-    # Log file uploads
-    if trials_file and 'last_trials_file' not in st.session_state:
-        st.session_state.last_trials_file = trials_file.name
-        log_activity(f"Uploaded trials file: {trials_file.name}", level='info')
-    
-    if patients_file and 'last_patients_file' not in st.session_state:
-        st.session_state.last_patients_file = patients_file.name
-        log_activity(f"Uploaded patients file: {patients_file.name}", level='info')
-    
-    if actual_visits_file and 'last_visits_file' not in st.session_state:
-        st.session_state.last_visits_file = actual_visits_file.name
-        log_activity(f"Uploaded actual visits file: {actual_visits_file.name}", level='info')
-    
-    if study_site_details_file and 'last_study_site_details_file' not in st.session_state:
-        st.session_state.last_study_site_details_file = study_site_details_file.name
-        log_activity(f"Uploaded study site details file: {study_site_details_file.name}", level='info')
-    
-    st.session_state.patients_file = patients_file
-    st.session_state.trials_file = trials_file
-    st.session_state.actual_visits_file = actual_visits_file
-    st.session_state.study_site_details_file = study_site_details_file
-    
     # Database Operations - Admin only
     if st.session_state.get('database_available', False):
         st.sidebar.divider()
@@ -637,123 +358,217 @@ def setup_file_uploaders():
                         log_activity("Database backup created successfully", level='success')
                     else:
                         log_activity("Failed to create database backup", level='error')
-                
+
                 st.divider()
-                
-                if SWITCH_PATIENT_AVAILABLE and st.button("🔄 Switch Patient Study", width="stretch"):
-                    st.session_state.show_switch_patient_form = True
-                    st.rerun()
+                st.markdown("### 📁 Restore from CSV Backup")
+                st.caption("Upload CSV files to overwrite database tables (use for data recovery)")
+
+                trials_file = st.file_uploader("Upload Trials File", type=['csv', 'xls', 'xlsx'])
+                patients_file = st.file_uploader("Upload Patients File", type=['csv', 'xls', 'xlsx'])
+                actual_visits_file = st.file_uploader("Upload Actual Visits File (Optional)", type=['csv', 'xls', 'xlsx'])
+                study_site_details_file = st.file_uploader("Upload Study Site Details File (Optional)", type=['csv', 'xls', 'xlsx'])
+
+                if patients_file or trials_file or actual_visits_file or study_site_details_file:
+                    st.divider()
+                    st.caption("🔄 **Selective Database Overwrite** - Replace specific tables")
+
+                    if patients_file:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            if st.session_state.get('overwrite_in_progress', False):
+                                st.button("🔄 Overwrite Patients Table", help="Another overwrite operation in progress", disabled=True)
+                            elif st.button("🔄 Overwrite Patients Table", help="Replace only patients in database"):
+                                if st.session_state.get('overwrite_patients_confirmed', False):
+                                    try:
+                                        st.session_state.overwrite_in_progress = True
+                                        patients_df_upload, validation_messages = validate_file_upload(patients_file, 'patients')
+                                        if patients_df_upload is None:
+                                            st.error("❌ File validation failed!")
+                                            for msg in validation_messages:
+                                                st.error(f"  • {msg}")
+                                            st.session_state.overwrite_patients_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                            st.rerun()
+                                            return
+                                        validation_summary = get_validation_summary(
+                                            [msg for msg in validation_messages if msg.startswith('❌')],
+                                            [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                        )
+                                        st.markdown(validation_summary)
+                                        if db.safe_overwrite_table('patients', patients_df_upload, db.save_patients_to_database):
+                                            st.success("✅ Patients table overwritten successfully!")
+                                            from database_validator import run_startup_validation
+                                            validation_results = run_startup_validation(
+                                                patients_df_upload, db.fetch_all_trial_schedules(), db.fetch_all_actual_visits()
+                                            )
+                                            st.session_state.validation_results = validation_results
+                                            st.session_state.overwrite_patients_confirmed = False
+                                            trigger_data_refresh()
+                                            st.session_state.overwrite_in_progress = False
+                                        else:
+                                            st.error("❌ Failed to overwrite patients table")
+                                            st.session_state.overwrite_patients_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                    except Exception as e:
+                                        st.error(f"❌ Error processing patients file: {e}")
+                                        log_activity(f"Error processing patients file: {e}", level='error')
+                                        st.session_state.overwrite_patients_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.session_state.overwrite_patients_confirmed = True
+                                    st.warning("⚠️ Click again to confirm overwrite")
+                        with col2:
+                            if st.button("❌ Cancel", help="Cancel patients overwrite", key="cancel_patients"):
+                                st.session_state.overwrite_patients_confirmed = False
+                                st.rerun()
+
+                    if trials_file:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            if st.session_state.get('overwrite_in_progress', False):
+                                st.button("🔄 Overwrite Trials Table", help="Another overwrite operation in progress", disabled=True)
+                            elif st.button("🔄 Overwrite Trials Table", help="Replace only trial schedules in database"):
+                                if st.session_state.get('overwrite_trials_confirmed', False):
+                                    try:
+                                        st.session_state.overwrite_in_progress = True
+                                        trials_df_upload, validation_messages = validate_file_upload(trials_file, 'trials')
+                                        if trials_df_upload is None:
+                                            st.error("❌ File validation failed!")
+                                            for msg in validation_messages:
+                                                st.error(f"  • {msg}")
+                                            st.session_state.overwrite_trials_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                            st.rerun()
+                                            return
+                                        validation_summary = get_validation_summary(
+                                            [msg for msg in validation_messages if msg.startswith('❌')],
+                                            [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                        )
+                                        st.markdown(validation_summary)
+                                        if db.safe_overwrite_table('trial_schedules', trials_df_upload, db.save_trial_schedules_to_database):
+                                            st.success("✅ Trials table overwritten successfully!")
+                                            from database_validator import run_startup_validation
+                                            validation_results = run_startup_validation(
+                                                db.fetch_all_patients(), trials_df_upload, db.fetch_all_actual_visits()
+                                            )
+                                            st.session_state.validation_results = validation_results
+                                            st.session_state.overwrite_trials_confirmed = False
+                                            trigger_data_refresh()
+                                            st.session_state.overwrite_in_progress = False
+                                        else:
+                                            st.error("❌ Failed to overwrite trials table")
+                                            st.session_state.overwrite_trials_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                    except Exception as e:
+                                        st.error(f"❌ Error processing trials file: {e}")
+                                        log_activity(f"Error processing trials file: {e}", level='error')
+                                        st.session_state.overwrite_trials_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.session_state.overwrite_trials_confirmed = True
+                                    st.warning("⚠️ Click again to confirm overwrite")
+                        with col2:
+                            if st.button("❌ Cancel", help="Cancel trials overwrite", key="cancel_trials"):
+                                st.session_state.overwrite_trials_confirmed = False
+                                st.rerun()
+
+                    if actual_visits_file:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            if st.session_state.get('overwrite_in_progress', False):
+                                st.button("🔄 Overwrite Visits Table", help="Another overwrite operation in progress", disabled=True)
+                            elif st.button("🔄 Overwrite Visits Table", help="Replace only actual visits in database"):
+                                if st.session_state.get('overwrite_visits_confirmed', False):
+                                    try:
+                                        st.session_state.overwrite_in_progress = True
+                                        actual_visits_df_upload, validation_messages = validate_file_upload(actual_visits_file, 'visits')
+                                        if actual_visits_df_upload is None:
+                                            st.error("❌ File validation failed!")
+                                            for msg in validation_messages:
+                                                st.error(f"  • {msg}")
+                                            st.session_state.overwrite_visits_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                            st.rerun()
+                                            return
+                                        validation_summary = get_validation_summary(
+                                            [msg for msg in validation_messages if msg.startswith('❌')],
+                                            [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                        )
+                                        st.markdown(validation_summary)
+                                        if db.safe_overwrite_table('actual_visits', actual_visits_df_upload, db.save_actual_visits_to_database):
+                                            st.success("✅ Visits table overwritten successfully!")
+                                            from database_validator import run_startup_validation
+                                            validation_results = run_startup_validation(
+                                                db.fetch_all_patients(), db.fetch_all_trial_schedules(), actual_visits_df_upload
+                                            )
+                                            st.session_state.validation_results = validation_results
+                                            st.session_state.overwrite_visits_confirmed = False
+                                            trigger_data_refresh()
+                                            st.session_state.overwrite_in_progress = False
+                                        else:
+                                            st.error("❌ Failed to overwrite visits table")
+                                            st.session_state.overwrite_visits_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                    except Exception as e:
+                                        st.error(f"❌ Error processing visits file: {e}")
+                                        log_activity(f"Error processing visits file: {e}", level='error')
+                                        st.session_state.overwrite_visits_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.session_state.overwrite_visits_confirmed = True
+                                    st.warning("⚠️ Click again to confirm overwrite")
+                        with col2:
+                            if st.button("❌ Cancel", help="Cancel visits overwrite", key="cancel_visits"):
+                                st.session_state.overwrite_visits_confirmed = False
+                                st.rerun()
+
+                    if study_site_details_file:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            if st.session_state.get('overwrite_in_progress', False):
+                                st.button("🔄 Overwrite Study Site Details", help="Another overwrite operation in progress", disabled=True)
+                            elif st.button("🔄 Overwrite Study Site Details", help="Replace only study site details in database"):
+                                if st.session_state.get('overwrite_study_details_confirmed', False):
+                                    try:
+                                        st.session_state.overwrite_in_progress = True
+                                        details_df, validation_messages = validate_file_upload(study_site_details_file, 'study_site_details')
+                                        if details_df is None:
+                                            st.error("❌ File validation failed!")
+                                            for msg in validation_messages:
+                                                st.error(f"  • {msg}")
+                                            st.session_state.overwrite_study_details_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                            st.rerun()
+                                            return
+                                        validation_summary = get_validation_summary(
+                                            [msg for msg in validation_messages if msg.startswith('❌')],
+                                            [msg for msg in validation_messages if msg.startswith('⚠️')]
+                                        )
+                                        st.markdown(validation_summary)
+                                        if db.safe_overwrite_table('study_site_details', details_df, db.save_study_site_details_to_database):
+                                            st.success("✅ Study site details overwritten successfully!")
+                                            st.session_state.overwrite_study_details_confirmed = False
+                                            trigger_data_refresh()
+                                            st.session_state.overwrite_in_progress = False
+                                        else:
+                                            st.error("❌ Failed to overwrite study site details")
+                                            st.session_state.overwrite_study_details_confirmed = False
+                                            st.session_state.overwrite_in_progress = False
+                                    except Exception as e:
+                                        st.error(f"❌ Error processing study site details file: {e}")
+                                        log_activity(f"Error processing study site details file: {e}", level='error')
+                                        st.session_state.overwrite_study_details_confirmed = False
+                                        st.session_state.overwrite_in_progress = False
+                                else:
+                                    st.session_state.overwrite_study_details_confirmed = True
+                                    st.warning("⚠️ Click again to confirm overwrite")
+                        with col2:
+                            if st.button("❌ Cancel", help="Cancel study site details overwrite", key="cancel_study_details"):
+                                st.session_state.overwrite_study_details_confirmed = False
+                                st.rerun()
+
         else:
             st.sidebar.info("🔒 Admin login required for database operations")
-    
-    st.sidebar.divider()
-    
-    # Proposed Visits Confirmation - Admin only
-    if st.session_state.get('auth_level') == 'admin' and st.session_state.get('database_available', False):
-        with st.sidebar.expander("📅 Proposed Visits Confirmation", expanded=False):
-            st.caption("Export proposed visits/events for confirmation, then import back to update status")
-            
-            # Get actual visits to check for proposed items
-            actual_visits_df = st.session_state.get('actual_visits_df')
-            if actual_visits_df is not None and not actual_visits_df.empty:
-                proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
-                proposed_count = proposed_mask.sum()
-                
-                if proposed_count > 0:
-                    st.info(f"📊 Found {proposed_count} proposed visit(s)/event(s)")
-                    
-                    # Export proposed visits
-                    from bulk_visits import build_proposed_visits_export
-                    export_buffer, export_message = build_proposed_visits_export(actual_visits_df)
-                    
-                    if export_buffer:
-                        st.download_button(
-                            "📥 Export Proposed Visits",
-                            data=export_buffer.getvalue(),
-                            file_name=f"proposed_visits_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            help="Download Excel file with proposed visits. Mark Status as 'Confirmed' and upload back.",
-                            width="stretch"
-                        )
-                        st.caption(export_message)
-                    else:
-                        st.warning(export_message)
-                    
-                    st.divider()
-                    
-                    # Import confirmed visits
-                    st.markdown("**Import Confirmed Visits**")
-                    confirmed_file = st.file_uploader(
-                        "Upload Confirmed Visits Excel",
-                        type=['xlsx', 'xls'],
-                        help="Upload the Excel file with Status='Confirmed' to update proposed visits to confirmed",
-                        key="proposed_confirmation_upload"
-                    )
-                    
-                    if confirmed_file:
-                        from bulk_visits import parse_proposed_confirmation_upload
-                        import database as db
-                        
-                        result = parse_proposed_confirmation_upload(confirmed_file, actual_visits_df)
-                        
-                        if result.get('errors'):
-                            for error in result['errors']:
-                                st.error(f"❌ {error}")
-                        
-                        if result.get('warnings'):
-                            for warning in result['warnings']:
-                                st.warning(f"⚠️ {warning}")
-                        
-                        records = result.get('records', [])
-                        if records:
-                            # Prepare DataFrame for database update
-                            update_records = []
-                            for record in records:
-                                update_records.append({
-                                    'PatientID': record['PatientID'],
-                                    'Study': record['Study'],
-                                    'VisitName': record['VisitName'],
-                                    'ActualDate': record['ActualDate'],
-                                    'VisitType': record['VisitType'],
-                                    'Notes': record.get('Notes', '')
-                                })
-                            
-                            update_df = pd.DataFrame(update_records)
-                            
-                            # Use database function to update visits
-                            # First delete proposed visits, then insert confirmed ones
-                            try:
-                                import database as db
-                                client = db.get_supabase_client()
-                                if client:
-                                    # Delete proposed visits
-                                    for record in records:
-                                        try:
-                                            # Parse date for deletion
-                                            date_str = pd.to_datetime(record['ActualDate'], dayfirst=True).strftime('%Y-%m-%d')
-                                            client.table('actual_visits').delete().eq('PatientID', record['PatientID']).eq('Study', record['Study']).eq('VisitName', record['VisitName']).eq('ActualDate', date_str).execute()
-                                        except Exception as e:
-                                            log_activity(f"Error deleting proposed visit {record['PatientID']}/{record['Study']}/{record['VisitName']}: {e}", level='warning')
-                                    
-                                    # Insert confirmed visits using append function
-                                    success, message, code = db.append_visit_to_database(update_df)
-                                    
-                                    if success:
-                                        st.success(f"✅ Successfully confirmed {len(records)} visit(s)/event(s)")
-                                        log_activity(f"Confirmed {len(records)} proposed visits via bulk import", level='success')
-                                        trigger_data_refresh()
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Error confirming visits: {message}")
-                                else:
-                                    st.error("❌ Database connection not available")
-                            except Exception as e:
-                                st.error(f"❌ Error updating visits: {e}")
-                                log_activity(f"Error confirming proposed visits: {e}", level='error')
-                else:
-                    st.info("No proposed visits/events found. All visits are confirmed.")
-            else:
-                st.info("Load data from database to see proposed visits.")
     
     st.sidebar.divider()
     
@@ -765,7 +580,7 @@ def setup_file_uploaders():
     
     display_activity_log_sidebar()
     
-    return patients_file, trials_file, actual_visits_file
+    return
 
 def display_action_buttons():
     """Enhanced action buttons with authentication check"""
@@ -773,13 +588,13 @@ def display_action_buttons():
         # Login status is clear in sidebar, no need for info message
         return
     
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-    
+    col1, col2, col3 = st.columns([1, 1, 1])
+
     # Helper to clear all modal flags before opening a new one
     # (prevents conflicts when user closes a modal via X instead of Cancel)
     def _open_modal(flag_name):
         for flag in ['show_patient_form', 'show_visit_form', 'show_study_event_form',
-                     'show_study_settings_form', 'show_switch_patient_form']:
+                     'show_study_settings_form']:
             st.session_state[flag] = False
         st.session_state[flag_name] = True
 
@@ -797,11 +612,6 @@ def display_action_buttons():
         if st.button("📅 Record Site Event", width="stretch",
                      help="Record site-wide events (SIV, Monitor, Closeout) - not patient-specific"):
             _open_modal('show_study_event_form')
-
-    with col4:
-        if st.button("⚙️ Study Settings", width="stretch",
-                     help="Edit study status, recruitment targets, and date overrides"):
-            _open_modal('show_study_settings_form')
 
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
@@ -950,7 +760,7 @@ def main():
         
         st.markdown("---")
     
-    patients_file, trials_file, actual_visits_file = setup_file_uploaders()
+    setup_file_uploaders()
 
     # Always load from database (database_available check done in sidebar)
     display_action_buttons()
@@ -967,7 +777,7 @@ def main():
         st.stop()
 
     if patients_df.empty or trials_df.empty:
-        st.warning("⚠️ Database is empty. Use 'Restore from CSV Backup' to load initial data.")
+        st.warning("⚠️ Database is empty. Use 'Restore from CSV Backup' under Database Operations & Debug to load initial data.")
         st.stop()
 
     # Data loaded successfully - log summary
@@ -1002,8 +812,6 @@ def main():
     handle_patient_modal()
     handle_visit_modal()
     handle_study_event_modal()
-    if SWITCH_PATIENT_AVAILABLE:
-        handle_switch_patient_modal()
     handle_study_settings_modal()
     show_download_sections()
 
@@ -1531,6 +1339,103 @@ def main():
                 trials_df,
                 actual_visits_df
             )
+
+            # Proposed Visits Confirmation
+            if st.session_state.get('auth_level') == 'admin' and st.session_state.get('database_available', False):
+                st.markdown("---")
+                # Count proposed visits for the header
+                proposed_count = 0
+                if actual_visits_df is not None and not actual_visits_df.empty:
+                    proposed_mask = actual_visits_df.get('VisitType', '').astype(str).str.lower().isin(['patient_proposed', 'event_proposed'])
+                    proposed_count = proposed_mask.sum()
+
+                st.markdown(f"### 📅 Proposed Visits Confirmation ({proposed_count} pending)")
+
+                if proposed_count > 0:
+                    # Export proposed visits
+                    from bulk_visits import build_proposed_visits_export
+                    export_buffer, export_message = build_proposed_visits_export(actual_visits_df)
+
+                    if export_buffer:
+                        st.download_button(
+                            "📥 Export Proposed Visits",
+                            data=export_buffer.getvalue(),
+                            file_name=f"proposed_visits_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            help="Download Excel file with proposed visits. Mark Status as 'Confirmed' and upload back.",
+                            width="stretch"
+                        )
+                        st.caption(export_message)
+                    else:
+                        st.warning(export_message)
+
+                    st.divider()
+
+                    # Import confirmed visits
+                    st.markdown("**Import Confirmed Visits**")
+                    confirmed_file = st.file_uploader(
+                        "Upload Confirmed Visits Excel",
+                        type=['xlsx', 'xls'],
+                        help="Upload the Excel file with Status='Confirmed' to update proposed visits to confirmed",
+                        key="proposed_confirmation_upload"
+                    )
+
+                    if confirmed_file:
+                        from bulk_visits import parse_proposed_confirmation_upload
+                        import database as db
+
+                        result = parse_proposed_confirmation_upload(confirmed_file, actual_visits_df)
+
+                        if result.get('errors'):
+                            for error in result['errors']:
+                                st.error(f"❌ {error}")
+
+                        if result.get('warnings'):
+                            for warning in result['warnings']:
+                                st.warning(f"⚠️ {warning}")
+
+                        records = result.get('records', [])
+                        if records:
+                            update_records = []
+                            for record in records:
+                                update_records.append({
+                                    'PatientID': record['PatientID'],
+                                    'Study': record['Study'],
+                                    'VisitName': record['VisitName'],
+                                    'ActualDate': record['ActualDate'],
+                                    'VisitType': record['VisitType'],
+                                    'Notes': record.get('Notes', '')
+                                })
+
+                            update_df = pd.DataFrame(update_records)
+
+                            try:
+                                import database as db
+                                client = db.get_supabase_client()
+                                if client:
+                                    for record in records:
+                                        try:
+                                            date_str = pd.to_datetime(record['ActualDate'], dayfirst=True).strftime('%Y-%m-%d')
+                                            client.table('actual_visits').delete().eq('PatientID', record['PatientID']).eq('Study', record['Study']).eq('VisitName', record['VisitName']).eq('ActualDate', date_str).execute()
+                                        except Exception as e:
+                                            log_activity(f"Error deleting proposed visit {record['PatientID']}/{record['Study']}/{record['VisitName']}: {e}", level='warning')
+
+                                    success, message, code = db.append_visit_to_database(update_df)
+
+                                    if success:
+                                        st.success(f"✅ Successfully confirmed {len(records)} visit(s)/event(s)")
+                                        log_activity(f"Confirmed {len(records)} proposed visits via bulk import", level='success')
+                                        trigger_data_refresh()
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Error confirming visits: {message}")
+                                else:
+                                    st.error("❌ Database connection not available")
+                            except Exception as e:
+                                st.error(f"❌ Error updating visits: {e}")
+                                log_activity(f"Error confirming proposed visits: {e}", level='error')
+                else:
+                    st.info("No proposed visits/events found. All visits are confirmed.")
 
         if current_page == 'Financials':
             # OPTIMIZED: Lazy evaluation - Financial reports only computed when admin is logged in
