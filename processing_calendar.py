@@ -573,7 +573,7 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         from helpers import get_visit_type_series
         visit_type_series = get_visit_type_series(actual_visits_df, default='patient')
         # Filter for patient visits only (exclude siv, monitor)
-        patient_actuals_only = actual_visits_df[visit_type_series.isin(['patient', 'extra'])].copy()
+        patient_actuals_only = actual_visits_df[visit_type_series.isin(['patient', 'extra', 'patient_proposed'])].copy()
         # Group by patient+study
         for (patient_id, study), group_df in patient_actuals_only.groupby(['PatientID', 'Study']):
             cache_key = f"{patient_id}_{study}"

@@ -133,7 +133,7 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
             patient_actuals = actual_visits_df[
                 (actual_visits_df["PatientID"] == patient_id) &
                 (actual_visits_df["Study"] == study) &
-                (visit_type_series.isin(['patient', 'extra']))
+                (visit_type_series.isin(['patient', 'extra', 'patient_proposed']))
             ]
     else:
         patient_actuals = actual_visits_df
