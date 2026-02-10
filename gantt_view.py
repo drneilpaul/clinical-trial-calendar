@@ -858,3 +858,54 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     }).rename(columns={'Study': 'Total Studies', 'Status': 'Active Studies'})
     capacity_df = capacity_df.reset_index()
     st.dataframe(capacity_df, width='stretch', hide_index=True)
+
+    # Show study details
+    st.markdown("### Study Details")
+    import database as db
+
+    # Build detail rows from gantt_filtered
+    detail_rows = []
+    for _, row in gantt_filtered.iterrows():
+        study = row['Study']
+        site = row['Site']
+
+        # Fetch full study details from database
+        study_details = db.fetch_study_site_details(study, site)
+
+        if study_details:
+            # Format timeline
+            fpfv = study_details.get('FPFV', '')
+            lplv = study_details.get('LPLV', '')
+
+            # Convert dates to strings if they're date objects
+            if fpfv and hasattr(fpfv, 'strftime'):
+                fpfv = fpfv.strftime('%Y-%m-%d')
+            if lplv and hasattr(lplv, 'strftime'):
+                lplv = lplv.strftime('%Y-%m-%d')
+
+            timeline = f"{fpfv} to {lplv}" if fpfv and lplv else "Not set"
+
+            detail_rows.append({
+                'Study': study,
+                'Site': site,
+                'Status': row['Status'],
+                'Description': study_details.get('Description', ''),
+                'Timeline': timeline,
+                'Target': study_details.get('RecruitmentTarget', ''),
+                'Study URL': study_details.get('StudyURL', ''),
+                'Documents': study_details.get('DocumentLinks', '')
+            })
+
+    # Create DataFrame and display
+    if detail_rows:
+        details_df = pd.DataFrame(detail_rows)
+        st.dataframe(
+            details_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Study URL": st.column_config.LinkColumn(),
+                "Documents": st.column_config.LinkColumn(),
+                "Description": st.column_config.TextColumn(width="large")
+            }
+        )
