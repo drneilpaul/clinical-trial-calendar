@@ -1178,7 +1178,7 @@ def proposed_visit_entry_modal():
         return
 
     # Get list of active studies
-    study_site_df = db.fetch_study_site_details()
+    study_site_df = db.fetch_all_study_site_details()
     if study_site_df is not None and not study_site_df.empty:
         # Filter for active studies
         active_studies = study_site_df[study_site_df['Status'].isin(['active', 'contracted'])]['Study'].unique().tolist()
