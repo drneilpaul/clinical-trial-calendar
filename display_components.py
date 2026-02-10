@@ -2143,8 +2143,8 @@ def display_download_buttons(calendar_df, site_column_mapping, unique_visit_site
             except Exception as e:
                 st.warning(f"Overdue visit export unavailable: {e}")
 
-            st.subheader("⬆️ Import Completed Visits")
-            st.caption("Upload the completed overdue visit Excel file to add actual visits in bulk.")
+            st.subheader("⬆️ Import Completed/Rescheduled Visits")
+            st.caption("Upload completed visits (past dates) or reschedule to future dates (proposed visits).")
 
             uploaded_file = st.file_uploader(
                 "Upload completed overdue visit workbook",

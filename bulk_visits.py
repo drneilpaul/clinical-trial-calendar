@@ -171,9 +171,14 @@ def build_overdue_predicted_export(
                 "1. Review each overdue visit in the 'OverduePredicted' sheet",
                 "2. Fill in the required fields based on what happened:",
                 "",
-                "REQUIRED FIELDS:",
+                "⚠️ REQUIRED FIELDS (MUST BE FILLED IN):",
                 "   • ActualDate = When the visit actually occurred (DD/MM/YYYY format)",
-                "   • Outcome = What happened at this visit",
+                "     ⚠️ CRITICAL: Rows WITHOUT an ActualDate will be SKIPPED during upload!",
+                "     Example: 08/02/2026 for a visit that occurred on 8 February 2026",
+                "   • Outcome = What happened at this visit (see options below)",
+                "",
+                "💡 TIP: The ActualDate column (Column I) is EMPTY by default - you MUST fill it in!",
+                "         Only rows with ActualDate filled in will be imported.",
                 "",
                 "OUTCOME OPTIONS:",
                 "   • Completed = Visit occurred and completed normally",
@@ -183,6 +188,17 @@ def build_overdue_predicted_export(
                 "   • Deceased = Patient passed away",
                 "   • Cancelled = Visit cancelled (study ended, protocol change, etc.)",
                 "   • Rescheduled = Visit moved to different date (enter new date in ActualDate)",
+                "",
+                "RESCHEDULING VISITS TO FUTURE DATES:",
+                "If a visit needs to be rescheduled (not yet occurred):",
+                "   • Fill in ActualDate with the NEW future date (e.g., 15/03/2026)",
+                "   • The visit will be created as a PROPOSED visit (📅 emoji on calendar)",
+                "   • It will appear in 'Proposed Visits Confirmation' for final confirmation",
+                "   • Leave Outcome blank for rescheduled visits",
+                "",
+                "Example - Rescheduling:",
+                "PatientID | Study | VisitName | ScheduledDate | ActualDate | Outcome | Notes",
+                "P005      | BaxDuo| V6        | 10/02/2026    | 20/03/2026 |         | Rescheduled - patient on vacation",
                 "",
                 "PATIENT STATUS CONTEXT:",
                 "The system tracks 8 patient statuses throughout their journey:",
@@ -216,9 +232,10 @@ def build_overdue_predicted_export(
                 "",
                 "IMPORTANT NOTES:",
                 "• Do NOT modify PatientID, Study, VisitName, or ScheduledDate columns",
-                "• ActualDate format MUST be DD/MM/YYYY (e.g., 15/06/2026)",
+                "• ⚠️ ActualDate format MUST be DD/MM/YYYY (e.g., 15/06/2026)",
+                "• ⚠️ ActualDate MUST be filled in - blank rows will be skipped!",
+                "• 📅 Future ActualDates (> today) will create PROPOSED visits, not completed visits",
                 "• Outcome field is case-insensitive (completed = Completed)",
-                "• Leave ActualDate blank for DNA visits (system will use scheduled date)",
                 "• For Withdrawn/Deceased outcomes, all future visits will be suppressed",
                 "• SiteofVisit, ContractSite, PatientOrigin are auto-filled from schedule",
                 "",
@@ -282,11 +299,30 @@ def parse_bulk_upload(
     required_cols = ["PatientID", "Study", "VisitName"]
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
-        return {"errors": [f"Missing required columns: {', '.join(missing)}"], "warnings": [], "records": []}
+        # Enhanced error message with upload location guidance
+        found_cols_str = ', '.join(df.columns.tolist())
+        error_msg = (
+            f"❌ Missing required columns: {', '.join(missing)}\n\n"
+            f"This upload expects: PatientID, Study, VisitName, ActualDate, Outcome\n"
+            f"Found columns in your file: {found_cols_str}\n\n"
+            f"💡 Common issues:\n"
+            f"   • Wrong upload location? Make sure you're uploading to 'Import Completed Visits'\n"
+            f"   • Patients data → Use 'Patients CSV Upload' on Import/Export page\n"
+            f"   • Trial schedules → Use 'Trial Schedules CSV Upload' on Import/Export page\n"
+            f"   • Proposed visits → Use 'Proposed Visits Upload' section"
+        )
+        return {"errors": [error_msg], "warnings": [], "records": []}
 
     actual_date_col = "ActualDate" if "ActualDate" in df.columns else None
     if actual_date_col is None:
-        errors.append("Missing ActualDate column. Add dates to import completed visits.")
+        error_msg = (
+            f"❌ Missing ActualDate column\n\n"
+            f"This upload requires an 'ActualDate' column for recording when visits occurred.\n\n"
+            f"💡 If you're trying to upload:\n"
+            f"   • Overdue Predicted Visits → This file should have ActualDate column\n"
+            f"   • Different data (patients, trials) → Use the appropriate upload location"
+        )
+        errors.append(error_msg)
         return {"errors": errors, "warnings": warnings, "records": records}
 
     df["ActualDate"] = _safe_to_datetime(df[actual_date_col])
@@ -301,14 +337,31 @@ def parse_bulk_upload(
         notes = getattr(row, "Notes", "")
 
         if pd.isna(actual_date):
-            warnings.append(f"Skipped row with missing ActualDate: {patient_id} / {study} / {visit_name}")
+            warnings.append(
+                f"⚠️ Skipped row with missing ActualDate: {patient_id} / {study} / {visit_name}\n"
+                f"   💡 Tip: Fill in the ActualDate column (Column I) with the actual visit date in DD/MM/YYYY format"
+            )
             continue
 
+        # Track if this is a future date (will become proposed visit)
+        from datetime import date as date_cls
+        is_future = False
+        if hasattr(actual_date, 'date'):
+            try:
+                is_future = actual_date.date() > date_cls.today()
+            except (AttributeError, TypeError):
+                pass
+
         note_parts = []
-        if outcome and str(outcome).strip():
+        # Only add outcome/notes if they're not empty or NaN
+        if outcome and not pd.isna(outcome) and str(outcome).strip():
             note_parts.append(f"Outcome: {outcome}")
-        if notes and str(notes).strip():
+        if notes and not pd.isna(notes) and str(notes).strip():
             note_parts.append(str(notes).strip())
+
+        # Add note for future dates to inform user
+        if is_future:
+            note_parts.append("📅 Rescheduled to future date (will be created as proposed visit)")
 
         records.append({
             "PatientID": patient_id,
@@ -316,8 +369,41 @@ def parse_bulk_upload(
             "VisitName": _normalize_visit_name(visit_name),
             "ActualDate": actual_date,
             "VisitType": str(visit_type).strip().lower() if visit_type else "patient",
-            "Notes": " | ".join(note_parts) if note_parts else ""
+            "Notes": " | ".join(note_parts) if note_parts else "",
+            "IsFuture": is_future  # Flag for summary message
         })
+
+    # Count future dates and add informational warning
+    future_count = sum(1 for r in records if r.get('IsFuture', False))
+    if future_count > 0:
+        warnings.append(
+            f"📅 {future_count} visit(s) have future dates and will be created as PROPOSED visits:\n"
+            f"   • These will appear on the calendar with 📅 emoji\n"
+            f"   • They can be confirmed later using 'Proposed Visits Confirmation' workflow\n"
+            f"   • To record as completed visits instead, use past dates"
+        )
+
+    # Remove IsFuture flag before returning (not needed in database)
+    for record in records:
+        record.pop('IsFuture', None)
+
+    # If no records were imported but we had warnings about missing ActualDate, provide helpful guidance
+    if not records and warnings and any("missing ActualDate" in w for w in warnings):
+        # Count how many rows had missing ActualDate
+        skipped_count = sum(1 for w in warnings if "missing ActualDate" in w)
+
+        helpful_msg = (
+            f"⚠️ No visits imported - All {skipped_count} row(s) were skipped\n\n"
+            f"All rows in your file are missing ActualDate values.\n\n"
+            f"To import these visits:\n"
+            f"1. Open the Excel file\n"
+            f"2. Fill in the ActualDate column (Column I) with actual visit dates\n"
+            f"3. Use format: DD/MM/YYYY (e.g., 08/02/2026 for today)\n"
+            f"4. Optionally fill in Outcome and Notes columns\n"
+            f"5. Save and upload again\n\n"
+            f"Note: Only rows with ActualDate filled in will be imported."
+        )
+        errors.append(helpful_msg)
 
     return {"errors": errors, "warnings": warnings, "records": records}
 
