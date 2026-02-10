@@ -21,7 +21,7 @@ from display_components import (
 )
 from gantt_view import build_gantt_data, display_gantt_chart
 from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard, overlay_recruitment_on_gantt
-from modal_forms import handle_patient_modal, handle_visit_modal, handle_study_event_modal, show_download_sections, handle_study_settings_modal
+from modal_forms import handle_patient_modal, handle_visit_modal, handle_proposed_visit_modal, handle_study_event_modal, show_download_sections, handle_study_settings_modal
 from data_analysis import (
     extract_screen_failures, extract_withdrawals, display_site_wise_statistics, display_processing_messages
 )
@@ -588,13 +588,13 @@ def display_action_buttons():
         # Login status is clear in sidebar, no need for info message
         return
     
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
     # Helper to clear all modal flags before opening a new one
     # (prevents conflicts when user closes a modal via X instead of Cancel)
     def _open_modal(flag_name):
-        for flag in ['show_patient_form', 'show_visit_form', 'show_study_event_form',
-                     'show_study_settings_form']:
+        for flag in ['show_patient_form', 'show_visit_form', 'show_proposed_visit_form',
+                     'show_study_event_form', 'show_study_settings_form']:
             st.session_state[flag] = False
         st.session_state[flag_name] = True
 
@@ -609,7 +609,12 @@ def display_action_buttons():
             _open_modal('show_visit_form')
 
     with col3:
-        if st.button("📅 Record Site Event", width="stretch",
+        if st.button("📅 Add Proposed Visit", width="stretch",
+                     help="Book a future appointment for a patient visit"):
+            _open_modal('show_proposed_visit_form')
+
+    with col4:
+        if st.button("🗓️ Record Site Event", width="stretch",
                      help="Record site-wide events (SIV, Monitor, Closeout) - not patient-specific"):
             _open_modal('show_study_event_form')
 
@@ -811,6 +816,7 @@ def main():
     # Handle modals
     handle_patient_modal()
     handle_visit_modal()
+    handle_proposed_visit_modal()
     handle_study_event_modal()
     handle_study_settings_modal()
     show_download_sections()

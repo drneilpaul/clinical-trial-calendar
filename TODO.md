@@ -19,7 +19,7 @@
 
 ## Phase 3 — Proposed Visits Modal
 
-- [ ] **Create "Add Proposed Visit" modal** — Separate from "Record Patient Visit". Simpler workflow focused on booking future appointments:
+- [x] **Create "Add Proposed Visit" modal** — Separate from "Record Patient Visit". Simpler workflow focused on booking future appointments:
   - Select Patient, Visit, Date (must be future), optional Extras (e.g. reconsent)
   - No withdrawn/died flags, no DNA — those don't apply to proposed visits
   - Always saves as `patient_proposed`

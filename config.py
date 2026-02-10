@@ -30,6 +30,8 @@ def initialize_session_state():
         st.session_state.show_visit_form = False
     if 'show_study_event_form' not in st.session_state:
         st.session_state.show_study_event_form = False
+    if 'show_proposed_visit_form' not in st.session_state:
+        st.session_state.show_proposed_visit_form = False
     if 'any_dialog_open' not in st.session_state:
         st.session_state.any_dialog_open = False
     if 'patient_added' not in st.session_state:

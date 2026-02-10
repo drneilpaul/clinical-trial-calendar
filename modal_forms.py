@@ -106,6 +106,21 @@ def handle_study_event_modal():
         finally:
             st.session_state.any_dialog_open = False
 
+def handle_proposed_visit_modal():
+    """Handle proposed visit entry modal"""
+    if st.session_state.get('show_proposed_visit_form', False) and not st.session_state.get('any_dialog_open', False):
+        try:
+            st.session_state.any_dialog_open = True
+            proposed_visit_entry_modal()
+        except AttributeError:
+            st.error("Modal dialogs require Streamlit 1.28+")
+            st.session_state.show_proposed_visit_form = False
+        except Exception as e:
+            st.error(f"Error opening proposed visit form: {e}")
+            st.session_state.show_proposed_visit_form = False
+        finally:
+            st.session_state.any_dialog_open = False
+
 def show_download_sections():
     """Show download sections for added patients/visits"""
     if st.session_state.get('new_patient_data'):
@@ -1139,6 +1154,255 @@ def study_event_entry_modal():
     with col_cancel:
         if st.button("✖ Cancel", width='stretch'):
             st.session_state.show_study_event_form = False
+            st.rerun()
+
+def proposed_visit_entry_modal():
+    """Modal dialog for adding proposed (future) patient visits"""
+
+    st.markdown("### 📅 Add Proposed Visit")
+    st.caption("ℹ️ Book future appointments for patient visits. The visit will be marked as **Proposed** until it's completed and recorded using 'Record Patient Visit'.")
+
+    # Always use database
+    import database as db
+
+    # Load required data
+    patients_df = db.fetch_all_patients()
+    trial_schedule_df = db.fetch_all_trial_schedules()
+    visits_df = db.fetch_all_actual_visits()
+
+    if patients_df is None or patients_df.empty or trial_schedule_df is None or trial_schedule_df.empty:
+        st.error("Unable to load required data.")
+        if st.button("Close"):
+            st.session_state.show_proposed_visit_form = False
+            st.rerun()
+        return
+
+    # Get list of active studies
+    study_site_df = db.fetch_study_site_details()
+    if study_site_df is not None and not study_site_df.empty:
+        # Filter for active studies
+        active_studies = study_site_df[study_site_df['Status'].isin(['active', 'contracted'])]['Study'].unique().tolist()
+        if not active_studies:
+            active_studies = patients_df['Study'].unique().tolist()
+    else:
+        active_studies = patients_df['Study'].unique().tolist()
+
+    if not active_studies:
+        st.warning("No active studies available.")
+        if st.button("Close"):
+            st.session_state.show_proposed_visit_form = False
+            st.rerun()
+        return
+
+    # Form layout
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Study selection
+        st.markdown("**Study***")
+        selected_study = st.selectbox(
+            "Study*",
+            options=sorted(active_studies),
+            help="Select the study for this proposed visit",
+            label_visibility="collapsed"
+        )
+
+        # Patient selection (filtered by study)
+        study_patients = patients_df[patients_df['Study'] == selected_study].copy()
+
+        if study_patients.empty:
+            st.error(f"No patients found for study {selected_study}.")
+            if st.button("Close"):
+                st.session_state.show_proposed_visit_form = False
+                st.rerun()
+            return
+
+        # Create patient options with ID and initials
+        patient_options = []
+        for row in study_patients.itertuples(index=False):
+            patient_id = str(row.PatientID)
+            patient_initials = getattr(row, 'PatientInitials', '')
+            if patient_initials:
+                patient_options.append(f"{patient_id} - {patient_initials}")
+            else:
+                patient_options.append(patient_id)
+
+        st.markdown("**Patient***")
+        selected_patient_display = st.selectbox(
+            "Patient*",
+            options=patient_options,
+            help="Choose the patient for this proposed visit",
+            label_visibility="collapsed"
+        )
+
+        # Extract patient ID
+        selected_patient_id = selected_patient_display.split(' -')[0].strip()
+
+        # Get patient info
+        patient_row = study_patients[study_patients['PatientID'].astype(str) == selected_patient_id].iloc[0]
+        patient_pathway = patient_row.get('Pathway', 'standard') if 'Pathway' in study_patients.columns else 'standard'
+
+        # Filter visits for this study and pathway
+        if 'Pathway' in trial_schedule_df.columns:
+            study_visits = trial_schedule_df[
+                (trial_schedule_df['Study'] == selected_study) &
+                (trial_schedule_df['Pathway'] == patient_pathway)
+            ].copy()
+        else:
+            study_visits = trial_schedule_df[trial_schedule_df['Study'] == selected_study].copy()
+
+        if study_visits.empty:
+            st.error(f"No visits defined for study {selected_study}.")
+            if st.button("Close"):
+                st.session_state.show_proposed_visit_form = False
+                st.rerun()
+            return
+
+        # Filter to patient visits only (exclude SIV, monitor, extras)
+        visit_type_series = get_visit_type_series(study_visits, default='patient')
+        study_visits = study_visits.assign(_VisitType=visit_type_series)
+        patient_visits = study_visits[~study_visits['_VisitType'].isin(['siv', 'monitor', 'extra'])].copy()
+        patient_visits = patient_visits.sort_values(by=['Day', 'VisitName']).reset_index(drop=True)
+
+        if patient_visits.empty:
+            st.error("No patient visits available for this study.")
+            if st.button("Close"):
+                st.session_state.show_proposed_visit_form = False
+                st.rerun()
+            return
+
+        # Find which visits are already completed (not proposed)
+        if visits_df is not None and not visits_df.empty:
+            patient_actuals = visits_df[
+                (visits_df['PatientID'].astype(str) == selected_patient_id) &
+                (visits_df['Study'].astype(str) == selected_study)
+            ].copy()
+            patient_actuals['_VisitType'] = get_visit_type_series(patient_actuals, default='patient')
+
+            # Only consider completed visits (not proposed ones)
+            completed_visits = patient_actuals[patient_actuals['_VisitType'] == 'patient']['VisitName'].astype(str).str.strip().str.lower().tolist()
+        else:
+            completed_visits = []
+
+        # Create visit options, marking completed ones
+        visit_options = []
+        for row in patient_visits.itertuples(index=False):
+            visit_name = str(row.VisitName)
+            visit_day = getattr(row, 'Day', '')
+            label = f"{visit_name} (Day {visit_day})"
+            if visit_name.strip().lower() in completed_visits:
+                label += " – already completed"
+            visit_options.append({"label": label, "value": visit_name})
+
+        st.markdown("**Visit***")
+        selected_visit_index = st.selectbox(
+            "Visit*",
+            options=list(range(len(visit_options))),
+            format_func=lambda idx: visit_options[idx]["label"],
+            help="Select the visit to book/propose",
+            label_visibility="collapsed"
+        )
+        selected_visit_name = visit_options[selected_visit_index]["value"]
+
+    with col2:
+        # Proposed date (must be future)
+        st.markdown("**Proposed Visit Date***")
+        tomorrow = date.today() + timedelta(days=1)
+        proposed_date = st.date_input(
+            "Proposed Visit Date*",
+            value=tomorrow,
+            min_value=tomorrow,
+            format="DD/MM/YYYY",
+            help="Date when the visit is scheduled/booked (must be in the future)",
+            label_visibility="collapsed"
+        )
+
+        # Optional extras notes
+        extras_notes = st.text_input(
+            "Optional Extras",
+            placeholder="e.g., reconsent, extra bloods",
+            help="Optional notes about additional procedures scheduled for this visit"
+        )
+
+    # Validation and submission
+    col_submit, col_cancel = st.columns([1, 1])
+
+    with col_submit:
+        if st.button("💾 Save Proposed Visit", type="primary", width='stretch'):
+            # Validate required fields
+            if not selected_study or not selected_patient_id or not selected_visit_name or not proposed_date:
+                st.error("⚠️ Please fill in all required fields")
+                return
+
+            # Ensure date is in the future (extra validation)
+            if proposed_date <= date.today():
+                st.error("⚠️ Proposed visit date must be in the future. Use 'Record Patient Visit' for past/today's visits.")
+                return
+
+            # Format the date
+            formatted_date = proposed_date.strftime('%d/%m/%Y')
+
+            # Check for duplicate proposed visit
+            if visits_df is not None and not visits_df.empty:
+                # Normalize dates for comparison
+                visits_df_copy = visits_df.copy()
+                visits_df_copy['ActualDate_normalized'] = pd.to_datetime(visits_df_copy['ActualDate'], dayfirst=True, errors='coerce').dt.date
+
+                duplicate_check = visits_df_copy[
+                    (visits_df_copy['PatientID'].astype(str) == str(selected_patient_id)) &
+                    (visits_df_copy['Study'].astype(str) == str(selected_study)) &
+                    (visits_df_copy['VisitName'].astype(str).str.strip().str.lower() == str(selected_visit_name).strip().lower()) &
+                    (visits_df_copy['ActualDate_normalized'] == proposed_date)
+                ]
+
+                if not duplicate_check.empty:
+                    st.error(f"⚠️ This proposed visit already exists: {selected_patient_id} - {selected_visit_name} on {formatted_date}")
+                    return
+
+            # Get visit details from trial schedule
+            visit_details = patient_visits[patient_visits['VisitName'] == selected_visit_name].iloc[0]
+
+            # Create new proposed visit
+            new_visit = {
+                'PatientID': selected_patient_id,
+                'Study': selected_study,
+                'VisitName': selected_visit_name,
+                'ActualDate': formatted_date,
+                'Day': int(visit_details.get('Day', 0)),
+                'Notes': extras_notes if extras_notes else '',
+                'VisitType': 'patient_proposed'  # Always patient_proposed
+            }
+
+            # Save to database
+            try:
+                visit_df = pd.DataFrame([new_visit])
+                success, message, code = db.append_visit_to_database(visit_df)
+
+                if success:
+                    st.success(f"✅ Proposed visit added: {selected_patient_id} - {selected_visit_name} on {formatted_date}")
+                    log_activity(f"Proposed visit added: {selected_patient_id} - {selected_study} - {selected_visit_name} on {proposed_date}", level='success')
+
+                    # Trigger data refresh
+                    trigger_data_refresh()
+                    st.session_state.show_proposed_visit_form = False
+                    import time
+                    time.sleep(0.5)  # Brief pause for user to see success message
+                    st.rerun()
+                else:
+                    # Handle different error types
+                    if code == 'DUPLICATE_FOUND':
+                        st.error(f"❌ **Duplicate Visit Detected!**\n\n{message}")
+                    else:
+                        st.error(f"❌ **Error saving proposed visit:** {message}")
+                    log_activity(f"Failed to save proposed visit: {message}", level='error')
+
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                log_activity(f"Error in proposed_visit_entry_modal: {str(e)}", level='error')
+
+    with col_cancel:
+        if st.button("✖ Cancel", width='stretch'):
+            st.session_state.show_proposed_visit_form = False
             st.rerun()
 
 def open_patient_form():
