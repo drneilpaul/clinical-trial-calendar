@@ -1156,6 +1156,7 @@ def study_event_entry_modal():
             st.session_state.show_study_event_form = False
             st.rerun()
 
+@st.dialog("📅 Add Proposed Visit", width="large")
 def proposed_visit_entry_modal():
     """Modal dialog for adding proposed (future) patient visits"""
 
@@ -1181,7 +1182,7 @@ def proposed_visit_entry_modal():
     study_site_df = db.fetch_all_study_site_details()
     if study_site_df is not None and not study_site_df.empty:
         # Filter for active studies
-        active_studies = study_site_df[study_site_df['Status'].isin(['active', 'contracted'])]['Study'].unique().tolist()
+        active_studies = study_site_df[study_site_df['StudyStatus'].isin(['active', 'contracted'])]['Study'].unique().tolist()
         if not active_studies:
             active_studies = patients_df['Study'].unique().tolist()
     else:
