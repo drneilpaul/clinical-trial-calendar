@@ -49,7 +49,7 @@ def get_table_columns(table_name: str) -> Optional[list]:
                      'created_at', 'updated_at'],
         'actual_visits': ['id', 'PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes',
                           'VisitType', 'created_at', 'updated_at'],
-        'study_site_details': ['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget',
+        'study_site_details': ['id', 'Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget',
                                'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'],
     }
     try:
