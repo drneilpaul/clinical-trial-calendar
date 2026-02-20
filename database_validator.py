@@ -320,20 +320,45 @@ class DatabaseValidator:
         
         # Check 3: Valid VisitNames
         if not trials_df.empty:
+            # Build a set of all known (study, visit_name) pairs for fast lookup
+            # Include pathway variants: e.g. BaxDuoWRI visits count for BaxDuo patients
+            known_visits = set()
+            all_study_names = set(trials_df['Study'].unique())
+            for _, row in trials_df.iterrows():
+                known_visits.add((row['Study'], row['VisitName']))
+
+            # Build patient pathway lookup if patients_df available
+            patient_pathway_study = {}
+            if patients_df is not None and not patients_df.empty:
+                for _, p in patients_df.iterrows():
+                    pid = str(p['PatientID'])
+                    pstudy = str(p['Study'])
+                    # Check if a pathway variant study exists (e.g. BaxDuoWRI for BaxDuo+with_run_in)
+                    pathway = str(p.get('Pathway', 'standard')) if 'Pathway' in patients_df.columns else 'standard'
+                    patient_pathway_study[f"{pid}_{pstudy}"] = pathway
+
             for _, visit in actual_visits_df.iterrows():
                 study = visit['Study']
                 visit_name = visit['VisitName']
-                
+
                 visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
                 if visit_type in ['siv', 'monitor']:
                     continue
-                
-                matching = trials_df[
-                    (trials_df['Study'] == study) & 
-                    (trials_df['VisitName'] == visit_name)
-                ]
-                
-                if matching.empty:
+
+                # Check direct match
+                if (study, visit_name) in known_visits:
+                    continue
+
+                # Check pathway variant studies (e.g. visit recorded under BaxDuo
+                # but schedule is in BaxDuoWRI)
+                found_in_variant = False
+                for variant_study in all_study_names:
+                    if variant_study != study and variant_study.startswith(study):
+                        if (variant_study, visit_name) in known_visits:
+                            found_in_variant = True
+                            break
+
+                if not found_in_variant:
                     self.warnings.append(
                         f"⚠️ Visit '{visit_name}' for patient {visit['PatientID']} not found in {study} trial schedule"
                     )
