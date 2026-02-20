@@ -3,10 +3,16 @@ from supabase import create_client, Client
 import pandas as pd
 from typing import Optional, Dict, List, Tuple
 import io
+import os
+import shutil
 from datetime import datetime
 import zipfile
 from helpers import log_activity
 from payment_handler import normalize_payment_column, validate_payment_data
+
+# Backup directory for automatic pre-write backups
+BACKUP_DIR = os.path.expanduser('~/.clinical-trial-calendar-backups')
+MAX_BACKUPS = 10
 
 def safe_float(value, default=0.0):
     """Safely convert to float, defaulting on invalid values."""
@@ -26,6 +32,142 @@ def get_supabase_client() -> Optional[Client]:
     except Exception as e:
         st.session_state.database_status = f"Connection failed: {e}"
         return None
+
+def get_table_columns(table_name: str) -> Optional[list]:
+    """Discover actual column names for a Supabase table.
+
+    Queries one row to inspect the schema. Falls back to hardcoded
+    known-columns if the table is empty.
+    """
+    # Hardcoded fallback for when tables are empty (must match actual Supabase schema)
+    KNOWN_COLUMNS = {
+        'trial_schedules': ['id', 'Study', 'Day', 'VisitName', 'SiteforVisit', 'Payment',
+                            'ToleranceBefore', 'ToleranceAfter', 'IntervalUnit', 'IntervalValue',
+                            'VisitType', 'Pathway', 'created_at', 'updated_at'],
+        'patients': ['id', 'PatientID', 'Study', 'ScreeningDate', 'PatientPractice',
+                     'SiteSeenAt', 'Pathway', 'RandomizationDate', 'Status', 'notes',
+                     'created_at', 'updated_at'],
+        'actual_visits': ['id', 'PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes',
+                          'VisitType', 'created_at', 'updated_at'],
+        'study_site_details': ['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget',
+                               'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'],
+    }
+    try:
+        client = get_supabase_client()
+        if client is None:
+            return KNOWN_COLUMNS.get(table_name)
+
+        response = client.table(table_name).select('*').limit(1).execute()
+        if response.data and len(response.data) > 0:
+            return list(response.data[0].keys())
+
+        # Table is empty — use hardcoded fallback
+        return KNOWN_COLUMNS.get(table_name)
+    except Exception as e:
+        log_activity(f"Could not discover columns for {table_name}: {e}", level='warning')
+        return KNOWN_COLUMNS.get(table_name)
+
+
+def _filter_records_to_schema(records: list, table_name: str, keep_id: bool = False) -> list:
+    """Strip keys from records that don't exist in the table schema.
+
+    Prevents insert failures from extra columns (e.g. FPFV in trial_schedules).
+    Set keep_id=True for upsert operations that need the id column.
+    """
+    columns = get_table_columns(table_name)
+    if columns is None:
+        log_activity(f"WARNING: Could not determine columns for {table_name}, inserting records as-is", level='warning')
+        return records
+
+    # Exclude 'id' unless keep_id is True (needed for upsert)
+    valid_columns = set(c for c in columns if c != 'id' or keep_id)
+
+    stripped_keys = set()
+    filtered = []
+    for record in records:
+        new_record = {}
+        for key, value in record.items():
+            if key in valid_columns:
+                new_record[key] = value
+            else:
+                stripped_keys.add(key)
+        filtered.append(new_record)
+
+    if stripped_keys:
+        log_activity(f"Schema filter: stripped columns {stripped_keys} from {table_name} records (not in DB schema)", level='warning')
+
+    return filtered
+
+
+def auto_backup_to_local() -> Optional[str]:
+    """Back up all 4 tables to local CSV files before any write operation.
+
+    Returns the backup directory path, or None if backup failed.
+    Keeps last MAX_BACKUPS backups and auto-deletes older ones.
+    """
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = os.path.join(BACKUP_DIR, f'backup_{timestamp}')
+        os.makedirs(backup_path, exist_ok=True)
+
+        tables = {
+            'patients': fetch_all_patients,
+            'trial_schedules': fetch_all_trial_schedules,
+            'actual_visits': fetch_all_actual_visits,
+            'study_site_details': fetch_all_study_site_details,
+        }
+
+        saved_any = False
+        for name, fetch_fn in tables.items():
+            try:
+                df = fetch_fn()
+                if df is not None and not df.empty:
+                    csv_path = os.path.join(backup_path, f'{name}.csv')
+                    df.to_csv(csv_path, index=False)
+                    saved_any = True
+                else:
+                    # Write an empty marker so we know the table was empty
+                    marker_path = os.path.join(backup_path, f'{name}_EMPTY.txt')
+                    with open(marker_path, 'w') as f:
+                        f.write(f'{name} was empty at backup time\n')
+            except Exception as e:
+                log_activity(f"Auto-backup: failed to back up {name}: {e}", level='warning')
+
+        if saved_any:
+            log_activity(f"Auto-backup saved to {backup_path}", level='info')
+
+        # Clean up old backups — keep only the last MAX_BACKUPS
+        _cleanup_old_backups()
+
+        return backup_path
+
+    except Exception as e:
+        log_activity(f"Auto-backup failed: {e}", level='error')
+        return None
+
+
+def _cleanup_old_backups():
+    """Remove old backup directories, keeping only the last MAX_BACKUPS."""
+    try:
+        if not os.path.exists(BACKUP_DIR):
+            return
+
+        backup_dirs = []
+        for entry in os.scandir(BACKUP_DIR):
+            if entry.is_dir() and entry.name.startswith('backup_'):
+                backup_dirs.append(entry.path)
+
+        backup_dirs.sort()  # Oldest first (timestamps sort lexicographically)
+
+        while len(backup_dirs) > MAX_BACKUPS:
+            oldest = backup_dirs.pop(0)
+            shutil.rmtree(oldest, ignore_errors=True)
+            log_activity(f"Auto-backup: removed old backup {oldest}", level='info')
+    except Exception as e:
+        log_activity(f"Auto-backup cleanup error: {e}", level='warning')
+
 
 def clear_database_cache():
     """Clear all database query caches"""
@@ -296,10 +438,11 @@ def save_patients_to_database(patients_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
+        records = _filter_records_to_schema(records, 'patients')
         response = client.table('patients').insert(records).execute()
         log_activity(f"Inserted {len(records)} patient records to database", level='info')
         return True
-        
+
     except Exception as e:
         st.error(f"Error saving patients to database: {e}")
         log_activity(f"Error saving patients to database: {e}", level='error')
@@ -430,10 +573,11 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             }
             records.append(record)
         
-        log_activity(f"Sample trial records: {records[:3]}", level='info')
-        log_activity(f"Payment values in records: {[r['Payment'] for r in records[:5]]}", level='info')
-        log_activity(f"Cleaned Payment column sample: {trials_df_clean['Payment'].head().tolist()}", level='info')
-        
+        log_activity(f"Sample trial records (pre-filter): {records[:1]}", level='info')
+
+        # Filter records to only include columns that exist in the DB schema
+        records = _filter_records_to_schema(records, 'trial_schedules')
+
         client.table('trial_schedules').insert(records).execute()
         
         log_activity(f"Successfully saved {len(records)} trial schedules to database", level='info')
@@ -491,10 +635,11 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
                 'VisitType': str(visit_type_value)
             }
             records.append(record)
-        
+
+        records = _filter_records_to_schema(records, 'actual_visits')
         client.table('actual_visits').upsert(records).execute()
         return True
-        
+
     except Exception as e:
         st.error(f"Error saving actual visits to database: {e}")
         return False
@@ -502,11 +647,13 @@ def save_actual_visits_to_database(actual_visits_df: pd.DataFrame) -> bool:
 def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
     """Append new patient(s) to database without clearing existing data"""
     try:
+        auto_backup_to_local()
+
         client = get_supabase_client()
         if client is None:
             log_activity("Cannot append patient: Supabase client not available", level='error')
             return False
-        
+
         if patient_df is None or patient_df.empty:
             log_activity("Cannot append patient: Empty DataFrame", level='error')
             return False
@@ -558,11 +705,12 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
                 'Pathway': str(getattr(row_tuple, 'Pathway', 'standard'))  # Enrollment pathway variant
             }
             records.append(record)
-        
+
+        records = _filter_records_to_schema(records, 'patients')
         response = client.table('patients').insert(records).execute()
         log_activity(f"Appended {len(records)} patient(s) to database", level='success')
         return True
-        
+
     except Exception as e:
         log_activity(f"Error appending patient: {e}", level='error')
         return False
@@ -570,7 +718,7 @@ def append_patient_to_database(patient_df: pd.DataFrame) -> bool:
 def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
     """
     Append new actual visit(s) to database with duplicate checking
-    
+
     Returns:
         tuple: (success: bool, message: str, code: str)
         - success: Whether the operation succeeded
@@ -578,6 +726,8 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
         - code: Status code ('SUCCESS', 'DUPLICATE_FOUND', 'ERROR', 'EMPTY_DATA', 'NO_CLIENT')
     """
     try:
+        auto_backup_to_local()
+
         client = get_supabase_client()
         if client is None:
             log_activity("Cannot append visit: Supabase client not available", level='error')
@@ -640,7 +790,8 @@ def append_visit_to_database(visit_df: pd.DataFrame) -> tuple[bool, str, str]:
                 'VisitType': str(visit_type_value)
             }
             records.append(record)
-        
+
+        records = _filter_records_to_schema(records, 'actual_visits')
         response = client.table('actual_visits').insert(records).execute()
         log_activity(f"Appended {len(records)} visit(s) to database", level='success')
         return True, f"Successfully added {len(records)} visit(s)", 'SUCCESS'
@@ -1321,7 +1472,8 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
         if not records:
             log_activity("No valid study_site_details records to save", level='error')
             return False
-        
+
+        records = _filter_records_to_schema(records, 'study_site_details')
         client.table('study_site_details').insert(records).execute()
         _fetch_all_study_site_details_cached.clear()
         log_activity(f"Saved {len(records)} study site detail records", level='success')
@@ -1558,6 +1710,7 @@ def overwrite_database_with_files(
 ) -> bool:
     """Completely replace database content with uploaded files"""
     try:
+        auto_backup_to_local()
         if not clear_patients_table():
             return False
         if not clear_trial_schedules_table():
@@ -1589,14 +1742,20 @@ def overwrite_database_with_files(
         return False
 
 def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bool:
-    """Safely overwrite a single table with atomic operation"""
+    """Safely overwrite a single table — auto-backup, validate, then clear+save."""
     try:
         if df is None or df.empty:
             log_activity(f"Cannot overwrite {table_name}: No data provided", level='error')
             return False
-        
+
         log_activity(f"Starting overwrite of {table_name} with {len(df)} records", level='info')
-        
+
+        # 1. Auto-backup all tables to local disk first
+        backup_path = auto_backup_to_local()
+        if backup_path:
+            log_activity(f"Pre-overwrite backup saved to {backup_path}", level='info')
+
+        # 2. In-memory backup of current table data
         backup_df = None
         if table_name == 'patients':
             backup_df = fetch_all_patients()
@@ -1606,13 +1765,37 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             backup_df = fetch_all_actual_visits()
         elif table_name == 'study_site_details':
             backup_df = fetch_all_study_site_details()
-        
-        log_activity(f"Created backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
-        
-        if backup_df is None:
-            log_activity(f"Backup failed for {table_name}; refusing to overwrite", level='error')
+
+        log_activity(f"In-memory backup of {table_name} with {len(backup_df) if backup_df is not None else 0} records", level='info')
+
+        # 3. Validate: test-insert one record to check schema compatibility BEFORE clearing
+        client = get_supabase_client()
+        if client is None:
             return False
-        
+
+        try:
+            # Build a test record by running the save function's logic, then try inserting 1 row
+            # Use a simpler approach: just try to save the first row via the save function's logic
+            test_df = df.head(1).copy()
+            # We'll do a direct test insert using _filter_records_to_schema
+            test_record = test_df.to_dict('records')[0]
+            # Clean NaN values
+            test_record = {k: (None if pd.isna(v) else v) for k, v in test_record.items()}
+            filtered_test = _filter_records_to_schema([test_record], table_name)
+            if filtered_test:
+                # Try inserting and immediately deleting
+                test_response = client.table(table_name).insert(filtered_test[0]).execute()
+                if test_response.data and len(test_response.data) > 0:
+                    test_id = test_response.data[0].get('id')
+                    if test_id:
+                        client.table(table_name).delete().eq('id', test_id).execute()
+                log_activity(f"Test insert for {table_name} succeeded — schema is compatible", level='info')
+        except Exception as test_err:
+            log_activity(f"Test insert FAILED for {table_name}: {test_err} — aborting overwrite to prevent data loss", level='error')
+            st.error(f"Cannot save to {table_name}: data doesn't match database schema. Aborting to prevent data loss. Error: {test_err}")
+            return False
+
+        # 4. Clear the table
         clear_function = None
         if table_name == 'patients':
             clear_function = clear_patients_table
@@ -1622,32 +1805,148 @@ def safe_overwrite_table(table_name: str, df: pd.DataFrame, save_function) -> bo
             clear_function = clear_actual_visits_table
         elif table_name == 'study_site_details':
             clear_function = clear_study_site_details_table
-        
+
         if not clear_function():
-            log_activity(f"Failed to clear {table_name} table - check clear function for errors", level='error')
+            log_activity(f"Failed to clear {table_name} table", level='error')
             st.error(f"Failed to clear {table_name} table. Check Database Operations & Debug logs.")
             return False
 
         log_activity(f"Successfully cleared {table_name} table", level='info')
 
+        # 5. Save new data
         if not save_function(df):
-            log_activity(f"Failed to save new data to {table_name}, attempting restore", level='error')
-            st.error(f"Failed to save new data to {table_name}. Check Database Operations & Debug logs.")
+            log_activity(f"Failed to save new data to {table_name}, attempting restore from in-memory backup", level='error')
+            st.error(f"Failed to save new data to {table_name}. Attempting restore...")
+            # Restore using raw insert with schema filtering (not the save functions which may fail)
             if backup_df is not None and not backup_df.empty:
-                if table_name == 'patients':
-                    save_patients_to_database(backup_df)
-                elif table_name == 'trial_schedules':
-                    save_trial_schedules_to_database(backup_df)
-                elif table_name == 'actual_visits':
-                    save_actual_visits_to_database(backup_df)
-                elif table_name == 'study_site_details':
-                    save_study_site_details_to_database(backup_df)
-                log_activity(f"Restored backup for {table_name}", level='info')
+                try:
+                    raw_records = backup_df.to_dict('records')
+                    # Clean NaN values
+                    for rec in raw_records:
+                        for k in list(rec.keys()):
+                            if pd.isna(rec[k]):
+                                rec[k] = None
+                    raw_records = _filter_records_to_schema(raw_records, table_name)
+                    # Remove 'id' column from backup records — Supabase auto-generates
+                    for rec in raw_records:
+                        rec.pop('id', None)
+                    # Insert in batches (Supabase has row limits)
+                    batch_size = 500
+                    for i in range(0, len(raw_records), batch_size):
+                        batch = raw_records[i:i + batch_size]
+                        client.table(table_name).insert(batch).execute()
+                    log_activity(f"Restored {len(raw_records)} records to {table_name} from in-memory backup", level='info')
+                except Exception as restore_err:
+                    log_activity(f"CRITICAL: Restore also failed for {table_name}: {restore_err}. Local backup at: {backup_path}", level='error')
+                    st.error(f"CRITICAL: Could not restore {table_name}. Local CSV backup is at: {backup_path}")
             return False
-        
+
         log_activity(f"Successfully overwrote {table_name} table with {len(df)} records", level='success')
         return True
-        
+
     except Exception as e:
         log_activity(f"Error in safe overwrite of {table_name}: {e}", level='error')
+        return False
+
+
+def safe_upsert_table(table_name: str, edited_df: pd.DataFrame, save_function=None) -> bool:
+    """Save DB Admin edits using upsert (update/insert) instead of clear+rewrite.
+
+    - Rows with an existing 'id' are updated via upsert
+    - Rows without an 'id' (new rows from data editor) are inserted
+    - Rows that were in the DB but removed from the editor are deleted
+    This is much safer than clear+rewrite because it never wipes the table.
+
+    For tables without an 'id' column (e.g. study_site_details), falls back to
+    safe_overwrite_table with the provided save_function.
+    """
+    try:
+        if edited_df is None or edited_df.empty:
+            log_activity(f"Cannot upsert {table_name}: No data provided", level='error')
+            return False
+
+        # Check if the table has an 'id' column
+        columns = get_table_columns(table_name)
+        if columns is None or 'id' not in columns:
+            log_activity(f"{table_name} has no 'id' column — falling back to safe_overwrite_table", level='info')
+            if save_function is None:
+                log_activity(f"No save_function provided for {table_name} fallback", level='error')
+                return False
+            return safe_overwrite_table(table_name, edited_df, save_function)
+
+        # Auto-backup before any write
+        auto_backup_to_local()
+
+        client = get_supabase_client()
+        if client is None:
+            return False
+
+        log_activity(f"Starting upsert of {table_name} with {len(edited_df)} records", level='info')
+
+        # Fetch current IDs from database
+        current_response = client.table(table_name).select('id').execute()
+        current_ids = set()
+        if current_response.data:
+            current_ids = {row['id'] for row in current_response.data}
+
+        # Separate records into updates (have id) and inserts (no id)
+        records_to_upsert = []
+        records_to_insert = []
+        editor_ids = set()
+
+        for _, row in edited_df.iterrows():
+            record = {}
+            for col in edited_df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    record[col] = None
+                else:
+                    record[col] = val
+
+            row_id = record.get('id')
+            if row_id is not None and not pd.isna(row_id):
+                try:
+                    row_id = int(row_id)
+                    record['id'] = row_id
+                    editor_ids.add(row_id)
+                    records_to_upsert.append(record)
+                except (ValueError, TypeError):
+                    # Invalid id — treat as new row
+                    record.pop('id', None)
+                    records_to_insert.append(record)
+            else:
+                record.pop('id', None)
+                records_to_insert.append(record)
+
+        # Delete rows that were removed from the editor
+        ids_to_delete = current_ids - editor_ids
+        if ids_to_delete:
+            for del_id in ids_to_delete:
+                client.table(table_name).delete().eq('id', del_id).execute()
+            log_activity(f"Deleted {len(ids_to_delete)} removed rows from {table_name}", level='info')
+
+        # Upsert existing rows (filter to schema, keeping id for upsert)
+        if records_to_upsert:
+            records_to_upsert = _filter_records_to_schema(records_to_upsert, table_name, keep_id=True)
+            batch_size = 500
+            for i in range(0, len(records_to_upsert), batch_size):
+                batch = records_to_upsert[i:i + batch_size]
+                client.table(table_name).upsert(batch).execute()
+            log_activity(f"Upserted {len(records_to_upsert)} existing rows in {table_name}", level='info')
+
+        # Insert new rows
+        if records_to_insert:
+            records_to_insert = _filter_records_to_schema(records_to_insert, table_name)
+            batch_size = 500
+            for i in range(0, len(records_to_insert), batch_size):
+                batch = records_to_insert[i:i + batch_size]
+                client.table(table_name).insert(batch).execute()
+            log_activity(f"Inserted {len(records_to_insert)} new rows in {table_name}", level='info')
+
+        log_activity(f"Successfully saved {table_name} via upsert ({len(records_to_upsert)} updated, {len(records_to_insert)} new, {len(ids_to_delete)} deleted)", level='success')
+        return True
+
+    except Exception as e:
+        log_activity(f"Error in upsert of {table_name}: {e}", level='error')
+        st.error(f"Error saving {table_name}: {e}")
         return False

@@ -115,7 +115,7 @@ def render_db_admin_page():
             if missing_cols:
                 st.error(f"Missing required columns: {', '.join(missing_cols)}")
             else:
-                if db.safe_overwrite_table(config["table"], edited_df, config["save"]):
+                if db.safe_upsert_table(config["table"], edited_df, save_function=config["save"]):
                     st.success("Table saved successfully.")
                     trigger_data_refresh()
                 else:
