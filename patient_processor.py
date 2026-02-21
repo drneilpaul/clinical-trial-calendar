@@ -6,6 +6,10 @@ from helpers import safe_string_conversion, get_visit_type_series
 from visit_processor import (calculate_tolerance_windows, is_visit_out_of_protocol, 
                            create_tolerance_window_records)
 
+# Known optional visits that don't appear in trial schedules (Day 0, unscheduled, etc.)
+# These should not trigger "not found in trials" warnings
+KNOWN_OPTIONAL_VISITS = {'V1.1', 'Unscheduled', 'Extra Visit', 'Monitor Visit', 'SIV', 'Day 0', 'Rescreen'}
+
 # Global variable to store log path for access
 _DEBUG_LOG_PATH = None
 
@@ -172,11 +176,12 @@ def process_patient_actual_visits(patient_id, study, actual_visits_df, study_vis
             matching_trial = case_insensitive_lookup.get(visit_name.lower())
         
         if matching_trial is None:
-            # Check if this might be a Day 0 visit (optional visit not in scheduled trials)
-            # For now, we'll still add it but mark it as unmatched for reporting
-            # In the future, we could add special handling for Day 0 visits
-            log_activity(f"      ⚠️ Visit '{visit_name}' not found in trial schedule (may be Day 0 or unscheduled)", level='warning')
-            unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials (may be optional Day 0 visit)")
+            # Check if this is a known optional visit (Day 0, unscheduled, etc.)
+            if visit_name in KNOWN_OPTIONAL_VISITS:
+                log_activity(f"      ℹ️ Optional visit '{visit_name}' for patient {patient_id} (Day 0/unscheduled)", level='info')
+            else:
+                log_activity(f"      ⚠️ Visit '{visit_name}' not found in trial schedule", level='warning')
+                unmatched_visits.append(f"Patient {patient_id}, Study {study}: Visit '{visit_name}' not found in trials")
             # Still add it to actual visits so it shows up on calendar
             patient_actual_visits[visit_name] = actual_visit
             actual_visits_used += 1
@@ -697,15 +702,21 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                 visit_day = trial_visit["Day"]
                 
             else:
-                # Truly unmatched - still use patient SiteSeenAt for visit location
-                
-                from helpers import log_activity
-                log_activity(
-                    f"⚠️ Skipping unmatched visit '{visit_name}' for patient {patient_id} - "
-                    f"not in trial schedule and cannot safely determine ContractSite",
-                    level='error'
-                )
-                continue  # Skip this visit entirely rather than misassigning the site
+                # Not in trial schedule — check if it's a known optional visit
+                if visit_name in KNOWN_OPTIONAL_VISITS:
+                    # Known optional visit (Day 0, unscheduled, etc.) — use patient site and Day 0
+                    contract_site = visit_site
+                    payment = 0.0
+                    visit_day = 0
+                else:
+                    # Truly unknown visit — skip rather than misassigning
+                    from helpers import log_activity
+                    log_activity(
+                        f"⚠️ Skipping unmatched visit '{visit_name}' for patient {patient_id} - "
+                        f"not in trial schedule and cannot safely determine ContractSite",
+                        level='error'
+                    )
+                    continue
                 
             
             # Validate the site

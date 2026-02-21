@@ -682,7 +682,7 @@ def build_processing_messages(processing_stats, unmatched_visits):
         processing_messages.append(f"✅ {processing_stats['actual_visits_used']} actual visits matched and used in calendar")
 
     if processing_stats['screen_fail_exclusions'] > 0:
-        processing_messages.append(f"⚠️ {processing_stats['screen_fail_exclusions']} visits were excluded because they occur after screen failure or withdrawal dates")
+        processing_messages.append(f"ℹ️ {processing_stats['screen_fail_exclusions']} visits excluded (after screen failure/withdrawal dates — this is expected)")
     
     return processing_messages
 

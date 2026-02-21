@@ -837,7 +837,11 @@ def main():
         screen_failures = extract_screen_failures(actual_visits_df)
         withdrawals = extract_withdrawals(actual_visits_df)
 
-        display_processing_messages(messages)
+        # Only log processing messages once per calendar build (not on every Streamlit rerun)
+        last_logged_buster = st.session_state.get('_last_logged_cache_buster', -1)
+        if cache_buster != last_logged_buster:
+            display_processing_messages(messages)
+            st.session_state['_last_logged_cache_buster'] = cache_buster
         
         # Calendar range selector moved to col_options[3] (same line as other controls)
         available_sites = sorted([site for site in unique_visit_sites])
