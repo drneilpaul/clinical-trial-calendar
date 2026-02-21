@@ -50,7 +50,10 @@ def get_table_columns(table_name: str) -> Optional[list]:
         'actual_visits': ['id', 'PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes',
                           'VisitType', 'created_at', 'updated_at'],
         'study_site_details': ['id', 'Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget',
-                               'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'],
+                               'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks',
+                               'ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
+                               'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'SampleSize',
+                               'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes'],
     }
     try:
         client = get_supabase_client()
@@ -1287,12 +1290,24 @@ def create_study_site_details(study: str, site: str, details: Dict) -> bool:
             'Description': details.get('Description'),
             'EOIDate': str(details.get('EOIDate')) if details.get('EOIDate') else None,
             'StudyURL': details.get('StudyURL'),
-            'DocumentLinks': details.get('DocumentLinks')
+            'DocumentLinks': details.get('DocumentLinks'),
+            'ProtocolNumber': details.get('ProtocolNumber'),
+            'IRASNumber': details.get('IRASNumber'),
+            'ISRCTNNumber': details.get('ISRCTNNumber'),
+            'RECReference': details.get('RECReference'),
+            'Sponsor': details.get('Sponsor'),
+            'ChiefInvestigator': details.get('ChiefInvestigator'),
+            'StudyPopulation': details.get('StudyPopulation'),
+            'SampleSize': details.get('SampleSize'),
+            'SetupFee': details.get('SetupFee'),
+            'PerPatientFee': details.get('PerPatientFee'),
+            'AnnualFee': details.get('AnnualFee'),
+            'FinancialNotes': details.get('FinancialNotes'),
         }
-        
+
         # Remove None values to let database use defaults
         record = {k: v for k, v in record.items() if v is not None}
-        
+
         response = client.table('study_site_details').insert(record).execute()
         
         if response.data:
@@ -1340,7 +1355,16 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
             record['StudyURL'] = details['StudyURL']
         if 'DocumentLinks' in details:
             record['DocumentLinks'] = details['DocumentLinks']
-        
+        # New structured fields
+        for field in ['ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
+                      'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'FinancialNotes']:
+            if field in details:
+                record[field] = details[field]
+        # Numeric fields
+        for field in ['SampleSize', 'SetupFee', 'PerPatientFee', 'AnnualFee']:
+            if field in details:
+                record[field] = details[field] if details[field] is not None else None
+
         if existing:
             # Update existing record
             response = client.table('study_site_details').update(record).eq('Study', study).eq('ContractSite', site).execute()
@@ -1375,7 +1399,10 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
                 update_data[date_field] = str(kwargs[date_field]) if kwargs[date_field] else None
 
         # Handle other fields
-        for field in ['StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']:
+        for field in ['StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks',
+                      'ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
+                      'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'SampleSize',
+                      'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes']:
             if field in kwargs:
                 update_data[field] = kwargs[field]
 

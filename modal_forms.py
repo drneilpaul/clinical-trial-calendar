@@ -1615,18 +1615,54 @@ def study_settings_navigation_modal():
             
             new_description = st.text_area(
                 "Description",
-                help="Study description/information",
+                help="Study description — use bullet points or key-value format for best display",
                 key="new_study_description",
-                height=100
+                height=200
             )
-            
+
             new_eoi_date = st.date_input(
                 "EOI Date",
                 value=None,
                 help="Date when Expression of Interest was submitted",
                 key="new_study_eoi_date"
             )
-            
+
+            # Links
+            st.markdown("#### Links")
+            new_study_url = st.text_input("Study URL", key="new_study_url", help="Link to study registry")
+            new_doc_links = st.text_area("Document Links", key="new_study_doc_links",
+                                          help="OneDrive sharing URLs (one per line)", height=80)
+
+            # References & People
+            st.markdown("#### References & People")
+            col_np, col_ni = st.columns(2)
+            with col_np:
+                new_protocol = st.text_input("Protocol Number", key="new_study_protocol")
+            with col_ni:
+                new_iras = st.text_input("IRAS Number", key="new_study_iras")
+            col_ns, col_nc = st.columns(2)
+            with col_ns:
+                new_sponsor = st.text_input("Sponsor", key="new_study_sponsor")
+            with col_nc:
+                new_ci = st.text_input("Chief Investigator", key="new_study_ci")
+            new_population = st.text_input("Study Population", key="new_study_population",
+                                           help="e.g., Type 2 Diabetes, HbA1c 7-10%")
+
+            # Financials
+            st.markdown("#### Financials")
+            col_sf, col_ppf, col_af = st.columns(3)
+            with col_sf:
+                new_setup_fee = st.number_input("Setup Fee (£)", min_value=0.0, step=100.0,
+                                                 format="%.2f", key="new_study_setup_fee")
+            with col_ppf:
+                new_per_patient_fee = st.number_input("Per-Patient Fee (£)", min_value=0.0, step=50.0,
+                                                       format="%.2f", key="new_study_pp_fee")
+            with col_af:
+                new_annual_fee = st.number_input("Annual Fee (£)", min_value=0.0, step=100.0,
+                                                  format="%.2f", key="new_study_annual_fee")
+            new_fin_notes = st.text_area("Financial Notes", key="new_study_fin_notes",
+                                          help="Per-visit breakdown, special payments, etc.", height=80)
+
             # Date overrides
             st.markdown("#### Date Overrides (Optional)")
             new_fpfv = st.date_input("FPFV", value=None, key="new_study_fpfv")
@@ -1647,7 +1683,18 @@ def study_settings_navigation_modal():
                             'EOIDate': new_eoi_date if new_eoi_date else None,
                             'FPFV': new_fpfv if new_fpfv else None,
                             'LPFV': new_lpfv if new_lpfv else None,
-                            'LPLV': new_lplv if new_lplv else None
+                            'LPLV': new_lplv if new_lplv else None,
+                            'StudyURL': new_study_url if new_study_url else None,
+                            'DocumentLinks': new_doc_links if new_doc_links else None,
+                            'ProtocolNumber': new_protocol if new_protocol else None,
+                            'IRASNumber': new_iras if new_iras else None,
+                            'Sponsor': new_sponsor if new_sponsor else None,
+                            'ChiefInvestigator': new_ci if new_ci else None,
+                            'StudyPopulation': new_population if new_population else None,
+                            'SetupFee': new_setup_fee if new_setup_fee else None,
+                            'PerPatientFee': new_per_patient_fee if new_per_patient_fee else None,
+                            'AnnualFee': new_annual_fee if new_annual_fee else None,
+                            'FinancialNotes': new_fin_notes if new_fin_notes else None,
                         }
                         
                         if db.create_study_site_details(new_study, new_site, details):
@@ -1725,10 +1772,25 @@ def study_settings_navigation_modal():
         current_lplv = None
         current_description = None
         current_eoi_date = None
-        
+        # New structured fields
+        current_study_url = None
+        current_doc_links = None
+        current_protocol = None
+        current_iras = None
+        current_isrctn = None
+        current_rec = None
+        current_sponsor = None
+        current_ci = None
+        current_population = None
+        current_sample_size = None
+        current_setup_fee = None
+        current_per_patient_fee = None
+        current_annual_fee = None
+        current_financial_notes = None
+
         # Try to get from study_site_details first
         study_details = db.fetch_study_site_details(selected_study, selected_site)
-        
+
         if study_details:
             current_status = study_details.get('StudyStatus', 'active')
             current_target = study_details.get('RecruitmentTarget')
@@ -1741,6 +1803,21 @@ def study_settings_navigation_modal():
             current_description = study_details.get('Description')
             if study_details.get('EOIDate'):
                 current_eoi_date = pd.to_datetime(study_details['EOIDate'], errors='coerce').date() if pd.notna(pd.to_datetime(study_details['EOIDate'], errors='coerce')) else None
+            # New fields
+            current_study_url = study_details.get('StudyURL')
+            current_doc_links = study_details.get('DocumentLinks')
+            current_protocol = study_details.get('ProtocolNumber')
+            current_iras = study_details.get('IRASNumber')
+            current_isrctn = study_details.get('ISRCTNNumber')
+            current_rec = study_details.get('RECReference')
+            current_sponsor = study_details.get('Sponsor')
+            current_ci = study_details.get('ChiefInvestigator')
+            current_population = study_details.get('StudyPopulation')
+            current_sample_size = study_details.get('SampleSize')
+            current_setup_fee = study_details.get('SetupFee')
+            current_per_patient_fee = study_details.get('PerPatientFee')
+            current_annual_fee = study_details.get('AnnualFee')
+            current_financial_notes = study_details.get('FinancialNotes')
         else:
             # Fallback to trial_schedules for backward compatibility
             current_trials = trials_df[
@@ -1835,7 +1912,7 @@ def study_settings_navigation_modal():
         # Override fields section
         st.markdown("### ✏️ Study Information (editable)")
         st.caption("Set study information, status, and override values. Leave blank to use calculated values.")
-        
+
         # Initialize clear flags in session state
         clear_key_base = f"clear_flags_{current_index}"
         if clear_key_base not in st.session_state:
@@ -1848,156 +1925,294 @@ def study_settings_navigation_modal():
                 'description': False,
                 'eoi_date': False
             }
-        
+
         # Handle clear button clicks
         clear_flags = st.session_state[clear_key_base]
-        
-        # Description field
-        st.markdown("#### Study Description")
-        description_value = ""
-        if not clear_flags['description'] and current_description:
-            description_value = current_description
-        description = st.text_area(
-            "Description",
-            value=description_value,
-            help="Study description/information (shown on hover, etc.)",
-            key=f"study_settings_description_{current_index}",
-            height=100
+
+        # ===== TABBED LAYOUT =====
+        tab_basic, tab_refs, tab_financials, tab_dates = st.tabs(
+            ["📋 Basic Info", "🔬 References & People", "💰 Financials", "📅 Dates"]
         )
-        if st.button("Clear Description", key=f"clear_description_{current_index}", help="Clear description"):
-            clear_flags['description'] = True
-            st.session_state[clear_key_base] = clear_flags
-            st.rerun()
-        
-        st.divider()
-        
-        # Status selector (updated to include eoi_didnt_get)
-        status_options = ['active', 'contracted', 'in_setup', 'expression_of_interest', 'eoi_didnt_get']
-        status_labels = {
-            'active': 'Active',
-            'contracted': 'Contracted',
-            'in_setup': 'In Setup',
-            'expression_of_interest': 'Expression of Interest',
-            'eoi_didnt_get': 'EOI - Didn\'t Get'
-        }
-        
-        col_status1, col_status2 = st.columns([3, 1])
-        with col_status1:
-            status_index = 0
-            if not clear_flags['status'] and current_status in status_options:
-                status_index = status_options.index(current_status)
-            selected_status = st.selectbox(
-                "Study Status",
-                options=status_options,
-                index=status_index,
-                format_func=lambda x: status_labels[x],
-                key=f"study_settings_status_{current_index}"
+
+        # ===== TAB 1: BASIC INFO =====
+        with tab_basic:
+            # Description field
+            st.markdown("#### Study Description")
+            description_value = ""
+            if not clear_flags['description'] and current_description:
+                description_value = current_description
+            description = st.text_area(
+                "Description",
+                value=description_value,
+                help="Study description — use bullet points or key-value format for best display",
+                key=f"study_settings_description_{current_index}",
+                height=200
             )
-        with col_status2:
-            if st.button("Clear", key=f"clear_status_{current_index}", help="Reset to default (active)"):
-                clear_flags['status'] = True
+            if st.button("Clear Description", key=f"clear_description_{current_index}", help="Clear description"):
+                clear_flags['description'] = True
                 st.session_state[clear_key_base] = clear_flags
                 st.rerun()
-        
-        # Recruitment target
-        col_target1, col_target2 = st.columns([3, 1])
-        with col_target1:
-            target_value = 0
-            if not clear_flags['target'] and current_target:
-                target_value = int(current_target)
-            recruitment_target = st.number_input(
-                "Recruitment Target",
+
+            st.divider()
+
+            # Status selector
+            status_options = ['active', 'contracted', 'in_setup', 'expression_of_interest', 'eoi_didnt_get']
+            status_labels = {
+                'active': 'Active',
+                'contracted': 'Contracted',
+                'in_setup': 'In Setup',
+                'expression_of_interest': 'Expression of Interest',
+                'eoi_didnt_get': 'EOI - Didn\'t Get'
+            }
+
+            col_status1, col_status2 = st.columns([3, 1])
+            with col_status1:
+                status_index = 0
+                if not clear_flags['status'] and current_status in status_options:
+                    status_index = status_options.index(current_status)
+                selected_status = st.selectbox(
+                    "Study Status",
+                    options=status_options,
+                    index=status_index,
+                    format_func=lambda x: status_labels[x],
+                    key=f"study_settings_status_{current_index}"
+                )
+            with col_status2:
+                if st.button("Clear", key=f"clear_status_{current_index}", help="Reset to default (active)"):
+                    clear_flags['status'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
+
+            # Recruitment target
+            col_target1, col_target2 = st.columns([3, 1])
+            with col_target1:
+                target_value = 0
+                if not clear_flags['target'] and current_target:
+                    target_value = int(current_target)
+                recruitment_target = st.number_input(
+                    "Recruitment Target",
+                    min_value=0,
+                    value=target_value,
+                    step=1,
+                    help="Target number of patients for this study at this site",
+                    key=f"study_settings_target_{current_index}"
+                )
+                if recruitment_target == 0:
+                    recruitment_target = None
+            with col_target2:
+                if st.button("Clear", key=f"clear_target_{current_index}", help="Remove target (use NULL)"):
+                    clear_flags['target'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
+
+            st.divider()
+
+            # Study URL and Document Links
+            st.markdown("#### Links")
+            study_url = st.text_input(
+                "Study URL",
+                value=current_study_url or "",
+                help="Link to study registry or main study page",
+                key=f"study_settings_url_{current_index}"
+            )
+            doc_links = st.text_area(
+                "Document Links",
+                value=current_doc_links or "",
+                help="OneDrive sharing URLs to study documents (one per line)",
+                key=f"study_settings_docs_{current_index}",
+                height=80
+            )
+
+        # ===== TAB 2: REFERENCES & PEOPLE =====
+        with tab_refs:
+            st.markdown("#### Reference Numbers")
+            col_proto, col_iras = st.columns(2)
+            with col_proto:
+                protocol_number = st.text_input(
+                    "Protocol Number",
+                    value=current_protocol or "",
+                    key=f"study_settings_protocol_{current_index}"
+                )
+            with col_iras:
+                iras_number = st.text_input(
+                    "IRAS Number",
+                    value=current_iras or "",
+                    key=f"study_settings_iras_{current_index}"
+                )
+
+            col_isrctn, col_rec = st.columns(2)
+            with col_isrctn:
+                isrctn_number = st.text_input(
+                    "ISRCTN",
+                    value=current_isrctn or "",
+                    key=f"study_settings_isrctn_{current_index}"
+                )
+            with col_rec:
+                rec_reference = st.text_input(
+                    "REC Reference",
+                    value=current_rec or "",
+                    key=f"study_settings_rec_{current_index}"
+                )
+
+            st.divider()
+
+            st.markdown("#### Sponsor & Investigator")
+            col_sponsor, col_ci = st.columns(2)
+            with col_sponsor:
+                sponsor = st.text_input(
+                    "Sponsor",
+                    value=current_sponsor or "",
+                    key=f"study_settings_sponsor_{current_index}"
+                )
+            with col_ci:
+                chief_investigator = st.text_input(
+                    "Chief Investigator",
+                    value=current_ci or "",
+                    key=f"study_settings_ci_{current_index}"
+                )
+
+            st.divider()
+
+            st.markdown("#### Study Population")
+            study_population = st.text_input(
+                "Population",
+                value=current_population or "",
+                help="e.g., Type 2 Diabetes, HbA1c 7-10%, established ASCVD",
+                key=f"study_settings_population_{current_index}"
+            )
+            sample_size = st.number_input(
+                "Global Sample Size",
                 min_value=0,
-                value=target_value,
+                value=int(current_sample_size) if current_sample_size else 0,
                 step=1,
-                help="Target number of patients for this study at this site",
-                key=f"study_settings_target_{current_index}"
+                help="Overall study sample size target (global, not per-site)",
+                key=f"study_settings_sample_size_{current_index}"
             )
-            if recruitment_target == 0:
-                recruitment_target = None
-        with col_target2:
-            if st.button("Clear", key=f"clear_target_{current_index}", help="Remove target (use NULL)"):
-                clear_flags['target'] = True
-                st.session_state[clear_key_base] = clear_flags
-                st.rerun()
-        
-        # Date overrides with clear buttons
-        st.markdown("#### Date Overrides")
-        
-        col_fpfv1, col_fpfv2 = st.columns([3, 1])
-        with col_fpfv1:
-            fpfv_value = None
-            if not clear_flags['fpfv']:
-                fpfv_value = current_fpfv
-            fpfv_date = st.date_input(
-                "FPFV (First Patient First Visit)",
-                value=fpfv_value,
-                key=f"study_settings_fpfv_{current_index}",
-                help="Click to select the date when the first patient had their first visit"
+            if sample_size == 0:
+                sample_size = None
+
+        # ===== TAB 3: FINANCIALS =====
+        with tab_financials:
+            st.markdown("#### Financial Information")
+            col_setup, col_patient, col_annual = st.columns(3)
+            with col_setup:
+                setup_fee = st.number_input(
+                    "Setup Fee (£)",
+                    min_value=0.0,
+                    value=float(current_setup_fee) if current_setup_fee else 0.0,
+                    step=100.0,
+                    format="%.2f",
+                    key=f"study_settings_setup_fee_{current_index}"
+                )
+                if setup_fee == 0.0:
+                    setup_fee = None
+            with col_patient:
+                per_patient_fee = st.number_input(
+                    "Per-Patient Fee (£)",
+                    min_value=0.0,
+                    value=float(current_per_patient_fee) if current_per_patient_fee else 0.0,
+                    step=50.0,
+                    format="%.2f",
+                    key=f"study_settings_per_patient_fee_{current_index}"
+                )
+                if per_patient_fee == 0.0:
+                    per_patient_fee = None
+            with col_annual:
+                annual_fee = st.number_input(
+                    "Annual Fee (£)",
+                    min_value=0.0,
+                    value=float(current_annual_fee) if current_annual_fee else 0.0,
+                    step=100.0,
+                    format="%.2f",
+                    key=f"study_settings_annual_fee_{current_index}"
+                )
+                if annual_fee == 0.0:
+                    annual_fee = None
+
+            financial_notes = st.text_area(
+                "Financial Notes",
+                value=current_financial_notes or "",
+                help="Per-visit breakdown, special payments, storage fees, etc.",
+                key=f"study_settings_fin_notes_{current_index}",
+                height=120
             )
-            # DEBUG: Show what the date input returned
-            if fpfv_date != fpfv_value:
-                st.caption(f"📅 Selected: {fpfv_date}")
-        with col_fpfv2:
-            if st.button("Clear", key=f"clear_fpfv_{current_index}", help="Remove override"):
-                clear_flags['fpfv'] = True
-                st.session_state[clear_key_base] = clear_flags
-                st.rerun()
-        
-        col_lpfv1, col_lpfv2 = st.columns([3, 1])
-        with col_lpfv1:
-            lpfv_value = None
-            if not clear_flags['lpfv']:
-                lpfv_value = current_lpfv
-            lpfv_date = st.date_input(
-                "LPFV (Last Patient First Visit)",
-                value=lpfv_value,
-                key=f"study_settings_lpfv_{current_index}"
-            )
-        with col_lpfv2:
-            if st.button("Clear", key=f"clear_lpfv_{current_index}", help="Remove override"):
-                clear_flags['lpfv'] = True
-                st.session_state[clear_key_base] = clear_flags
-                st.rerun()
-        
-        col_lplv1, col_lplv2 = st.columns([3, 1])
-        with col_lplv1:
-            lplv_value = None
-            if not clear_flags['lplv']:
-                lplv_value = current_lplv
-            lplv_date = st.date_input(
-                "LPLV (Last Patient Last Visit)",
-                value=lplv_value,
-                key=f"study_settings_lplv_{current_index}",
-                help="Click to select the date when the last patient will have their last visit"
-            )
-            # DEBUG: Show what the date input returned
-            if lplv_date != lplv_value:
-                st.caption(f"📅 Selected: {lplv_date}")
-        with         col_lplv2:
-            if st.button("Clear", key=f"clear_lplv_{current_index}", help="Remove override"):
-                clear_flags['lplv'] = True
-                st.session_state[clear_key_base] = clear_flags
-                st.rerun()
-        
-        # EOI Date field
-        st.markdown("#### EOI Information")
-        col_eoi1, col_eoi2 = st.columns([3, 1])
-        with col_eoi1:
-            eoi_value = None
-            if not clear_flags['eoi_date']:
-                eoi_value = current_eoi_date
-            eoi_date = st.date_input(
-                "EOI Date",
-                value=eoi_value,
-                help="Date when Expression of Interest was submitted",
-                key=f"study_settings_eoi_date_{current_index}"
-            )
-        with col_eoi2:
-            if st.button("Clear", key=f"clear_eoi_date_{current_index}", help="Remove EOI date"):
-                clear_flags['eoi_date'] = True
-                st.session_state[clear_key_base] = clear_flags
-                st.rerun()
+
+        # ===== TAB 4: DATES =====
+        with tab_dates:
+            st.markdown("#### Date Overrides")
+
+            col_fpfv1, col_fpfv2 = st.columns([3, 1])
+            with col_fpfv1:
+                fpfv_value = None
+                if not clear_flags['fpfv']:
+                    fpfv_value = current_fpfv
+                fpfv_date = st.date_input(
+                    "FPFV (First Patient First Visit)",
+                    value=fpfv_value,
+                    key=f"study_settings_fpfv_{current_index}",
+                    help="Click to select the date when the first patient had their first visit"
+                )
+                if fpfv_date != fpfv_value:
+                    st.caption(f"Selected: {fpfv_date}")
+            with col_fpfv2:
+                if st.button("Clear", key=f"clear_fpfv_{current_index}", help="Remove override"):
+                    clear_flags['fpfv'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
+
+            col_lpfv1, col_lpfv2 = st.columns([3, 1])
+            with col_lpfv1:
+                lpfv_value = None
+                if not clear_flags['lpfv']:
+                    lpfv_value = current_lpfv
+                lpfv_date = st.date_input(
+                    "LPFV (Last Patient First Visit)",
+                    value=lpfv_value,
+                    key=f"study_settings_lpfv_{current_index}"
+                )
+            with col_lpfv2:
+                if st.button("Clear", key=f"clear_lpfv_{current_index}", help="Remove override"):
+                    clear_flags['lpfv'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
+
+            col_lplv1, col_lplv2 = st.columns([3, 1])
+            with col_lplv1:
+                lplv_value = None
+                if not clear_flags['lplv']:
+                    lplv_value = current_lplv
+                lplv_date = st.date_input(
+                    "LPLV (Last Patient Last Visit)",
+                    value=lplv_value,
+                    key=f"study_settings_lplv_{current_index}",
+                    help="Click to select the date when the last patient will have their last visit"
+                )
+                if lplv_date != lplv_value:
+                    st.caption(f"Selected: {lplv_date}")
+            with col_lplv2:
+                if st.button("Clear", key=f"clear_lplv_{current_index}", help="Remove override"):
+                    clear_flags['lplv'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
+
+            # EOI Date field
+            st.markdown("#### EOI Information")
+            col_eoi1, col_eoi2 = st.columns([3, 1])
+            with col_eoi1:
+                eoi_value = None
+                if not clear_flags['eoi_date']:
+                    eoi_value = current_eoi_date
+                eoi_date = st.date_input(
+                    "EOI Date",
+                    value=eoi_value,
+                    help="Date when Expression of Interest was submitted",
+                    key=f"study_settings_eoi_date_{current_index}"
+                )
+            with col_eoi2:
+                if st.button("Clear", key=f"clear_eoi_date_{current_index}", help="Remove EOI date"):
+                    clear_flags['eoi_date'] = True
+                    st.session_state[clear_key_base] = clear_flags
+                    st.rerun()
         
         st.divider()
         
@@ -2039,7 +2254,21 @@ def study_settings_navigation_modal():
                         'LPFV': lpfv_date if lpfv_date else None,
                         'LPLV': lplv_date if lplv_date else None,
                         'Description': description if description else None,
-                        'EOIDate': eoi_date if eoi_date else None
+                        'EOIDate': eoi_date if eoi_date else None,
+                        'StudyURL': study_url if study_url else None,
+                        'DocumentLinks': doc_links if doc_links else None,
+                        'ProtocolNumber': protocol_number if protocol_number else None,
+                        'IRASNumber': iras_number if iras_number else None,
+                        'ISRCTNNumber': isrctn_number if isrctn_number else None,
+                        'RECReference': rec_reference if rec_reference else None,
+                        'Sponsor': sponsor if sponsor else None,
+                        'ChiefInvestigator': chief_investigator if chief_investigator else None,
+                        'StudyPopulation': study_population if study_population else None,
+                        'SampleSize': sample_size,
+                        'SetupFee': setup_fee,
+                        'PerPatientFee': per_patient_fee,
+                        'AnnualFee': annual_fee,
+                        'FinancialNotes': financial_notes if financial_notes else None,
                     }
                     
                     # Save to study_site_details table (creates if doesn't exist, updates if exists)
@@ -2060,7 +2289,7 @@ def study_settings_navigation_modal():
                                 'lpfv': False,
                                 'lplv': False,
                                 'description': False,
-                                'eoi_date': False
+                                'eoi_date': False,
                             }
 
                         # Close the modal after successful save

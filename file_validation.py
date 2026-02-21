@@ -445,10 +445,11 @@ def validate_study_site_details_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, Li
         if date_col in df_clean.columns:
             df_clean[date_col] = pd.to_datetime(df_clean[date_col], errors='coerce')
     
-    # RecruitmentTarget should be numeric when provided
-    if 'RecruitmentTarget' in df_clean.columns:
-        df_clean['RecruitmentTarget'] = pd.to_numeric(df_clean['RecruitmentTarget'], errors='coerce')
-    
+    # Numeric fields
+    for numeric_col in ['RecruitmentTarget', 'SampleSize', 'SetupFee', 'PerPatientFee', 'AnnualFee']:
+        if numeric_col in df_clean.columns:
+            df_clean[numeric_col] = pd.to_numeric(df_clean[numeric_col], errors='coerce')
+
     log_activity(f"Validated study site details file: {len(df_clean)} records, {len(errors)} errors, {len(warnings)} warnings", level='info')
     
     return df_clean, errors + warnings

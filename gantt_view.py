@@ -859,53 +859,196 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     capacity_df = capacity_df.reset_index()
     st.dataframe(capacity_df, width='stretch', hide_index=True)
 
-    # Show study details
-    st.markdown("### Study Details")
+    # Show study information repository
+    display_study_details_cards(gantt_filtered)
+
+
+def display_study_details_cards(gantt_filtered: pd.DataFrame):
+    """Display expandable study detail cards below the Gantt chart."""
     import database as db
 
-    # Build detail rows from gantt_filtered
-    detail_rows = []
+    st.markdown("### 📚 Study Information")
+
+    # Status display config
+    status_labels = {
+        'active': 'Active',
+        'in_setup': 'In Setup',
+        'contracted': 'Contracted',
+        'expression_of_interest': 'Expression of Interest',
+        'eoi_didnt_get': 'EOI - Did Not Get',
+        'in_followup': 'Follow-Up',
+    }
+    status_colors = {
+        'active': '#2ecc71',
+        'in_setup': '#f39c12',
+        'contracted': '#3498db',
+        'expression_of_interest': '#95a5a6',
+        'eoi_didnt_get': '#e74c3c',
+        'in_followup': '#9b59b6',
+    }
+
+    # Fetch all study details in one call for performance
+    all_details_df = db.fetch_all_study_site_details()
+    details_lookup = {}
+    if all_details_df is not None and not all_details_df.empty:
+        for _, d_row in all_details_df.iterrows():
+            key = (d_row.get('Study', ''), d_row.get('ContractSite', ''))
+            details_lookup[key] = d_row.to_dict()
+
+    # Summary metrics
+    total_studies = len(gantt_filtered)
+    active_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'active']) if total_studies > 0 else 0
+    setup_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'in_setup']) if total_studies > 0 else 0
+    eoi_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'expression_of_interest']) if total_studies > 0 else 0
+
+    met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+    with met_col1:
+        st.metric("Total Studies", total_studies)
+    with met_col2:
+        st.metric("Active", active_count)
+    with met_col3:
+        st.metric("In Setup", setup_count)
+    with met_col4:
+        st.metric("EOI", eoi_count)
+
+    st.divider()
+
+    # Search/filter
+    search_term = st.text_input("🔍 Search studies...", placeholder="Type study name, sponsor, or keyword",
+                                 key="study_search_filter")
+
+    # Display cards
     for _, row in gantt_filtered.iterrows():
         study = row['Study']
         site = row['Site']
+        status = str(row.get('Status', 'active')).lower()
 
-        # Fetch full study details from database
-        study_details = db.fetch_study_site_details(study, site)
+        # Look up details
+        details = details_lookup.get((study, site), {})
 
-        if study_details:
-            # Format timeline
-            fpfv = study_details.get('FPFV', '')
-            lplv = study_details.get('LPLV', '')
+        # Apply search filter
+        if search_term:
+            search_lower = search_term.lower()
+            searchable = f"{study} {site} {details.get('Sponsor', '')} {details.get('Description', '')} {details.get('ProtocolNumber', '')} {details.get('ChiefInvestigator', '')}".lower()
+            if search_lower not in searchable:
+                continue
 
-            # Convert dates to strings if they're date objects
-            if fpfv and hasattr(fpfv, 'strftime'):
-                fpfv = fpfv.strftime('%Y-%m-%d')
-            if lplv and hasattr(lplv, 'strftime'):
-                lplv = lplv.strftime('%Y-%m-%d')
+        # Build header
+        status_label = status_labels.get(status, status.title())
+        color = status_colors.get(status, '#95a5a6')
+        target = details.get('RecruitmentTarget', '')
+        # Handle NaN and float formatting for target
+        if target and str(target) not in ('', 'nan', 'None', 'null'):
+            try:
+                target = int(float(target))
+                target_str = f" | Target: {target}"
+            except (ValueError, TypeError):
+                target_str = ""
+                target = None
+        else:
+            target_str = ""
+            target = None
+        sponsor_str = f" | {details.get('Sponsor', '')}" if details.get('Sponsor') else ""
 
-            timeline = f"{fpfv} to {lplv}" if fpfv and lplv else "Not set"
+        header = f"{study} @ {site} — {status_label}{target_str}{sponsor_str}"
 
-            detail_rows.append({
-                'Study': study,
-                'Site': site,
-                'Status': row['Status'],
-                'Description': study_details.get('Description', ''),
-                'Timeline': timeline,
-                'Target': study_details.get('RecruitmentTarget', ''),
-                'Study URL': study_details.get('StudyURL', ''),
-                'Documents': study_details.get('DocumentLinks', '')
-            })
+        with st.expander(header, expanded=False):
+            # Row 1: Key metrics
+            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+            with m_col1:
+                st.markdown(f"**Status:** <span style='color:{color}; font-weight:bold;'>{status_label}</span>",
+                           unsafe_allow_html=True)
+            with m_col2:
+                if target:
+                    st.markdown(f"**Target:** {target} patients")
+                else:
+                    st.markdown("**Target:** N/A")
+            with m_col3:
+                fpfv = details.get('FPFV', '')
+                lplv = details.get('LPLV', '')
+                if fpfv and lplv:
+                    # Format dates
+                    try:
+                        fpfv_dt = pd.to_datetime(fpfv, errors='coerce')
+                        lplv_dt = pd.to_datetime(lplv, errors='coerce')
+                        if pd.notna(fpfv_dt) and pd.notna(lplv_dt):
+                            st.markdown(f"**Timeline:** {fpfv_dt.strftime('%d/%m/%Y')} → {lplv_dt.strftime('%d/%m/%Y')}")
+                        else:
+                            st.markdown("**Timeline:** Dates TBC")
+                    except Exception:
+                        st.markdown("**Timeline:** Dates TBC")
+                else:
+                    st.markdown("**Timeline:** Dates TBC")
+            with m_col4:
+                if details.get('Sponsor'):
+                    st.markdown(f"**Sponsor:** {details['Sponsor']}")
 
-    # Create DataFrame and display
-    if detail_rows:
-        details_df = pd.DataFrame(detail_rows)
-        st.dataframe(
-            details_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Study URL": st.column_config.LinkColumn(),
-                "Documents": st.column_config.LinkColumn(),
-                "Description": st.column_config.TextColumn(width="large")
-            }
-        )
+            # Row 2: Reference numbers
+            refs = []
+            for field, label in [('ProtocolNumber', 'Protocol'), ('IRASNumber', 'IRAS'),
+                                  ('ISRCTNNumber', 'ISRCTN'), ('RECReference', 'REC')]:
+                val = details.get(field, '')
+                if val and str(val).strip():
+                    refs.append(f"**{label}:** {val}")
+            if refs:
+                st.markdown(" · ".join(refs))
+
+            # CI and population
+            info_parts = []
+            if details.get('ChiefInvestigator'):
+                info_parts.append(f"**CI:** {details['ChiefInvestigator']}")
+            if details.get('StudyPopulation'):
+                info_parts.append(f"**Population:** {details['StudyPopulation']}")
+            if details.get('SampleSize'):
+                info_parts.append(f"**Sample Size:** {details['SampleSize']:,}")
+            if info_parts:
+                st.markdown(" · ".join(info_parts))
+
+            # Description
+            description = details.get('Description', '')
+            if description and str(description).strip():
+                st.markdown("---")
+                st.markdown(str(description))
+
+            # Financials
+            setup_fee = details.get('SetupFee')
+            per_patient = details.get('PerPatientFee')
+            annual_fee = details.get('AnnualFee')
+            fin_notes = details.get('FinancialNotes', '')
+
+            has_financials = any([setup_fee, per_patient, annual_fee, fin_notes and str(fin_notes).strip()])
+            if has_financials:
+                st.markdown("---")
+                st.markdown("**💰 Financial Information**")
+                fin_col1, fin_col2, fin_col3 = st.columns(3)
+                with fin_col1:
+                    if setup_fee:
+                        st.metric("Setup Fee", f"£{float(setup_fee):,.2f}")
+                with fin_col2:
+                    if per_patient:
+                        st.metric("Per Patient", f"£{float(per_patient):,.2f}")
+                with fin_col3:
+                    if annual_fee:
+                        st.metric("Annual Fee", f"£{float(annual_fee):,.2f}")
+                if fin_notes and str(fin_notes).strip():
+                    st.caption(str(fin_notes))
+
+            # Links
+            study_url = details.get('StudyURL', '')
+            doc_links = details.get('DocumentLinks', '')
+            has_links = (study_url and str(study_url).strip()) or (doc_links and str(doc_links).strip())
+            if has_links:
+                st.markdown("---")
+                link_col1, link_col2 = st.columns(2)
+                with link_col1:
+                    if study_url and str(study_url).strip():
+                        st.markdown(f"🔗 [Study Registry]({study_url})")
+                with link_col2:
+                    if doc_links and str(doc_links).strip():
+                        # Support multiple links (one per line)
+                        links = [l.strip() for l in str(doc_links).split('\n') if l.strip()]
+                        for i, link in enumerate(links):
+                            if link.startswith('http'):
+                                st.markdown(f"📄 [Document {i+1}]({link})")
+                            else:
+                                st.markdown(f"📄 {link}")
