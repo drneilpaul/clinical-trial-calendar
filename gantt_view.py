@@ -298,7 +298,8 @@ def get_status_color(status: str) -> str:
         'in_setup': '#f39c12',  # Orange/Yellow
         'expression_of_interest': '#95a5a6',  # Gray
         'eoi_didnt_get': '#e74c3c',  # Red (didn't get contract)
-        'in_followup': '#9b59b6'  # Purple (for follow-up phase)
+        'in_followup': '#9b59b6',  # Purple (for follow-up phase)
+        'completed': '#7f8c8d',  # Dark grey (study finished)
     }
     return status_colors.get(status.lower(), '#95a5a6')
 
@@ -877,6 +878,7 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
         'expression_of_interest': 'Expression of Interest',
         'eoi_didnt_get': 'EOI - Did Not Get',
         'in_followup': 'Follow-Up',
+        'completed': 'Completed',
     }
     status_colors = {
         'active': '#2ecc71',
@@ -885,6 +887,7 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
         'expression_of_interest': '#95a5a6',
         'eoi_didnt_get': '#e74c3c',
         'in_followup': '#9b59b6',
+        'completed': '#7f8c8d',
     }
 
     # Fetch all study details in one call for performance
