@@ -59,13 +59,13 @@ def get_patient_recruitment_data(study: str, site: str, patients_df: pd.DataFram
         return []
 
     # REFACTOR: Use RandomizationDate for recruited patients (when randomized), with fallbacks
+    # Check each date column for actual non-null data before committing to it
     date_column = None
-    if 'RandomizationDate' in study_patients.columns:
-        date_column = 'RandomizationDate'
-    elif 'ScreeningDate' in study_patients.columns:
-        date_column = 'ScreeningDate'
-    elif 'StartDate' in study_patients.columns:
-        date_column = 'StartDate'
+    for candidate_col in ['RandomizationDate', 'ScreeningDate', 'StartDate']:
+        if candidate_col in study_patients.columns:
+            if pd.to_datetime(study_patients[candidate_col], errors='coerce').notna().any():
+                date_column = candidate_col
+                break
 
     if date_column is None:
         return []
@@ -285,7 +285,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     # (EOI, in_setup, contracted, or active studies should show even if dates not yet set)
     gantt_df = gantt_df[
         (gantt_df['StartDate'].notna()) |
-        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup', 'contracted', 'active']))
+        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup', 'contracted', 'active', 'completed']))
     ]
     
     return gantt_df, patient_recruitment_data
@@ -364,7 +364,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     # Allow: EOI, contracted, in_setup, and active studies to show even without dates
     gantt_filtered = gantt_data[
         (gantt_data['StartDate'].notna()) |
-        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active']))
+        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active', 'completed']))
     ].copy()
     
     if gantt_filtered.empty:
@@ -411,7 +411,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     # EOI, contracted, in_setup are pipeline studies and should also show
     gantt_filtered = gantt_filtered[
         (gantt_filtered['Study'].isin(studies_with_activity)) |
-        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active']))
+        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active', 'completed']))
     ].copy()
     
     if gantt_filtered.empty:
@@ -436,29 +436,54 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     # Create figure using timeline approach with shapes
     fig = go.Figure()
     
-    # Create y-axis labels
+    # Create y-axis labels with gap rows between site groups
     gantt_filtered['Label'] = gantt_filtered.apply(lambda row: f"{row['Site']} - {row['Study']}", axis=1)
-    y_labels = gantt_filtered['Label'].tolist()
+
+    # Identify site change positions and insert gaps
+    raw_labels = gantt_filtered['Label'].tolist()
+    raw_sites = gantt_filtered['Site'].tolist()
+    y_labels = []
+    y_position_map = {}  # Maps original row idx -> actual y position (accounting for gaps)
+    site_header_positions = []  # (y_pos, site_name) for header annotations
+    gap_positions = []  # y positions of gap separator lines
+
+    actual_y = 0
+    for i, label in enumerate(raw_labels):
+        if i > 0 and raw_sites[i] != raw_sites[i - 1]:
+            # Insert a gap row (empty label) between site groups
+            y_labels.append('')
+            gap_positions.append(actual_y)
+            actual_y += 1
+            # Mark site header position at start of new group
+            site_header_positions.append((actual_y, raw_sites[i]))
+        elif i == 0:
+            site_header_positions.append((actual_y, raw_sites[i]))
+        y_position_map[i] = actual_y
+        y_labels.append(label)
+        actual_y += 1
+
     y_positions = list(range(len(y_labels)))
     
     today = date.today()
     today_datetime = datetime.combine(today, datetime.min.time())
     
+    total_y_count = len(y_labels)
+
     # Add today's date vertical line using add_shape (works better with datetime axes)
     fig.add_shape(
         type="line",
         x0=today_datetime,
         x1=today_datetime,
         y0=-0.5,
-        y1=len(y_labels) - 0.5,
+        y1=total_y_count - 0.5,
         line=dict(color="#e74c3c", width=2, dash="dash"),
         layer="above"
     )
-    
+
     # Add "Today" annotation
     fig.add_annotation(
         x=today_datetime,
-        y=len(y_labels) - 0.5,
+        y=total_y_count - 0.5,
         text="Today",
         showarrow=False,
         font=dict(color="#e74c3c", size=12),
@@ -495,9 +520,10 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     
     # Add shapes for Gantt bars (split at LPFV if exists)
     for idx, (_, row) in enumerate(gantt_filtered.iterrows()):
+        y_pos = y_position_map[idx]  # Gap-adjusted y position
         start = row['StartDate']
         status = str(row.get('Status', 'active')).lower()
-        
+
         # Handle studies without dates - use approximate dates based on status
         if pd.isna(start):
             if status in ['expression_of_interest', 'eoi_didnt_get']:
@@ -515,29 +541,28 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 else:
                     start = date.today()
                     end = start + timedelta(days=90)
-            elif status in ['active', 'contracted', 'in_setup']:
-                # Active/contracted/in_setup studies without dates - show 1 year bar from today
-                # This indicates study is live but dates haven't been entered yet
+            elif status in ['active', 'contracted', 'in_setup', 'completed']:
+                # Studies without dates - show 1 year bar from today
                 start = date.today()
                 end = start + timedelta(days=365)  # 1 year bar
             else:
                 continue
-        
+
         end = row['EndDate'] if pd.notna(row['EndDate']) else start + timedelta(days=365)  # Default 1 year if no end
         lpfv_date = row.get('LPFVDate') if 'LPFVDate' in row else None
         siv_date = row.get('SIVDate') if 'SIVDate' in row else None
-        
-        # Track date range for separator lines
+
+        # Track date range
         if min_date is None or start < min_date:
             min_date = start
         if max_date is None or end > max_date:
             max_date = end
-        
+
         # Get base color based on status
         base_color = get_status_color(status)
         recruitment_color = '#2ecc71'  # Green for recruitment phase
         followup_color = '#9b59b6'  # Purple for follow-up phase
-        
+
         # Get recruitment overlay info if enabled
         recruitment_border_color = None
         recruitment_text = None
@@ -547,150 +572,126 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 target = row.get('Target')
                 actual = row.get('Actual', 0)
                 recruitment_status = row.get('RecruitmentStatus', 'no_target')
-                
+
                 # Handle NaN values
                 if pd.isna(actual):
                     actual = 0
                 else:
                     actual = int(actual)
-                
+
                 # Format recruitment text
                 if pd.notna(target) and target > 0:
                     recruitment_text = f"{actual}/{int(target)}"
                 else:
                     recruitment_text = f"{actual}/No target"
-                
+
                 # Get border color based on recruitment status
                 if pd.notna(recruitment_status):
                     recruitment_border_color = recruitment_status_colors.get(str(recruitment_status).lower(), '#95a5a6')
                 else:
                     recruitment_border_color = '#95a5a6'
-        
+
         # Determine bar drawing logic based on status
-        # Use recruitment border color if overlay is enabled, otherwise use base color
         bar_border_color = recruitment_border_color if (has_recruitment_overlay and recruitment_border_color) else base_color
         bar_border_width = 2 if (has_recruitment_overlay and recruitment_border_color) else 1
-        
+
         if status == 'contracted':
-            # Contracted: Single blue bar (no split)
             fig.add_shape(
-                type="rect",
-                x0=start,
-                x1=end,
-                y0=idx - 0.4,
-                y1=idx + 0.4,
-                fillcolor=base_color,
-                opacity=0.7,
+                type="rect", x0=start, x1=end,
+                y0=y_pos - 0.4, y1=y_pos + 0.4,
+                fillcolor=base_color, opacity=0.7,
                 line=dict(color=bar_border_color, width=bar_border_width),
                 layer="below"
             )
         elif status in ['expression_of_interest', 'eoi_didnt_get']:
-            # EOI: Single gray bar (no split)
             fig.add_shape(
-                type="rect",
-                x0=start,
-                x1=end,
-                y0=idx - 0.4,
-                y1=idx + 0.4,
-                fillcolor=base_color,
-                opacity=0.7,
+                type="rect", x0=start, x1=end,
+                y0=y_pos - 0.4, y1=y_pos + 0.4,
+                fillcolor=base_color, opacity=0.7,
                 line=dict(color=bar_border_color, width=bar_border_width),
                 layer="below"
             )
         elif status == 'active':
-            # Active studies: Split at LPFV if exists (green recruitment, purple follow-up)
-            # Even if LPFV is in future, show recruitment phase up to LPFV
             if lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date:
-                # First segment: StartDate to LPFV (recruitment phase - green)
-                # Show this even if LPFV is in future (helps with planning)
-                recruitment_end = min(lpfv_date, end)  # Don't exceed end date
+                recruitment_end = min(lpfv_date, end)
                 fig.add_shape(
-                    type="rect",
-                    x0=start,
-                    x1=recruitment_end,
-                    y0=idx - 0.4,
-                    y1=idx + 0.4,
-                    fillcolor=recruitment_color,
-                    opacity=0.7,
+                    type="rect", x0=start, x1=recruitment_end,
+                    y0=y_pos - 0.4, y1=y_pos + 0.4,
+                    fillcolor=recruitment_color, opacity=0.7,
                     line=dict(color=bar_border_color, width=bar_border_width),
                     layer="below"
                 )
-                
-                # Second segment: LPFV to EndDate (follow-up phase - purple) - only if LPFV has passed
                 if lpfv_date < today and lpfv_date < end:
                     fig.add_shape(
-                        type="rect",
-                        x0=lpfv_date,
-                        x1=end,
-                        y0=idx - 0.4,
-                        y1=idx + 0.4,
-                        fillcolor=followup_color,
-                        opacity=0.7,
+                        type="rect", x0=lpfv_date, x1=end,
+                        y0=y_pos - 0.4, y1=y_pos + 0.4,
+                        fillcolor=followup_color, opacity=0.7,
                         line=dict(color=bar_border_color, width=bar_border_width),
                         layer="below"
                     )
             else:
-                # No LPFV: Single green bar (assume recruiting till end)
                 fig.add_shape(
-                    type="rect",
-                    x0=start,
-                    x1=end,
-                    y0=idx - 0.4,
-                    y1=idx + 0.4,
-                    fillcolor=recruitment_color,
-                    opacity=0.7,
+                    type="rect", x0=start, x1=end,
+                    y0=y_pos - 0.4, y1=y_pos + 0.4,
+                    fillcolor=recruitment_color, opacity=0.7,
                     line=dict(color=bar_border_color, width=bar_border_width),
                     layer="below"
                 )
         else:
-            # Other statuses (in_setup, etc.): Single bar with status color
+            # Other statuses (in_setup, completed, etc.)
             fig.add_shape(
-                type="rect",
-                x0=start,
-                x1=end,
-                y0=idx - 0.4,
-                y1=idx + 0.4,
-                fillcolor=base_color,
-                opacity=0.7,
+                type="rect", x0=start, x1=end,
+                y0=y_pos - 0.4, y1=y_pos + 0.4,
+                fillcolor=base_color, opacity=0.7,
                 line=dict(color=bar_border_color, width=bar_border_width),
                 layer="below"
             )
-        
+
         # Add recruitment text annotation if overlay is enabled
         if has_recruitment_overlay and recruitment_text:
-            # Position annotation at the middle of the bar
             bar_center_x = start + (end - start) / 2
             bar_center_datetime = datetime.combine(bar_center_x, datetime.min.time()) if isinstance(bar_center_x, date) else bar_center_x
             recruitment_annotations.append({
                 'x': bar_center_datetime,
-                'y': idx,
+                'y': y_pos,
                 'text': recruitment_text,
                 'color': recruitment_border_color if recruitment_border_color else '#000000'
             })
-        
+
         # Add SIV marker if exists (only for active/contracted studies)
         if siv_date and pd.notna(siv_date) and status in ['active', 'contracted']:
-            # SIV usually appears before FPFV, so show marker ahead of bar
             siv_marker_x.append(siv_date)
-            siv_marker_y.append(idx)
-        
+            siv_marker_y.append(y_pos)
+
         # Track site changes for visual grouping
         current_site = row['Site']
         if prev_site is not None and current_site != prev_site:
             site_changes.append(idx)
         prev_site = current_site
-    
-    # Add visual separators between site groups
+
+    # Add visual separators between site groups (thicker line at gap positions)
     if min_date and max_date:
-        for change_idx in site_changes:
+        for gap_y in gap_positions:
             fig.add_shape(
                 type="line",
-                x0=datetime.combine(min_date, datetime.min.time()),
-                x1=datetime.combine(max_date, datetime.min.time()),
-                y0=change_idx - 0.5,
-                y1=change_idx - 0.5,
-                line=dict(color="#d0d0d0", width=1, dash="dot"),
+                x0=datetime.combine(min_date - timedelta(days=30), datetime.min.time()),
+                x1=datetime.combine(max_date + timedelta(days=30), datetime.min.time()),
+                y0=gap_y,
+                y1=gap_y,
+                line=dict(color="#95a5a6", width=2),
                 layer="below"
+            )
+
+        # Add site header annotations
+        for header_y, site_name in site_header_positions:
+            fig.add_annotation(
+                x=datetime.combine(min_date - timedelta(days=15), datetime.min.time()),
+                y=header_y - 0.5,
+                text=f"<b>{site_name}</b>",
+                showarrow=False,
+                font=dict(size=11, color="#2c3e50"),
+                xanchor="right",
+                yanchor="bottom"
             )
         
         # Add patient recruitment markers
@@ -699,13 +700,13 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             for rec_date, patient_num in patient_recruitment_data[study_site_key]:
                 if start <= rec_date <= end:
                     patient_marker_x.append(rec_date)
-                    patient_marker_y.append(idx)
+                    patient_marker_y.append(y_pos)
                     patient_marker_text.append(str(patient_num))
-        
+
         # Add invisible scatter trace for hover info
         fig.add_trace(go.Scatter(
             x=[start + (end - start) / 2],
-            y=[idx],
+            y=[y_pos],
             mode='markers',
             marker=dict(size=1, opacity=0),
             name=row['Study'],
@@ -786,7 +787,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         title="Gantt Chart: Studies by Site",
         xaxis_title="Timeline",
         yaxis_title="Study",
-        height=max(400, len(gantt_filtered) * 40),
+        height=max(400, total_y_count * 40),
         xaxis=dict(
             type='date',
             showgrid=True,
@@ -849,7 +850,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         with col6:
             st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     
     # Show capacity summary
     st.markdown("### Site Capacity Summary")
@@ -861,12 +862,15 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     st.dataframe(capacity_df, width='stretch', hide_index=True)
 
     # Show study information repository
-    display_study_details_cards(gantt_filtered)
+    display_study_details_cards(gantt_filtered, patient_recruitment_data, patients_df)
 
 
-def display_study_details_cards(gantt_filtered: pd.DataFrame):
+def display_study_details_cards(gantt_filtered: pd.DataFrame, patient_recruitment_data: dict = None, patients_df = None):
     """Display expandable study detail cards below the Gantt chart."""
     import database as db
+
+    if patient_recruitment_data is None:
+        patient_recruitment_data = {}
 
     st.markdown("### 📚 Study Information")
 
@@ -889,6 +893,11 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
         'in_followup': '#9b59b6',
         'completed': '#7f8c8d',
     }
+    status_emoji = {
+        'active': '🟢', 'in_setup': '🟠', 'contracted': '🔵',
+        'expression_of_interest': '⚪', 'eoi_didnt_get': '🔴',
+        'in_followup': '🟣', 'completed': '⚫'
+    }
 
     # Fetch all study details in one call for performance
     all_details_df = db.fetch_all_study_site_details()
@@ -898,35 +907,94 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
             key = (d_row.get('Study', ''), d_row.get('ContractSite', ''))
             details_lookup[key] = d_row.to_dict()
 
-    # Summary metrics
-    total_studies = len(gantt_filtered)
-    active_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'active']) if total_studies > 0 else 0
-    setup_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'in_setup']) if total_studies > 0 else 0
-    eoi_count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == 'expression_of_interest']) if total_studies > 0 else 0
+    # --- Pipeline Status Strip ---
+    pipeline_stages = [
+        ('EOI', 'expression_of_interest', '#95a5a6'),
+        ('Contracted', 'contracted', '#3498db'),
+        ('In Setup', 'in_setup', '#f39c12'),
+        ('Active', 'active', '#2ecc71'),
+        ('Follow-Up', 'in_followup', '#9b59b6'),
+        ('Completed', 'completed', '#7f8c8d'),
+        ('Did Not Get', 'eoi_didnt_get', '#e74c3c'),
+    ]
 
-    met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-    with met_col1:
-        st.metric("Total Studies", total_studies)
-    with met_col2:
-        st.metric("Active", active_count)
-    with met_col3:
-        st.metric("In Setup", setup_count)
-    with met_col4:
-        st.metric("EOI", eoi_count)
+    total_studies = len(gantt_filtered)
+    pipe_cols = st.columns(len(pipeline_stages) + 1)
+    with pipe_cols[0]:
+        st.markdown(
+            f"<div style='text-align:center; padding:8px; background:#f0f2f6; "
+            f"border-radius:6px;'>"
+            f"<div style='font-size:28px; font-weight:bold;'>{total_studies}</div>"
+            f"<div style='font-size:11px; color:#666;'>Total</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    for i, (label, status_key, color) in enumerate(pipeline_stages):
+        count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == status_key])
+        with pipe_cols[i + 1]:
+            st.markdown(
+                f"<div style='text-align:center; padding:8px; background:{color}15; "
+                f"border-left:4px solid {color}; border-radius:4px;'>"
+                f"<div style='font-size:22px; font-weight:bold; color:{color};'>{count}</div>"
+                f"<div style='font-size:11px; color:#666;'>{label}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+    # --- Recruitment Summary (active studies only) ---
+    active_studies = gantt_filtered[gantt_filtered['Status'].str.lower().isin(['active', 'in_followup'])]
+    total_recruited = 0
+    total_target = 0
+    studies_under_target = 0
+
+    for _, arow in active_studies.iterrows():
+        study_key = (arow['Study'], arow['Site'])
+        recruited = len(patient_recruitment_data.get(study_key, []))
+        total_recruited += recruited
+
+        a_details = details_lookup.get(study_key, {})
+        t = a_details.get('RecruitmentTarget', '')
+        if t and str(t) not in ('', 'nan', 'None', 'null'):
+            try:
+                t_int = int(float(t))
+                total_target += t_int
+                if recruited < t_int:
+                    studies_under_target += 1
+            except (ValueError, TypeError):
+                pass
+
+    if total_target > 0:
+        pct_val = total_recruited / total_target * 100
+        overall_pct = f"{pct_val:.1f}%" if pct_val < 10 else f"{int(pct_val)}%"
+    else:
+        overall_pct = "N/A"
+
+    rec_cols = st.columns(4)
+    with rec_cols[0]:
+        st.metric("Recruited", total_recruited)
+    with rec_cols[1]:
+        st.metric("Target", f"{total_target:,}" if total_target > 0 else "N/A")
+    with rec_cols[2]:
+        st.metric("Progress", overall_pct)
+    with rec_cols[3]:
+        st.metric("Under Target", studies_under_target)
 
     st.divider()
 
-    # Search/filter
-    search_term = st.text_input("🔍 Search studies...", placeholder="Type study name, sponsor, or keyword",
-                                 key="study_search_filter")
+    # --- Search + Sort Controls ---
+    ctrl_col1, ctrl_col2 = st.columns([3, 1])
+    with ctrl_col1:
+        search_term = st.text_input("🔍 Search studies...", placeholder="Type study name, sponsor, or keyword",
+                                     key="study_search_filter")
+    with ctrl_col2:
+        card_sort = st.selectbox("Sort by", ["Status Group", "Alphabetical", "Site"], key="card_sort")
 
-    # Display cards
+    # --- Build card data and sort ---
+    card_rows = []
     for _, row in gantt_filtered.iterrows():
         study = row['Study']
         site = row['Site']
         status = str(row.get('Status', 'active')).lower()
-
-        # Look up details
         details = details_lookup.get((study, site), {})
 
         # Apply search filter
@@ -936,9 +1004,45 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
             if search_lower not in searchable:
                 continue
 
-        # Build header
+        card_rows.append((study, site, status, details, row))
+
+    # Sort cards
+    status_group_order = {
+        'active': 0, 'in_followup': 0,
+        'in_setup': 1, 'contracted': 1,
+        'expression_of_interest': 2,
+        'completed': 3, 'eoi_didnt_get': 3,
+    }
+    group_labels = {
+        0: ('🟢 Active', ['active', 'in_followup']),
+        1: ('🟠 In Setup / Contracted', ['in_setup', 'contracted']),
+        2: ('⚪ Pipeline / EOI', ['expression_of_interest']),
+        3: ('⚫ Archived', ['completed', 'eoi_didnt_get']),
+    }
+
+    if card_sort == "Status Group":
+        card_rows.sort(key=lambda x: (status_group_order.get(x[2], 99), x[0].lower()))
+    elif card_sort == "Alphabetical":
+        card_rows.sort(key=lambda x: x[0].lower())
+    elif card_sort == "Site":
+        card_rows.sort(key=lambda x: (x[1], status_group_order.get(x[2], 99), x[0].lower()))
+
+    # --- Render cards with group headers ---
+    current_group = None
+    for study, site, status, details, row in card_rows:
+        # Show group header for "Status Group" sort
+        if card_sort == "Status Group":
+            group_idx = status_group_order.get(status, 99)
+            if group_idx != current_group:
+                current_group = group_idx
+                group_label, group_statuses = group_labels.get(group_idx, (status.title(), [status]))
+                group_count = sum(1 for s, si, st, d, r in card_rows if st in group_statuses)
+                st.markdown(f"#### {group_label} ({group_count})")
+
+        # Build header with emoji badge
         status_label = status_labels.get(status, status.title())
         color = status_colors.get(status, '#95a5a6')
+        badge = status_emoji.get(status, '⚪')
         target = details.get('RecruitmentTarget', '')
         # Handle NaN and float formatting for target
         if target and str(target) not in ('', 'nan', 'None', 'null'):
@@ -953,9 +1057,14 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame):
             target = None
         sponsor_str = f" | {details.get('Sponsor', '')}" if details.get('Sponsor') else ""
 
-        header = f"{study} @ {site} — {status_label}{target_str}{sponsor_str}"
+        header = f"{badge} {study} @ {site} — {status_label}{target_str}{sponsor_str}"
 
         with st.expander(header, expanded=False):
+            # Recruitment progress bar for active studies with a target
+            if status in ['active', 'in_followup'] and target:
+                recruited = len(patient_recruitment_data.get((study, site), []))
+                progress_pct = min(1.0, recruited / target) if target > 0 else 0
+                st.progress(progress_pct, text=f"{recruited}/{target} recruited ({int(progress_pct * 100)}%)")
             # Row 1: Key metrics
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:

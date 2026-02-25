@@ -1262,20 +1262,67 @@ def main():
                 # Build and display Gantt chart
                 try:
                     gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
-                    
-                    # Option to show recruitment overlay
-                    show_recruitment_overlay = st.checkbox(
-                        "Show Recruitment Overlay",
-                        value=False,
-                        help="Overlay recruitment progress on Gantt chart"
-                    )
-                    
+
+                    # --- Filter Bar ---
+                    status_labels_map = {
+                        'active': 'Active', 'in_followup': 'Follow-Up', 'in_setup': 'In Setup',
+                        'contracted': 'Contracted', 'expression_of_interest': 'EOI',
+                        'completed': 'Completed', 'eoi_didnt_get': 'Did Not Get'
+                    }
+
+                    all_statuses = sorted(gantt_data['Status'].dropna().unique().tolist())
+                    all_sites = sorted(gantt_data['Site'].dropna().unique().tolist())
+
+                    # Quick view presets
+                    view_presets = {
+                        'Portfolio': ['active', 'in_followup', 'in_setup', 'contracted', 'expression_of_interest'],
+                        'Active': ['active', 'in_followup'],
+                        'Pipeline': ['in_setup', 'contracted', 'expression_of_interest'],
+                        'Archive': ['completed', 'eoi_didnt_get'],
+                        'All': all_statuses,
+                    }
+
+                    filter_col1, filter_col2, filter_col3 = st.columns([3, 1.5, 1])
+
+                    with filter_col1:
+                        view_preset = st.radio(
+                            "View", list(view_presets.keys()),
+                            index=0, horizontal=True,
+                            key="gantt_view_preset"
+                        )
+
+                    with filter_col2:
+                        selected_sites = st.multiselect(
+                            "Site", options=all_sites, default=all_sites,
+                            key="gantt_site_filter"
+                        )
+
+                    with filter_col3:
+                        show_recruitment_overlay = st.checkbox(
+                            "Recruitment Overlay", value=False,
+                            help="Overlay recruitment progress on Gantt chart"
+                        )
+
+                    # Apply view preset filter
+                    preset_statuses = view_presets.get(view_preset, all_statuses)
+                    gantt_data = gantt_data[gantt_data['Status'].isin(preset_statuses)].copy()
+
+                    # Apply site filter
+                    if selected_sites:
+                        gantt_data = gantt_data[gantt_data['Site'].isin(selected_sites)].copy()
+
+                    # Filter patient_recruitment_data to match
+                    filtered_recruitment_data = {
+                        k: v for k, v in patient_recruitment_data.items()
+                        if (not selected_sites or k[1] in selected_sites)
+                    }
+
                     recruitment_data = None
                     if show_recruitment_overlay:
                         recruitment_data = build_recruitment_data(patients_df, trials_df)
                         gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
-                    
-                    display_gantt_chart(gantt_data, patient_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
+
+                    display_gantt_chart(gantt_data, filtered_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
                 except Exception as e:
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')
