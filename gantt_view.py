@@ -10,6 +10,36 @@ from helpers import log_activity
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+def classify_target(raw_target) -> tuple:
+    """Classify a RecruitmentTarget value into one of three states.
+
+    Returns:
+        (numeric_value, category) where category is:
+        - 'set'   -- target > 0, has a specific cap
+        - 'open'  -- target == 0, recruit as many as possible (no cap)
+        - 'unset' -- target is NULL/NaN, not yet configured
+    """
+    if raw_target is None:
+        return (None, 'unset')
+    try:
+        if pd.isna(raw_target):
+            return (None, 'unset')
+    except (TypeError, ValueError):
+        pass
+    if str(raw_target).strip() in ('', 'nan', 'None', 'null', 'NULL'):
+        return (None, 'unset')
+    try:
+        val = int(float(raw_target))
+        if val == 0:
+            return (0, 'open')
+        elif val > 0:
+            return (val, 'set')
+        else:
+            return (None, 'unset')
+    except (ValueError, TypeError):
+        return (None, 'unset')
+
+
 def detect_study_phase(lpfv_date: Optional[date], lplv_date: Optional[date], today: date) -> str:
     """
     Detect if study is in follow-up phase based on LPFV and LPLV dates.
@@ -953,15 +983,12 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame, patient_recruitmen
         total_recruited += recruited
 
         a_details = details_lookup.get(study_key, {})
-        t = a_details.get('RecruitmentTarget', '')
-        if t and str(t) not in ('', 'nan', 'None', 'null'):
-            try:
-                t_int = int(float(t))
-                total_target += t_int
-                if recruited < t_int:
-                    studies_under_target += 1
-            except (ValueError, TypeError):
-                pass
+        t_val, t_class = classify_target(a_details.get('RecruitmentTarget', ''))
+        if t_class == 'set':
+            total_target += t_val
+            if recruited < t_val:
+                studies_under_target += 1
+        # 'open' and 'unset' don't contribute to totals
 
     if total_target > 0:
         pct_val = total_recruited / total_target * 100
@@ -1043,38 +1070,35 @@ def display_study_details_cards(gantt_filtered: pd.DataFrame, patient_recruitmen
         status_label = status_labels.get(status, status.title())
         color = status_colors.get(status, '#95a5a6')
         badge = status_emoji.get(status, '⚪')
-        target = details.get('RecruitmentTarget', '')
-        # Handle NaN and float formatting for target
-        if target and str(target) not in ('', 'nan', 'None', 'null'):
-            try:
-                target = int(float(target))
-                target_str = f" | Target: {target}"
-            except (ValueError, TypeError):
-                target_str = ""
-                target = None
+        target_val, target_class = classify_target(details.get('RecruitmentTarget', ''))
+        if target_class == 'set':
+            target_str = f" | Target: {target_val}"
+        elif target_class == 'open':
+            target_str = " | Target: Open"
         else:
             target_str = ""
-            target = None
         sponsor_str = f" | {details.get('Sponsor', '')}" if details.get('Sponsor') else ""
 
         header = f"{badge} {study} @ {site} — {status_label}{target_str}{sponsor_str}"
 
         with st.expander(header, expanded=False):
-            # Recruitment progress bar for active studies with a target
-            if status in ['active', 'in_followup'] and target:
+            # Recruitment progress bar for active studies with a specific target
+            if status in ['active', 'in_followup'] and target_class == 'set':
                 recruited = len(patient_recruitment_data.get((study, site), []))
-                progress_pct = min(1.0, recruited / target) if target > 0 else 0
-                st.progress(progress_pct, text=f"{recruited}/{target} recruited ({int(progress_pct * 100)}%)")
+                progress_pct = min(1.0, recruited / target_val)
+                st.progress(progress_pct, text=f"{recruited}/{target_val} recruited ({int(progress_pct * 100)}%)")
             # Row 1: Key metrics
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             with m_col1:
                 st.markdown(f"**Status:** <span style='color:{color}; font-weight:bold;'>{status_label}</span>",
                            unsafe_allow_html=True)
             with m_col2:
-                if target:
-                    st.markdown(f"**Target:** {target} patients")
+                if target_class == 'set':
+                    st.markdown(f"**Target:** {target_val} patients")
+                elif target_class == 'open':
+                    st.markdown("**Target:** Open (no cap)")
                 else:
-                    st.markdown("**Target:** N/A")
+                    st.markdown("**Target:** Not set")
             with m_col3:
                 fpfv = details.get('FPFV', '')
                 lplv = details.get('LPLV', '')

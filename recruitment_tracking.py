@@ -73,7 +73,9 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
             if not study_detail.empty:
                 target = study_detail.iloc[0].get('RecruitmentTarget')
                 if pd.notna(target):
-                    target = int(target) if target else None
+                    target = int(target)  # Preserves 0 as valid "open target"
+                else:
+                    target = None
                 study_status = study_detail.iloc[0].get('StudyStatus', 'active')
         
         # Fallback to trials_df if not found in study_site_details
@@ -102,18 +104,20 @@ def build_recruitment_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame) -
         
         # Calculate progress percentage
         progress = None
-        if target and target > 0:
+        if target is not None and target > 0:
             progress = (actual / target) * 100
-        
+
         # Determine status
-        status = 'no_target'
-        if target:
-            if actual >= target:
-                status = 'at_or_over'
-            elif progress and progress >= 75:
-                status = 'near_target'
-            else:
-                status = 'under_target'
+        if target is None:
+            status = 'no_target'
+        elif target == 0:
+            status = 'open_target'
+        elif actual >= target:
+            status = 'at_or_over'
+        elif progress and progress >= 75:
+            status = 'near_target'
+        else:
+            status = 'under_target'
         
         recruitment_rows.append({
             'Study': study,
@@ -134,6 +138,7 @@ def get_progress_color(status: str) -> str:
         'at_or_over': '#2ecc71',  # Green
         'near_target': '#f39c12',  # Yellow/Orange
         'under_target': '#e74c3c',  # Red
+        'open_target': '#3498db',  # Blue - no cap
         'no_target': '#95a5a6'  # Gray
     }
     return status_colors.get(status, '#95a5a6')
@@ -188,18 +193,20 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     col1, col2, col3, col4 = st.columns(4)
     
     total_studies = len(filtered_data)
-    studies_with_targets = len(filtered_data[filtered_data['Target'].notna()])
-    total_target = filtered_data['Target'].sum() if 'Target' in filtered_data.columns else 0
+    # Only count studies with specific numeric targets (exclude open/unset)
+    studies_with_targets = len(filtered_data[(filtered_data['Target'].notna()) & (filtered_data['Target'] > 0)])
+    targeted = filtered_data[filtered_data['Target'] > 0] if 'Target' in filtered_data.columns else filtered_data.iloc[0:0]
+    total_target = int(targeted['Target'].sum()) if not targeted.empty else 0
     total_actual = filtered_data['Actual'].sum()
-    
+
     with col1:
         st.metric("Total Studies", total_studies)
     with col2:
-        st.metric("Studies with Targets", studies_with_targets)
+        st.metric("With Targets", studies_with_targets)
     with col3:
-        st.metric("Total Target", int(total_target) if total_target else "N/A")
+        st.metric("Total Target", total_target if total_target > 0 else "N/A")
     with col4:
-        st.metric("Total Actual", total_actual)
+        st.metric("Total Recruited", total_actual)
     
     # Table view
     st.markdown("### Recruitment Table")
@@ -207,10 +214,13 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     display_df['Progress'] = display_df['Progress'].apply(
         lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
     )
-    # Ensure Target is string for consistent Arrow conversion
-    display_df['Target'] = display_df['Target'].apply(
-        lambda x: str(int(x)) if pd.notna(x) else "No target"
-    )
+    # Format Target: 0 = "Open", null = "Not set", else numeric
+    def format_target(x):
+        if pd.isna(x) or x is None:
+            return "Not set"
+        val = int(x)
+        return "Open" if val == 0 else str(val)
+    display_df['Target'] = display_df['Target'].apply(format_target)
     
     # Add color coding
     def style_row(row):
@@ -218,6 +228,7 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
             'at_or_over': 'background-color: #d4edda;',
             'near_target': 'background-color: #fff3cd;',
             'under_target': 'background-color: #f8d7da;',
+            'open_target': 'background-color: #d6eaf8;',
             'no_target': 'background-color: #e2e3e5;'
         }
         return [colors.get(row['Status'], '')] * len(row)
@@ -275,13 +286,13 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
             xaxis=dict(tickangle=-45)
         )
         
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No studies with targets available for chart display.")
     
     # Progress indicators legend
     st.markdown("### Progress Status Legend")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>●</span> At/Over Target", unsafe_allow_html=True)
     with col2:
@@ -289,7 +300,9 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     with col3:
         st.markdown(f"<span style='color: #e74c3c; font-weight: bold;'>●</span> Under Target (<75%)", unsafe_allow_html=True)
     with col4:
-        st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> No Target Set", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: #3498db; font-weight: bold;'>●</span> Open (No Cap)", unsafe_allow_html=True)
+    with col5:
+        st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Not Set", unsafe_allow_html=True)
 
 def overlay_recruitment_on_gantt(gantt_data: pd.DataFrame, recruitment_data: pd.DataFrame) -> pd.DataFrame:
     """

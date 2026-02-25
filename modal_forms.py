@@ -1607,11 +1607,10 @@ def study_settings_navigation_modal():
                 min_value=0,
                 value=0,
                 step=1,
-                help="Target number of patients (0 = no target)",
+                help="0 = Open (no cap, recruit as many as possible). Set a number for a specific target.",
                 key="new_study_target"
             )
-            if new_target == 0:
-                new_target = None
+            # 0 is a valid value meaning "open target" — do NOT convert to None
             
             new_description = st.text_area(
                 "Description",
@@ -1987,18 +1986,17 @@ def study_settings_navigation_modal():
             col_target1, col_target2 = st.columns([3, 1])
             with col_target1:
                 target_value = 0
-                if not clear_flags['target'] and current_target:
+                if not clear_flags['target'] and current_target is not None and not pd.isna(current_target):
                     target_value = int(current_target)
                 recruitment_target = st.number_input(
                     "Recruitment Target",
                     min_value=0,
                     value=target_value,
                     step=1,
-                    help="Target number of patients for this study at this site",
+                    help="0 = Open (no cap). Use 'Clear' to remove target entirely.",
                     key=f"study_settings_target_{current_index}"
                 )
-                if recruitment_target == 0:
-                    recruitment_target = None
+                # 0 is a valid value meaning "open target" — do NOT convert to None
             with col_target2:
                 if st.button("Clear", key=f"clear_target_{current_index}", help="Remove target (use NULL)"):
                     clear_flags['target'] = True
