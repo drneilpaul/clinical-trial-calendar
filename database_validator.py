@@ -6,6 +6,7 @@ Validates data integrity on startup and after database operations
 import pandas as pd
 from typing import Dict, List, Tuple
 from helpers import log_activity, get_visit_type_series
+from patient_processor import KNOWN_OPTIONAL_VISITS
 
 class DatabaseValidator:
     """Validates database integrity and data quality"""
@@ -343,6 +344,10 @@ class DatabaseValidator:
 
                 visit_type = get_visit_type_series(pd.DataFrame([visit]), default='patient').iloc[0]
                 if visit_type in ['siv', 'monitor']:
+                    continue
+
+                # Skip known optional visits (V1.1, Unscheduled, etc.)
+                if visit_name in KNOWN_OPTIONAL_VISITS:
                     continue
 
                 # Check direct match
