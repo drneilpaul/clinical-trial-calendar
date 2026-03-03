@@ -428,12 +428,16 @@ def update_patient_status_on_visit(patient_id, study, visit_name, visit_notes, v
         update_patient_status(patient_id, study, status='screen_failed')
         log_activity(f"  Auto-updated patient {patient_id} status to 'screen_failed'", level='info')
 
-def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=None):
+def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=None, anchor_visit_name=None):
     """Process all visits for a single patient
 
     Args:
         patient_visits: Pre-filtered visits for this patient's study and pathway (for performance)
         stoppages: Dictionary of patient+study keys to stoppage dates (screen failures, withdrawals, or deaths)
+        anchor_visit_name: Optional VisitName that acts as the rebasing anchor for this study.
+            When set and the anchor visit has an actual date recorded, all visits at or after
+            the anchor's Day value are recalculated relative to the actual anchor date.
+            If None, uses default Day 1 / Screening as anchor (current behaviour).
 
     Note: patient_visits should already be filtered by Study and Pathway for performance.
           If not pre-filtered, this function will filter it (backward compatibility).
@@ -525,7 +529,34 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
         if actual_baseline_date != screening_date:
             baseline_date = actual_baseline_date
             patient_needs_recalc = True
-    
+
+    # REBASING: Check if downstream visits should be rebased from an anchor visit
+    # (e.g. randomisation). Until the anchor visit has an actual date, all visits
+    # use screening as baseline. Once recorded, visits at or after the anchor's Day
+    # are recalculated relative to the actual anchor date.
+    rebase_date = None
+    rebase_day = None
+    if anchor_visit_name and anchor_visit_name != baseline_visit_name:
+        anchor_rows = study_visits[study_visits["VisitName"].astype(str) == anchor_visit_name]
+        if len(anchor_rows) > 0:
+            rebase_day = int(anchor_rows.iloc[0]["Day"])
+            if anchor_visit_name in patient_actual_visits:
+                anchor_actual = patient_actual_visits[anchor_visit_name]["ActualDate"]
+                if not isinstance(anchor_actual, pd.Timestamp):
+                    anchor_actual = pd.Timestamp(anchor_actual)
+                rebase_date = pd.Timestamp(anchor_actual.date())
+                patient_needs_recalc = True
+                log_activity(
+                    f"  Rebasing from {anchor_visit_name} (Day {rebase_day}) "
+                    f"actual date: {rebase_date.strftime('%Y-%m-%d')}",
+                    level='info'
+                )
+            else:
+                log_activity(
+                    f"  Anchor visit {anchor_visit_name} not yet recorded — using screening as baseline",
+                    level='info'
+                )
+
     # CRITICAL: Identify proposed visits AND latest actual visit BEFORE creating predicted visits (for suppression logic)
     today = pd.Timestamp(date.today()).normalize()
     proposed_visits = {}  # visit_name -> proposed_date
@@ -591,29 +622,40 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             "IntervalValue": getattr(visit_tuple, 'IntervalValue', None),
             "VisitType": getattr(visit_tuple, 'VisitType', 'patient')
         }
+
+        # REBASING: Compute effective baseline and day for this visit.
+        # If an anchor visit (e.g. randomisation) has an actual date and this visit
+        # is at or after the anchor day, recalculate from the anchor's actual date.
+        if rebase_date is not None and visit_day >= rebase_day:
+            effective_baseline = rebase_date
+            effective_day = visit_day - rebase_day + 1  # +1 because formula is baseline + (day - 1)
+        else:
+            effective_baseline = baseline_date
+            effective_day = visit_day
+
         actual_visit_data = patient_actual_visits.get(visit_name)
-        
+
         if actual_visit_data is not None:
             # Actual visit found - process it
-            
+
             # Process actual visit - includes its own tolerance windows
             visit_record, tolerance_records = process_actual_visit(
                 patient_id, study, patient_origin, patient_seen_at, visit, actual_visit_data,
-                baseline_date, stoppage_date, processing_messages, out_of_window_visits, skipped_invalid_dates
+                effective_baseline, stoppage_date, processing_messages, out_of_window_visits, skipped_invalid_dates
             )
             # Skip if visit was invalid (None returned)
             if visit_record is not None:
                 visit_records.append(visit_record)
                 visit_records.extend(tolerance_records)
-            
+
             # DON'T create a scheduled visit on the ACTUAL date
             # Only create it on the EXPECTED date if different
             expected_date, _, _, _, _ = calculate_tolerance_windows(
-                visit, baseline_date, int(visit["Day"])
+                visit, effective_baseline, effective_day
             )
             expected_date = pd.Timestamp(expected_date.date())
             actual_date = pd.Timestamp(actual_visit_data["ActualDate"].date())
-            
+
             # No planned marker needed - actual visit is sufficient
         else:
             # No actual visit found - check if we should suppress predicted visit
@@ -623,10 +665,10 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
             if visit_day != 0:
                 # Calculate predicted date to check suppression rules
                 expected_date, _, _, _, _ = calculate_tolerance_windows(
-                    visit, baseline_date, visit_day
+                    visit, effective_baseline, effective_day
                 )
                 predicted_date = pd.Timestamp(expected_date.date()).normalize()
-                
+
                 # SUPPRESSION LOGIC: Check if this predicted visit should be suppressed
                 should_suppress = False
                 suppress_reason = None
@@ -655,14 +697,17 @@ def process_single_patient(patient, patient_visits, stoppages, actual_visits_df=
                     if predicted_date < latest_actual_date:
                         should_suppress = True
                         suppress_reason = f"missed visit (before latest actual visit on {latest_actual_date.strftime('%Y-%m-%d')})"
-                
+
                 if should_suppress:
                     log_activity(f"  Suppressing predicted visit {visit_name} on {predicted_date.strftime('%Y-%m-%d')} - {suppress_reason}", level='info')
                     # Don't create this predicted visit
                 else:
                     # Process scheduled visit with full tolerance windows
+                    # Pass effective_baseline and effective_day (adjusted for rebasing)
+                    rebased_visit = dict(visit)
+                    rebased_visit["Day"] = effective_day
                     scheduled_records, exclusions = process_scheduled_visit(
-                        patient_id, study, patient_origin, patient_seen_at, visit, baseline_date, stoppage_date
+                        patient_id, study, patient_origin, patient_seen_at, rebased_visit, effective_baseline, stoppage_date
                     )
                     visit_records.extend(scheduled_records)
                     screen_fail_exclusions += exclusions

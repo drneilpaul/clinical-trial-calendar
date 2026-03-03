@@ -53,7 +53,8 @@ def get_table_columns(table_name: str) -> Optional[list]:
                                'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks',
                                'ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
                                'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'SampleSize',
-                               'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes'],
+                               'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes',
+                               'AnchorVisitName'],
     }
     try:
         client = get_supabase_client()

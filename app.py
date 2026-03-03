@@ -1303,6 +1303,9 @@ def main():
                             help="Overlay recruitment progress on Gantt chart"
                         )
 
+                    # Save unfiltered data for WCF Activity table
+                    all_gantt_data = gantt_data.copy()
+
                     # Apply view preset filter
                     preset_statuses = view_presets.get(view_preset, all_statuses)
                     gantt_data = gantt_data[gantt_data['Status'].isin(preset_statuses)].copy()
@@ -1322,7 +1325,7 @@ def main():
                         recruitment_data = build_recruitment_data(patients_df, trials_df)
                         gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
 
-                    display_gantt_chart(gantt_data, filtered_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df)
+                    display_gantt_chart(gantt_data, filtered_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df, all_gantt_data)
                 except Exception as e:
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')

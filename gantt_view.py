@@ -373,10 +373,11 @@ def extract_siv_dates(study: str, site: str, actual_visits_df: Optional[pd.DataF
     return None
 
 def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict[Tuple[str, str], List[Tuple[date, int]]],
-                       show_recruitment_overlay: bool = False, 
+                       show_recruitment_overlay: bool = False,
                        recruitment_data: Optional[pd.DataFrame] = None,
                        visits_df: Optional[pd.DataFrame] = None,
-                       patients_df: Optional[pd.DataFrame] = None):
+                       patients_df: Optional[pd.DataFrame] = None,
+                       all_gantt_data: Optional[pd.DataFrame] = None):
     """
     Display Gantt chart visualization using Plotly.
     
@@ -882,17 +883,138 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
 
     st.plotly_chart(fig, use_container_width=True)
     
-    # Show capacity summary
-    st.markdown("### Site Capacity Summary")
-    capacity_df = gantt_filtered.groupby('Site').agg({
-        'Study': 'count',
-        'Status': lambda x: (x == 'active').sum()
-    }).rename(columns={'Study': 'Total Studies', 'Status': 'Active Studies'})
-    capacity_df = capacity_df.reset_index()
-    st.dataframe(capacity_df, width='stretch', hide_index=True)
+    # Show WCF Activity table (uses unfiltered data so view presets don't affect it)
+    st.markdown("### WCF Activity")
+    _display_wcf_activity(all_gantt_data if all_gantt_data is not None else gantt_filtered, patients_df)
 
     # Show study information repository
     display_study_details_cards(gantt_filtered, patient_recruitment_data, patients_df)
+
+
+def _display_wcf_activity(all_gantt_data: pd.DataFrame, patients_df: Optional[pd.DataFrame] = None):
+    """Display WCF Activity table showing recruiting and live studies per site per financial year."""
+    from helpers import get_financial_year_boundaries
+
+    fy_list = ['2024-2025', '2025-2026', '2026-2027']
+    fy_labels = ['FY 24-25', 'FY 25-26', 'FY 26-27']
+    sites = sorted(all_gantt_data['Site'].unique()) if not all_gantt_data.empty else []
+
+    # WCF targets: (site, fy) -> target
+    wcf_targets = {
+        ('Ashfields', '2026-2027'): 8,
+        ('Kiltearn', '2026-2027'): 4,
+    }
+
+    # Build study-site mapping from gantt data
+    study_sites = {}
+    if not all_gantt_data.empty:
+        for _, row in all_gantt_data.iterrows():
+            study_sites.setdefault(row['Study'], set()).add(row['Site'])
+
+    # Pre-parse patient screening dates
+    screening_dates = None
+    patient_studies = None
+    if patients_df is not None and not patients_df.empty:
+        date_col = 'ScreeningDate' if 'ScreeningDate' in patients_df.columns else ('StartDate' if 'StartDate' in patients_df.columns else None)
+        if date_col:
+            screening_dates = pd.to_datetime(patients_df[date_col], errors='coerce')
+            patient_studies = patients_df['Study']
+
+    # Calculate metrics per site per FY
+    rows = []
+    for site in sites:
+        row_data = {'Site': site}
+        site_studies = all_gantt_data[all_gantt_data['Site'] == site]
+
+        for fy, fy_label in zip(fy_list, fy_labels):
+            fy_start, fy_end = get_financial_year_boundaries(fy)
+
+            # Recruiting: studies at this site where at least 1 patient screened in FY
+            recruiting_count = 0
+            if screening_dates is not None:
+                fy_mask = (screening_dates >= fy_start) & (screening_dates <= fy_end)
+                fy_study_names = patient_studies[fy_mask].unique()
+                # Count studies that are at this site
+                for study_name in fy_study_names:
+                    if site in study_sites.get(study_name, set()):
+                        recruiting_count += 1
+
+            # Live: studies at this site with status active/in_followup whose dates overlap the FY
+            live_count = 0
+            live_studies = site_studies[site_studies['Status'].isin(['active', 'in_followup'])]
+            for _, s_row in live_studies.iterrows():
+                s_start = pd.to_datetime(s_row.get('StartDate'), errors='coerce')
+                s_end = pd.to_datetime(s_row.get('EndDate'), errors='coerce')
+                # Study overlaps FY if: study_start <= fy_end AND study_end >= fy_start
+                starts_before_fy_end = pd.isna(s_start) or s_start <= fy_end
+                ends_after_fy_start = pd.isna(s_end) or s_end >= fy_start
+                if starts_before_fy_end and ends_after_fy_start:
+                    live_count += 1
+
+            row_data[f'{fy_label} Rec.'] = recruiting_count
+            row_data[f'{fy_label} Live'] = live_count
+
+        # Target (only for FYs that have one)
+        target = wcf_targets.get((site, '2026-2027'))
+        row_data['Target 26-27'] = target if target is not None else '-'
+        rows.append(row_data)
+
+    if not rows:
+        st.info("No site data available for WCF Activity.")
+        return
+
+    # Build HTML table for better formatting and colour coding
+    header_cells = '<th style="padding:8px; text-align:center; border-bottom:2px solid #ddd;">Site</th>'
+    for fy_label in fy_labels:
+        header_cells += (
+            f'<th style="padding:8px; text-align:center; border-bottom:2px solid #ddd;" colspan="2">{fy_label}</th>'
+        )
+    header_cells += '<th style="padding:8px; text-align:center; border-bottom:2px solid #ddd;">Target<br>26-27</th>'
+
+    sub_header = '<th></th>'
+    for _ in fy_labels:
+        sub_header += '<th style="padding:4px; text-align:center; font-size:11px; color:#666; border-bottom:1px solid #eee;">Rec.</th>'
+        sub_header += '<th style="padding:4px; text-align:center; font-size:11px; color:#666; border-bottom:1px solid #eee;">Live</th>'
+    sub_header += '<th></th>'
+
+    body_rows = ''
+    for row_data in rows:
+        site = row_data['Site']
+        target_val = row_data['Target 26-27']
+        body_rows += f'<tr><td style="padding:8px; font-weight:bold;">{site}</td>'
+
+        for fy_label in fy_labels:
+            rec = row_data[f'{fy_label} Rec.']
+            live = row_data[f'{fy_label} Live']
+
+            # Colour the recruiting cell based on target for the last FY
+            rec_style = 'padding:8px; text-align:center;'
+            if fy_label == 'FY 26-27' and isinstance(target_val, int):
+                if rec >= target_val:
+                    rec_style += ' background-color:#d4edda; color:#155724; font-weight:bold;'
+                elif rec >= target_val - 2:
+                    rec_style += ' background-color:#fff3cd; color:#856404;'
+                else:
+                    rec_style += ' background-color:#f8d7da; color:#721c24;'
+
+            body_rows += f'<td style="{rec_style}">{rec}</td>'
+            body_rows += f'<td style="padding:8px; text-align:center; color:#666;">{live}</td>'
+
+        # Target cell
+        target_display = str(target_val) if isinstance(target_val, int) else '-'
+        body_rows += f'<td style="padding:8px; text-align:center; font-weight:bold;">{target_display}</td>'
+        body_rows += '</tr>'
+
+    html = f"""
+    <table style="width:100%; border-collapse:collapse; font-size:14px;">
+        <thead>
+            <tr>{header_cells}</tr>
+            <tr>{sub_header}</tr>
+        </thead>
+        <tbody>{body_rows}</tbody>
+    </table>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def display_study_details_cards(gantt_filtered: pd.DataFrame, patient_recruitment_data: dict = None, patients_df = None):

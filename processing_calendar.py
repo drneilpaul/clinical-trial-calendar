@@ -20,6 +20,28 @@ def _get_processing_debug():
     except:
         return False
 
+def _build_anchor_config():
+    """Build a lookup dict of {study: anchor_visit_name} from study_site_details.
+
+    Returns a dict mapping study names to their AnchorVisitName.
+    Studies without an AnchorVisitName (or with NULL/empty) are omitted,
+    meaning they use the default Day 1 / Screening anchor.
+    """
+    from database import fetch_all_study_site_details
+    anchor_config = {}
+    try:
+        details_df = fetch_all_study_site_details()
+        if details_df is not None and not details_df.empty and 'AnchorVisitName' in details_df.columns:
+            for _, row in details_df.iterrows():
+                anchor_name = row.get('AnchorVisitName')
+                study = row.get('Study')
+                if study and anchor_name and pd.notna(anchor_name) and str(anchor_name).strip():
+                    anchor_config[str(study)] = str(anchor_name).strip()
+    except Exception as e:
+        log_activity(f"Warning: Could not load anchor config from study_site_details: {e}", level='warning')
+    return anchor_config
+
+
 @timeit
 def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_inactive=False):
     """Enhanced calendar builder with study events support - Main orchestrator function"""
@@ -121,11 +143,14 @@ def _build_calendar_impl(patients_df, trials_df, actual_visits_df=None, hide_ina
     if not study_event_templates.empty:
         visit_records.extend(process_study_events(study_event_templates, actual_visits_df))
 
+    # Build anchor config: {study_name: anchor_visit_name} for studies with rebasing
+    anchor_config = _build_anchor_config()
+
     # Process patient visits (using stoppages which includes both screen failures and withdrawals)
     import time
     patient_start = time.time()
     processing_stats = process_all_patients(
-        patients_df, patient_visits, stoppages, actual_visits_df
+        patients_df, patient_visits, stoppages, actual_visits_df, anchor_config
     )
     patient_elapsed = time.time() - patient_start
     if patient_elapsed > 1.0:
@@ -533,8 +558,14 @@ def separate_visit_types(trials_df):
     return patient_visits, study_event_templates
 
 @timeit
-def process_all_patients(patients_df, patient_visits, screen_failures, actual_visits_df):
-    """Process visits for all patients"""
+def process_all_patients(patients_df, patient_visits, screen_failures, actual_visits_df, anchor_config=None):
+    """Process visits for all patients
+
+    Args:
+        anchor_config: Optional dict of {study: anchor_visit_name} for visit rebasing.
+            Studies with an anchor visit will rebase downstream predictions from the
+            actual date of that visit once it's recorded.
+    """
     all_visit_records = []
     total_actual_visits_used = 0
     all_unmatched_visits = []
@@ -616,8 +647,12 @@ def process_all_patients(patients_df, patient_visits, screen_failures, actual_vi
         cache_key = f"{patient_id}_{study}"
         patient_specific_actuals = patient_actual_visits_cache.get(cache_key, None)
 
+        # Look up anchor visit name for this study (None means use default Day 1 anchor)
+        patient_anchor_visit = anchor_config.get(study) if anchor_config else None
+
         visit_records, actual_visits_used, unmatched_visits, screen_fail_exclusions, out_of_window_visits, processing_messages, patient_needs_recalc = process_single_patient(
-            patient, study_specific_visits, screen_failures, patient_specific_actuals
+            patient, study_specific_visits, screen_failures, patient_specific_actuals,
+            anchor_visit_name=patient_anchor_visit
         )
         
         if _get_processing_debug():
