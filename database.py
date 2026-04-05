@@ -50,9 +50,7 @@ def get_table_columns(table_name: str) -> Optional[list]:
         'actual_visits': ['id', 'PatientID', 'Study', 'VisitName', 'ActualDate', 'Notes',
                           'VisitType', 'created_at', 'updated_at'],
         'study_site_details': ['id', 'Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget',
-                               'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks',
-                               'ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
-                               'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'SampleSize',
+                               'FPFV', 'LPFV', 'LPLV',
                                'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes',
                                'AnchorVisitName'],
     }
@@ -534,7 +532,7 @@ def save_trial_schedules_to_database(trials_df: pd.DataFrame) -> bool:
             else:
                 study_status_value = str(study_status_value).strip().lower()
                 # Validate status value
-                valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+                valid_statuses = ['active', 'contracted', 'in_setup']
                 if study_status_value not in valid_statuses:
                     log_activity(f"Invalid StudyStatus '{study_status_value}' for {row_tuple.Study}/{getattr(row_tuple, 'SiteforVisit', '')}, defaulting to 'active'", level='warning')
                     study_status_value = 'active'
@@ -953,7 +951,7 @@ def append_trial_schedule_to_database(schedule_df: pd.DataFrame) -> bool:
                 study_status_value = 'active'  # Default status
             else:
                 study_status_value = str(study_status_value).strip().lower()
-                valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+                valid_statuses = ['active', 'contracted', 'in_setup']
                 if study_status_value not in valid_statuses:
                     study_status_value = 'active'
             
@@ -1164,12 +1162,12 @@ def export_study_site_details_to_csv() -> Optional[pd.DataFrame]:
                 df[col] = ''
         
         # Ensure optional columns exist
-        for col in ['StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']:
+        for col in ['StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV']:
             if col not in df.columns:
                 df[col] = ''
         
         # Format date columns for export
-        for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+        for date_col in ['FPFV', 'LPFV', 'LPLV']:
             if date_col in df.columns:
                 try:
                     df[date_col] = pd.to_datetime(df[date_col], errors='coerce').dt.strftime('%d/%m/%Y')
@@ -1177,7 +1175,7 @@ def export_study_site_details_to_csv() -> Optional[pd.DataFrame]:
                 except Exception:
                     df[date_col] = ''
         
-        export_columns = ['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks']
+        export_columns = ['Study', 'ContractSite', 'StudyStatus', 'RecruitmentTarget', 'FPFV', 'LPFV', 'LPLV']
         available_columns = [col for col in export_columns if col in df.columns]
         df = df[available_columns]
         
@@ -1228,7 +1226,7 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
                 log_activity(f"WARNING: ContractSite not found in study_site_details. Columns: {list(df.columns)}", level='warning')
 
             # Parse date fields if they exist
-            for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+            for date_col in ['FPFV', 'LPFV', 'LPLV']:
                 if date_col in df.columns:
                     df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
 
@@ -1244,7 +1242,7 @@ def _fetch_all_study_site_details_cached() -> Optional[pd.DataFrame]:
 
             return df
         # Return empty DataFrame with ContractSite (normalized column name used internally)
-        return pd.DataFrame(columns=['Study', 'ContractSite', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks'])
+        return pd.DataFrame(columns=['Study', 'ContractSite', 'FPFV', 'LPFV', 'LPLV', 'StudyStatus', 'RecruitmentTarget'])
     except Exception as e:
         log_activity(f"Error fetching study site details: {e}", level='error')
         return None
@@ -1288,18 +1286,6 @@ def create_study_site_details(study: str, site: str, details: Dict) -> bool:
             'FPFV': str(details.get('FPFV')) if details.get('FPFV') else None,
             'LPFV': str(details.get('LPFV')) if details.get('LPFV') else None,
             'LPLV': str(details.get('LPLV')) if details.get('LPLV') else None,
-            'Description': details.get('Description'),
-            'EOIDate': str(details.get('EOIDate')) if details.get('EOIDate') else None,
-            'StudyURL': details.get('StudyURL'),
-            'DocumentLinks': details.get('DocumentLinks'),
-            'ProtocolNumber': details.get('ProtocolNumber'),
-            'IRASNumber': details.get('IRASNumber'),
-            'ISRCTNNumber': details.get('ISRCTNNumber'),
-            'RECReference': details.get('RECReference'),
-            'Sponsor': details.get('Sponsor'),
-            'ChiefInvestigator': details.get('ChiefInvestigator'),
-            'StudyPopulation': details.get('StudyPopulation'),
-            'SampleSize': details.get('SampleSize'),
             'SetupFee': details.get('SetupFee'),
             'PerPatientFee': details.get('PerPatientFee'),
             'AnnualFee': details.get('AnnualFee'),
@@ -1348,21 +1334,12 @@ def save_study_site_details(study: str, site: str, details: Dict) -> bool:
             record['LPFV'] = str(details['LPFV']) if details['LPFV'] else None
         if 'LPLV' in details:
             record['LPLV'] = str(details['LPLV']) if details['LPLV'] else None
-        if 'Description' in details:
-            record['Description'] = details['Description']
-        if 'EOIDate' in details:
-            record['EOIDate'] = str(details['EOIDate']) if details['EOIDate'] else None
-        if 'StudyURL' in details:
-            record['StudyURL'] = details['StudyURL']
-        if 'DocumentLinks' in details:
-            record['DocumentLinks'] = details['DocumentLinks']
-        # New structured fields
-        for field in ['ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
-                      'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'FinancialNotes']:
+        # Additional fields
+        for field in ['FinancialNotes']:
             if field in details:
                 record[field] = details[field]
         # Numeric fields
-        for field in ['SampleSize', 'SetupFee', 'PerPatientFee', 'AnnualFee']:
+        for field in ['SetupFee', 'PerPatientFee', 'AnnualFee']:
             if field in details:
                 record[field] = details[field] if details[field] is not None else None
 
@@ -1395,14 +1372,12 @@ def update_study_site_details(study: str, site: str, **kwargs) -> bool:
         update_data = {}
 
         # Handle date fields
-        for date_field in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+        for date_field in ['FPFV', 'LPFV', 'LPLV']:
             if date_field in kwargs:
                 update_data[date_field] = str(kwargs[date_field]) if kwargs[date_field] else None
 
         # Handle other fields
-        for field in ['StudyStatus', 'RecruitmentTarget', 'Description', 'EOIDate', 'StudyURL', 'DocumentLinks',
-                      'ProtocolNumber', 'IRASNumber', 'ISRCTNNumber', 'RECReference',
-                      'Sponsor', 'ChiefInvestigator', 'StudyPopulation', 'SampleSize',
+        for field in ['StudyStatus', 'RecruitmentTarget',
                       'SetupFee', 'PerPatientFee', 'AnnualFee', 'FinancialNotes']:
             if field in kwargs:
                 update_data[field] = kwargs[field]
@@ -1479,7 +1454,7 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
 
             # Handle StudyStatus with safe_str and ensure valid value
             study_status = safe_str(getattr(row, 'StudyStatus', 'active'), 'active').lower()
-            if study_status not in ['active', 'completed', 'on_hold', 'cancelled', 'expression_of_interest', 'eoi_didnt_get']:
+            if study_status not in ['active', 'completed', 'on_hold', 'cancelled']:
                 study_status = 'active'
 
             record = {
@@ -1490,10 +1465,6 @@ def save_study_site_details_to_database(details_df: pd.DataFrame) -> bool:
                 'FPFV': parse_date(getattr(row, 'FPFV', None)),
                 'LPFV': parse_date(getattr(row, 'LPFV', None)),
                 'LPLV': parse_date(getattr(row, 'LPLV', None)),
-                'Description': safe_str(getattr(row, 'Description', '')) or None,
-                'EOIDate': parse_date(getattr(row, 'EOIDate', None)),
-                'StudyURL': safe_str(getattr(row, 'StudyURL', '')) or None,
-                'DocumentLinks': safe_str(getattr(row, 'DocumentLinks', '')) or None
             }
             records.append(record)
         

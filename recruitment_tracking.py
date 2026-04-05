@@ -171,7 +171,7 @@ def display_recruitment_dashboard(recruitment_data: pd.DataFrame):
     with col3:
         selected_statuses = st.multiselect(
             "Filter by Study Status",
-            options=['active', 'contracted', 'in_setup', 'expression_of_interest'],
+            options=['active', 'contracted', 'in_setup'],
             default=[]
         )
     

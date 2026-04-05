@@ -239,7 +239,6 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     patient_recruitment_data = {}
     
     # Get study+site combinations from both trial_schedules and study_site_details
-    # This ensures EOI studies without trial schedules are included
     import database as db
     study_details_df = db.fetch_all_study_site_details()
 
@@ -251,7 +250,7 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
         for row in trials_df.itertuples(index=False):
             study_site_combinations.add((row.Study, row.SiteforVisit))
 
-    # Add from study_site_details (includes EOI studies without trial schedules)
+    # Add from study_site_details (includes studies without trial schedules)
     if study_details_df is not None and not study_details_df.empty:
         # DEBUG: Log what columns we actually have
         log_activity(f"DEBUG gantt_view: study_details_df columns: {list(study_details_df.columns)}", level='info')
@@ -291,9 +290,9 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
             recruitment_list = get_patient_recruitment_data(study, site, patients_df)
             patient_recruitment_data[(study, site)] = recruitment_list
             
-            # Extract SIV date (only for active/contracted studies, not EOI)
+            # Extract SIV date
             siv_date = None
-            if dates['status'] not in ['expression_of_interest', 'eoi_didnt_get'] and actual_visits_df is not None:
+            if actual_visits_df is not None:
                 siv_date = extract_siv_dates(study, site, actual_visits_df)
             
             gantt_rows.append({
@@ -312,10 +311,10 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     
     # Filter out rows with no dates (studies with no patients/visits yet)
     # But keep them if status indicates study should be visible even without dates
-    # (EOI, in_setup, contracted, or active studies should show even if dates not yet set)
+    # (in_setup, contracted, or active studies should show even if dates not yet set)
     gantt_df = gantt_df[
         (gantt_df['StartDate'].notna()) |
-        (gantt_df['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'in_setup', 'contracted', 'active', 'completed']))
+        (gantt_df['Status'].isin(['in_setup', 'contracted', 'active', 'completed']))
     ]
     
     return gantt_df, patient_recruitment_data
@@ -326,8 +325,6 @@ def get_status_color(status: str) -> str:
         'active': '#2ecc71',  # Green (for recruitment phase)
         'contracted': '#3498db',  # Blue
         'in_setup': '#f39c12',  # Orange/Yellow
-        'expression_of_interest': '#95a5a6',  # Gray
-        'eoi_didnt_get': '#e74c3c',  # Red (didn't get contract)
         'in_followup': '#9b59b6',  # Purple (for follow-up phase)
         'completed': '#7f8c8d',  # Dark grey (study finished)
     }
@@ -392,10 +389,10 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         return
     
     # Filter out rows without dates for visualization (except studies that should show even without dates)
-    # Allow: EOI, contracted, in_setup, and active studies to show even without dates
+    # Allow: contracted, in_setup, and active studies to show even without dates
     gantt_filtered = gantt_data[
         (gantt_data['StartDate'].notna()) |
-        (gantt_data['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active', 'completed']))
+        (gantt_data['Status'].isin(['contracted', 'in_setup', 'active', 'completed']))
     ].copy()
     
     if gantt_filtered.empty:
@@ -439,30 +436,18 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     
     # Filter: Keep studies with activity in current FY, or studies that should always show
     # Active studies should show even without FY activity (they're live studies)
-    # EOI, contracted, in_setup are pipeline studies and should also show
+    # contracted, in_setup are pipeline studies and should also show
     gantt_filtered = gantt_filtered[
         (gantt_filtered['Study'].isin(studies_with_activity)) |
-        (gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get', 'contracted', 'in_setup', 'active', 'completed']))
+        (gantt_filtered['Status'].isin(['contracted', 'in_setup', 'active', 'completed']))
     ].copy()
     
     if gantt_filtered.empty:
         st.info("No studies with activity in the current financial year available for Gantt chart.")
         return
     
-    # Sort: EOI at bottom, others grouped by Site, then by StartDate ascending (oldest first)
-    # Separate EOI and non-EOI studies
-    eoi_studies = gantt_filtered[gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])].copy()
-    non_eoi_studies = gantt_filtered[~gantt_filtered['Status'].isin(['expression_of_interest', 'eoi_didnt_get'])].copy()
-    
-    # Sort non-EOI by Site first (to group same site together), then by StartDate ascending
-    non_eoi_studies = non_eoi_studies.sort_values(['Site', 'StartDate'], na_position='last', kind='stable')
-    
-    # Sort EOI by Site, then StartDate if available
-    if not eoi_studies.empty:
-        eoi_studies = eoi_studies.sort_values(['Site', 'StartDate'], na_position='last', kind='stable')
-    
-    # Combine: non-EOI first, then EOI at bottom
-    gantt_filtered = pd.concat([non_eoi_studies, eoi_studies], ignore_index=True)
+    # Sort by Site first (to group same site together), then by StartDate ascending
+    gantt_filtered = gantt_filtered.sort_values(['Site', 'StartDate'], na_position='last', kind='stable')
     
     # Create figure using timeline approach with shapes
     fig = go.Figure()
@@ -557,22 +542,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
 
         # Handle studies without dates - use approximate dates based on status
         if pd.isna(start):
-            if status in ['expression_of_interest', 'eoi_didnt_get']:
-                # EOI without dates - try to use EOIDate if available, otherwise use current date
-                import database as db
-                study_details = db.fetch_study_site_details(row['Study'], row['Site'])
-                if study_details and study_details.get('EOIDate'):
-                    eoi_date = pd.to_datetime(study_details['EOIDate'], errors='coerce')
-                    if pd.notna(eoi_date):
-                        start = eoi_date.date()
-                        end = start + timedelta(days=90)  # 3 month bar for EOI
-                    else:
-                        start = date.today()
-                        end = start + timedelta(days=90)
-                else:
-                    start = date.today()
-                    end = start + timedelta(days=90)
-            elif status in ['active', 'contracted', 'in_setup', 'completed']:
+            if status in ['active', 'contracted', 'in_setup', 'completed']:
                 # Studies without dates - show 1 year bar from today
                 start = date.today()
                 end = start + timedelta(days=365)  # 1 year bar
@@ -634,14 +604,6 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 line=dict(color=bar_border_color, width=bar_border_width),
                 layer="below"
             )
-        elif status in ['expression_of_interest', 'eoi_didnt_get']:
-            fig.add_shape(
-                type="rect", x0=start, x1=end,
-                y0=y_pos - 0.4, y1=y_pos + 0.4,
-                fillcolor=base_color, opacity=0.7,
-                line=dict(color=bar_border_color, width=bar_border_width),
-                layer="below"
-            )
         elif status == 'active':
             if lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date:
                 recruitment_end = min(lpfv_date, end)
@@ -694,6 +656,33 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             siv_marker_x.append(siv_date)
             siv_marker_y.append(y_pos)
 
+        # Add patient recruitment markers for this study
+        study_site_key = (row['Study'], row['Site'])
+        if study_site_key in patient_recruitment_data:
+            for rec_date, patient_num in patient_recruitment_data[study_site_key]:
+                if start <= rec_date <= end:
+                    patient_marker_x.append(rec_date)
+                    patient_marker_y.append(y_pos)
+                    patient_marker_text.append(str(patient_num))
+
+        # Add invisible scatter trace for hover info
+        fig.add_trace(go.Scatter(
+            x=[start + (end - start) / 2],
+            y=[y_pos],
+            mode='markers',
+            marker=dict(size=1, opacity=0),
+            name=row['Study'],
+            hovertemplate=(
+                f"<b>{row['Study']}</b><br>"
+                f"Site: {row['Site']}<br>"
+                f"Status: {status}<br>"
+                f"Start: {start.strftime('%d/%m/%Y')}<br>"
+                f"End: {end.strftime('%d/%m/%Y') if pd.notna(row['EndDate']) else 'TBD'}<br>"
+                f"<extra></extra>"
+            ),
+            showlegend=False
+        ))
+
         # Track site changes for visual grouping
         current_site = row['Site']
         if prev_site is not None and current_site != prev_site:
@@ -724,36 +713,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
                 xanchor="right",
                 yanchor="bottom"
             )
-        
-        # Add patient recruitment markers
-        study_site_key = (row['Study'], row['Site'])
-        if study_site_key in patient_recruitment_data:
-            for rec_date, patient_num in patient_recruitment_data[study_site_key]:
-                if start <= rec_date <= end:
-                    patient_marker_x.append(rec_date)
-                    patient_marker_y.append(y_pos)
-                    patient_marker_text.append(str(patient_num))
 
-        # Add invisible scatter trace for hover info
-        fig.add_trace(go.Scatter(
-            x=[start + (end - start) / 2],
-            y=[y_pos],
-            mode='markers',
-            marker=dict(size=1, opacity=0),
-            name=row['Study'],
-            hovertemplate=(
-                f"<b>{row['Study']}</b><br>"
-                f"Site: {row['Site']}<br>"
-                f"Status: {status}<br>"
-                f"Start: {start.strftime('%d/%m/%Y')}<br>"
-                f"End: {end.strftime('%d/%m/%Y') if pd.notna(row['EndDate']) else 'TBD'}<br>"
-                f"Last Enrollment: {row['LastEnrollment'].strftime('%d/%m/%Y') if pd.notna(row['LastEnrollment']) else 'N/A'}<br>"
-                f"LPFV: {lpfv_date.strftime('%d/%m/%Y') if lpfv_date and pd.notna(lpfv_date) else 'N/A'}<br>"
-                f"<extra></extra>"
-            ),
-            showlegend=False
-        ))
-    
     # Add patient recruitment markers as scatter plot
     if patient_marker_x:
         # Convert date objects to datetime for Plotly
@@ -850,7 +810,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         with col4:
             st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
         with col5:
-            st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
+            st.markdown(f"<span style='color: #7f8c8d; font-weight: bold;'>●</span> Completed", unsafe_allow_html=True)
         with col6:
             st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
 
@@ -877,7 +837,7 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         with col4:
             st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
         with col5:
-            st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>●</span> Expression of Interest", unsafe_allow_html=True)
+            st.markdown(f"<span style='color: #7f8c8d; font-weight: bold;'>●</span> Completed", unsafe_allow_html=True)
         with col6:
             st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
 
@@ -887,8 +847,6 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     st.markdown("### WCF Activity")
     _display_wcf_activity(all_gantt_data if all_gantt_data is not None else gantt_filtered, patients_df)
 
-    # Show study information repository
-    display_study_details_cards(gantt_filtered, patient_recruitment_data, patients_df)
 
 
 def _display_wcf_activity(all_gantt_data: pd.DataFrame, patients_df: Optional[pd.DataFrame] = None):
@@ -1016,297 +974,3 @@ def _display_wcf_activity(all_gantt_data: pd.DataFrame, patients_df: Optional[pd
     """
     st.markdown(html, unsafe_allow_html=True)
 
-
-def display_study_details_cards(gantt_filtered: pd.DataFrame, patient_recruitment_data: dict = None, patients_df = None):
-    """Display expandable study detail cards below the Gantt chart."""
-    import database as db
-
-    if patient_recruitment_data is None:
-        patient_recruitment_data = {}
-
-    st.markdown("### 📚 Study Information")
-
-    # Status display config
-    status_labels = {
-        'active': 'Active',
-        'in_setup': 'In Setup',
-        'contracted': 'Contracted',
-        'expression_of_interest': 'Expression of Interest',
-        'eoi_didnt_get': 'EOI - Did Not Get',
-        'in_followup': 'Follow-Up',
-        'completed': 'Completed',
-    }
-    status_colors = {
-        'active': '#2ecc71',
-        'in_setup': '#f39c12',
-        'contracted': '#3498db',
-        'expression_of_interest': '#95a5a6',
-        'eoi_didnt_get': '#e74c3c',
-        'in_followup': '#9b59b6',
-        'completed': '#7f8c8d',
-    }
-    status_emoji = {
-        'active': '🟢', 'in_setup': '🟠', 'contracted': '🔵',
-        'expression_of_interest': '⚪', 'eoi_didnt_get': '🔴',
-        'in_followup': '🟣', 'completed': '⚫'
-    }
-
-    # Fetch all study details in one call for performance
-    all_details_df = db.fetch_all_study_site_details()
-    details_lookup = {}
-    if all_details_df is not None and not all_details_df.empty:
-        for _, d_row in all_details_df.iterrows():
-            key = (d_row.get('Study', ''), d_row.get('ContractSite', ''))
-            details_lookup[key] = d_row.to_dict()
-
-    # --- Pipeline Status Strip ---
-    pipeline_stages = [
-        ('EOI', 'expression_of_interest', '#95a5a6'),
-        ('Contracted', 'contracted', '#3498db'),
-        ('In Setup', 'in_setup', '#f39c12'),
-        ('Active', 'active', '#2ecc71'),
-        ('Follow-Up', 'in_followup', '#9b59b6'),
-        ('Completed', 'completed', '#7f8c8d'),
-        ('Did Not Get', 'eoi_didnt_get', '#e74c3c'),
-    ]
-
-    total_studies = len(gantt_filtered)
-    pipe_cols = st.columns(len(pipeline_stages) + 1)
-    with pipe_cols[0]:
-        st.markdown(
-            f"<div style='text-align:center; padding:8px; background:#f0f2f6; "
-            f"border-radius:6px;'>"
-            f"<div style='font-size:28px; font-weight:bold;'>{total_studies}</div>"
-            f"<div style='font-size:11px; color:#666;'>Total</div>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-    for i, (label, status_key, color) in enumerate(pipeline_stages):
-        count = len(gantt_filtered[gantt_filtered['Status'].str.lower() == status_key])
-        with pipe_cols[i + 1]:
-            st.markdown(
-                f"<div style='text-align:center; padding:8px; background:{color}15; "
-                f"border-left:4px solid {color}; border-radius:4px;'>"
-                f"<div style='font-size:22px; font-weight:bold; color:{color};'>{count}</div>"
-                f"<div style='font-size:11px; color:#666;'>{label}</div>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-    # --- Recruitment Summary (active studies only) ---
-    active_studies = gantt_filtered[gantt_filtered['Status'].str.lower().isin(['active', 'in_followup'])]
-    total_recruited = 0
-    total_target = 0
-    studies_under_target = 0
-
-    for _, arow in active_studies.iterrows():
-        study_key = (arow['Study'], arow['Site'])
-        recruited = len(patient_recruitment_data.get(study_key, []))
-        total_recruited += recruited
-
-        a_details = details_lookup.get(study_key, {})
-        t_val, t_class = classify_target(a_details.get('RecruitmentTarget', ''))
-        if t_class == 'set':
-            total_target += t_val
-            if recruited < t_val:
-                studies_under_target += 1
-        # 'open' and 'unset' don't contribute to totals
-
-    if total_target > 0:
-        pct_val = total_recruited / total_target * 100
-        overall_pct = f"{pct_val:.1f}%" if pct_val < 10 else f"{int(pct_val)}%"
-    else:
-        overall_pct = "N/A"
-
-    rec_cols = st.columns(4)
-    with rec_cols[0]:
-        st.metric("Recruited", total_recruited)
-    with rec_cols[1]:
-        st.metric("Target", f"{total_target:,}" if total_target > 0 else "N/A")
-    with rec_cols[2]:
-        st.metric("Progress", overall_pct)
-    with rec_cols[3]:
-        st.metric("Under Target", studies_under_target)
-
-    st.divider()
-
-    # --- Search + Sort Controls ---
-    ctrl_col1, ctrl_col2 = st.columns([3, 1])
-    with ctrl_col1:
-        search_term = st.text_input("🔍 Search studies...", placeholder="Type study name, sponsor, or keyword",
-                                     key="study_search_filter")
-    with ctrl_col2:
-        card_sort = st.selectbox("Sort by", ["Status Group", "Alphabetical", "Site"], key="card_sort")
-
-    # --- Build card data and sort ---
-    card_rows = []
-    for _, row in gantt_filtered.iterrows():
-        study = row['Study']
-        site = row['Site']
-        status = str(row.get('Status', 'active')).lower()
-        details = details_lookup.get((study, site), {})
-
-        # Apply search filter
-        if search_term:
-            search_lower = search_term.lower()
-            searchable = f"{study} {site} {details.get('Sponsor', '')} {details.get('Description', '')} {details.get('ProtocolNumber', '')} {details.get('ChiefInvestigator', '')}".lower()
-            if search_lower not in searchable:
-                continue
-
-        card_rows.append((study, site, status, details, row))
-
-    # Sort cards
-    status_group_order = {
-        'active': 0, 'in_followup': 0,
-        'in_setup': 1, 'contracted': 1,
-        'expression_of_interest': 2,
-        'completed': 3, 'eoi_didnt_get': 3,
-    }
-    group_labels = {
-        0: ('🟢 Active', ['active', 'in_followup']),
-        1: ('🟠 In Setup / Contracted', ['in_setup', 'contracted']),
-        2: ('⚪ Pipeline / EOI', ['expression_of_interest']),
-        3: ('⚫ Archived', ['completed', 'eoi_didnt_get']),
-    }
-
-    if card_sort == "Status Group":
-        card_rows.sort(key=lambda x: (status_group_order.get(x[2], 99), x[0].lower()))
-    elif card_sort == "Alphabetical":
-        card_rows.sort(key=lambda x: x[0].lower())
-    elif card_sort == "Site":
-        card_rows.sort(key=lambda x: (x[1], status_group_order.get(x[2], 99), x[0].lower()))
-
-    # --- Render cards with group headers ---
-    current_group = None
-    for study, site, status, details, row in card_rows:
-        # Show group header for "Status Group" sort
-        if card_sort == "Status Group":
-            group_idx = status_group_order.get(status, 99)
-            if group_idx != current_group:
-                current_group = group_idx
-                group_label, group_statuses = group_labels.get(group_idx, (status.title(), [status]))
-                group_count = sum(1 for s, si, st, d, r in card_rows if st in group_statuses)
-                st.markdown(f"#### {group_label} ({group_count})")
-
-        # Build header with emoji badge
-        status_label = status_labels.get(status, status.title())
-        color = status_colors.get(status, '#95a5a6')
-        badge = status_emoji.get(status, '⚪')
-        target_val, target_class = classify_target(details.get('RecruitmentTarget', ''))
-        if target_class == 'set':
-            target_str = f" | Target: {target_val}"
-        elif target_class == 'open':
-            target_str = " | Target: Open"
-        else:
-            target_str = ""
-        sponsor_str = f" | {details.get('Sponsor', '')}" if details.get('Sponsor') else ""
-
-        header = f"{badge} {study} @ {site} — {status_label}{target_str}{sponsor_str}"
-
-        with st.expander(header, expanded=False):
-            # Recruitment progress bar for active studies with a specific target
-            if status in ['active', 'in_followup'] and target_class == 'set':
-                recruited = len(patient_recruitment_data.get((study, site), []))
-                progress_pct = min(1.0, recruited / target_val)
-                st.progress(progress_pct, text=f"{recruited}/{target_val} recruited ({int(progress_pct * 100)}%)")
-            # Row 1: Key metrics
-            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            with m_col1:
-                st.markdown(f"**Status:** <span style='color:{color}; font-weight:bold;'>{status_label}</span>",
-                           unsafe_allow_html=True)
-            with m_col2:
-                if target_class == 'set':
-                    st.markdown(f"**Target:** {target_val} patients")
-                elif target_class == 'open':
-                    st.markdown("**Target:** Open (no cap)")
-                else:
-                    st.markdown("**Target:** Not set")
-            with m_col3:
-                fpfv = details.get('FPFV', '')
-                lplv = details.get('LPLV', '')
-                if fpfv and lplv:
-                    # Format dates
-                    try:
-                        fpfv_dt = pd.to_datetime(fpfv, errors='coerce')
-                        lplv_dt = pd.to_datetime(lplv, errors='coerce')
-                        if pd.notna(fpfv_dt) and pd.notna(lplv_dt):
-                            st.markdown(f"**Timeline:** {fpfv_dt.strftime('%d/%m/%Y')} → {lplv_dt.strftime('%d/%m/%Y')}")
-                        else:
-                            st.markdown("**Timeline:** Dates TBC")
-                    except Exception:
-                        st.markdown("**Timeline:** Dates TBC")
-                else:
-                    st.markdown("**Timeline:** Dates TBC")
-            with m_col4:
-                if details.get('Sponsor'):
-                    st.markdown(f"**Sponsor:** {details['Sponsor']}")
-
-            # Row 2: Reference numbers
-            refs = []
-            for field, label in [('ProtocolNumber', 'Protocol'), ('IRASNumber', 'IRAS'),
-                                  ('ISRCTNNumber', 'ISRCTN'), ('RECReference', 'REC')]:
-                val = details.get(field, '')
-                if val and str(val).strip():
-                    refs.append(f"**{label}:** {val}")
-            if refs:
-                st.markdown(" · ".join(refs))
-
-            # CI and population
-            info_parts = []
-            if details.get('ChiefInvestigator'):
-                info_parts.append(f"**CI:** {details['ChiefInvestigator']}")
-            if details.get('StudyPopulation'):
-                info_parts.append(f"**Population:** {details['StudyPopulation']}")
-            if details.get('SampleSize'):
-                info_parts.append(f"**Sample Size:** {details['SampleSize']:,}")
-            if info_parts:
-                st.markdown(" · ".join(info_parts))
-
-            # Description
-            description = details.get('Description', '')
-            if description and str(description).strip():
-                st.markdown("---")
-                st.markdown(str(description))
-
-            # Financials
-            setup_fee = details.get('SetupFee')
-            per_patient = details.get('PerPatientFee')
-            annual_fee = details.get('AnnualFee')
-            fin_notes = details.get('FinancialNotes', '')
-
-            has_financials = any([setup_fee, per_patient, annual_fee, fin_notes and str(fin_notes).strip()])
-            if has_financials:
-                st.markdown("---")
-                st.markdown("**💰 Financial Information**")
-                fin_col1, fin_col2, fin_col3 = st.columns(3)
-                with fin_col1:
-                    if setup_fee:
-                        st.metric("Setup Fee", f"£{float(setup_fee):,.2f}")
-                with fin_col2:
-                    if per_patient:
-                        st.metric("Per Patient", f"£{float(per_patient):,.2f}")
-                with fin_col3:
-                    if annual_fee:
-                        st.metric("Annual Fee", f"£{float(annual_fee):,.2f}")
-                if fin_notes and str(fin_notes).strip():
-                    st.caption(str(fin_notes))
-
-            # Links
-            study_url = details.get('StudyURL', '')
-            doc_links = details.get('DocumentLinks', '')
-            has_links = (study_url and str(study_url).strip()) or (doc_links and str(doc_links).strip())
-            if has_links:
-                st.markdown("---")
-                link_col1, link_col2 = st.columns(2)
-                with link_col1:
-                    if study_url and str(study_url).strip():
-                        st.markdown(f"🔗 [Study Registry]({study_url})")
-                with link_col2:
-                    if doc_links and str(doc_links).strip():
-                        # Support multiple links (one per line)
-                        links = [l.strip() for l in str(doc_links).split('\n') if l.strip()]
-                        for i, link in enumerate(links):
-                            if link.startswith('http'):
-                                st.markdown(f"📄 [Document {i+1}]({link})")
-                            else:
-                                st.markdown(f"📄 {link}")

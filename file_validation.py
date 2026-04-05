@@ -296,7 +296,7 @@ def validate_trials_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     if 'StudyStatus' in df_clean.columns:
         df_clean['StudyStatus'] = df_clean['StudyStatus'].fillna('active').astype(str).str.strip().str.lower()
         # Validate status values
-        valid_statuses = ['active', 'contracted', 'in_setup', 'expression_of_interest']
+        valid_statuses = ['active', 'contracted', 'in_setup']
         invalid_statuses = df_clean[~df_clean['StudyStatus'].isin(valid_statuses) & df_clean['StudyStatus'].notna()]
         if not invalid_statuses.empty:
             invalid_count = len(invalid_statuses)
@@ -441,12 +441,12 @@ def validate_study_site_details_file(df: pd.DataFrame) -> Tuple[pd.DataFrame, Li
         errors.append(f"❌ {invalid_count} row(s) missing Study or ContractSite")
     
     # Optional date fields
-    for date_col in ['FPFV', 'LPFV', 'LPLV', 'EOIDate']:
+    for date_col in ['FPFV', 'LPFV', 'LPLV']:
         if date_col in df_clean.columns:
             df_clean[date_col] = pd.to_datetime(df_clean[date_col], errors='coerce')
     
     # Numeric fields
-    for numeric_col in ['RecruitmentTarget', 'SampleSize', 'SetupFee', 'PerPatientFee', 'AnnualFee']:
+    for numeric_col in ['RecruitmentTarget', 'SetupFee', 'PerPatientFee', 'AnnualFee']:
         if numeric_col in df_clean.columns:
             df_clean[numeric_col] = pd.to_numeric(df_clean[numeric_col], errors='coerce')
 

@@ -1266,8 +1266,7 @@ def main():
                     # --- Filter Bar ---
                     status_labels_map = {
                         'active': 'Active', 'in_followup': 'Follow-Up', 'in_setup': 'In Setup',
-                        'contracted': 'Contracted', 'expression_of_interest': 'EOI',
-                        'completed': 'Completed', 'eoi_didnt_get': 'Did Not Get'
+                        'contracted': 'Contracted', 'completed': 'Completed',
                     }
 
                     all_statuses = sorted(gantt_data['Status'].dropna().unique().tolist())
@@ -1275,10 +1274,10 @@ def main():
 
                     # Quick view presets
                     view_presets = {
-                        'Portfolio': ['active', 'in_followup', 'in_setup', 'contracted', 'expression_of_interest'],
+                        'Portfolio': ['active', 'in_followup', 'in_setup', 'contracted'],
                         'Active': ['active', 'in_followup'],
-                        'Pipeline': ['in_setup', 'contracted', 'expression_of_interest'],
-                        'Archive': ['completed', 'eoi_didnt_get'],
+                        'Pipeline': ['in_setup', 'contracted'],
+                        'Archive': ['completed'],
                         'All': all_statuses,
                     }
 
