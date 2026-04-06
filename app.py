@@ -20,7 +20,7 @@ from display_components import (
     render_reporting_year_selector
 )
 from gantt_view import build_gantt_data, display_gantt_chart
-from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard, overlay_recruitment_on_gantt
+from recruitment_tracking import build_recruitment_data, display_recruitment_dashboard
 from modal_forms import handle_patient_modal, handle_visit_modal, handle_proposed_visit_modal, handle_study_event_modal, show_download_sections, handle_study_settings_modal
 from data_analysis import (
     extract_screen_failures, extract_withdrawals, display_site_wise_statistics, display_processing_messages
@@ -1263,68 +1263,7 @@ def main():
                 try:
                     gantt_data, patient_recruitment_data = build_gantt_data(patients_df, trials_df, visits_df, actual_visits_df)
 
-                    # --- Filter Bar ---
-                    status_labels_map = {
-                        'active': 'Active', 'in_followup': 'Follow-Up', 'in_setup': 'In Setup',
-                        'contracted': 'Contracted', 'completed': 'Completed',
-                    }
-
-                    all_statuses = sorted(gantt_data['Status'].dropna().unique().tolist())
-                    all_sites = sorted(gantt_data['Site'].dropna().unique().tolist())
-
-                    # Quick view presets
-                    view_presets = {
-                        'Portfolio': ['active', 'in_followup', 'in_setup', 'contracted'],
-                        'Active': ['active', 'in_followup'],
-                        'Pipeline': ['in_setup', 'contracted'],
-                        'Archive': ['completed'],
-                        'All': all_statuses,
-                    }
-
-                    filter_col1, filter_col2, filter_col3 = st.columns([3, 1.5, 1])
-
-                    with filter_col1:
-                        view_preset = st.radio(
-                            "View", list(view_presets.keys()),
-                            index=0, horizontal=True,
-                            key="gantt_view_preset"
-                        )
-
-                    with filter_col2:
-                        selected_sites = st.multiselect(
-                            "Site", options=all_sites, default=all_sites,
-                            key="gantt_site_filter"
-                        )
-
-                    with filter_col3:
-                        show_recruitment_overlay = st.checkbox(
-                            "Recruitment Overlay", value=False,
-                            help="Overlay recruitment progress on Gantt chart"
-                        )
-
-                    # Save unfiltered data for WCF Activity table
-                    all_gantt_data = gantt_data.copy()
-
-                    # Apply view preset filter
-                    preset_statuses = view_presets.get(view_preset, all_statuses)
-                    gantt_data = gantt_data[gantt_data['Status'].isin(preset_statuses)].copy()
-
-                    # Apply site filter
-                    if selected_sites:
-                        gantt_data = gantt_data[gantt_data['Site'].isin(selected_sites)].copy()
-
-                    # Filter patient_recruitment_data to match
-                    filtered_recruitment_data = {
-                        k: v for k, v in patient_recruitment_data.items()
-                        if (not selected_sites or k[1] in selected_sites)
-                    }
-
-                    recruitment_data = None
-                    if show_recruitment_overlay:
-                        recruitment_data = build_recruitment_data(patients_df, trials_df)
-                        gantt_data = overlay_recruitment_on_gantt(gantt_data, recruitment_data)
-
-                    display_gantt_chart(gantt_data, filtered_recruitment_data, show_recruitment_overlay, recruitment_data, visits_df, patients_df, all_gantt_data)
+                    display_gantt_chart(gantt_data, patient_recruitment_data, visits_df=visits_df, patients_df=patients_df)
                 except Exception as e:
                     st.error(f"Error building Gantt chart: {e}")
                     log_activity(f"Error building Gantt chart: {e}", level='error')

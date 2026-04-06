@@ -309,13 +309,8 @@ def build_gantt_data(patients_df: pd.DataFrame, trials_df: pd.DataFrame,
     
     gantt_df = pd.DataFrame(gantt_rows)
     
-    # Filter out rows with no dates (studies with no patients/visits yet)
-    # But keep them if status indicates study should be visible even without dates
-    # (in_setup, contracted, or active studies should show even if dates not yet set)
-    gantt_df = gantt_df[
-        (gantt_df['StartDate'].notna()) |
-        (gantt_df['Status'].isin(['in_setup', 'contracted', 'active', 'completed']))
-    ]
+    # Only show studies that have actual date data (patients enrolled or visits scheduled)
+    gantt_df = gantt_df[gantt_df['StartDate'].notna()]
     
     return gantt_df, patient_recruitment_data
 
@@ -370,80 +365,27 @@ def extract_siv_dates(study: str, site: str, actual_visits_df: Optional[pd.DataF
     return None
 
 def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict[Tuple[str, str], List[Tuple[date, int]]],
-                       show_recruitment_overlay: bool = False,
-                       recruitment_data: Optional[pd.DataFrame] = None,
                        visits_df: Optional[pd.DataFrame] = None,
-                       patients_df: Optional[pd.DataFrame] = None,
-                       all_gantt_data: Optional[pd.DataFrame] = None):
+                       patients_df: Optional[pd.DataFrame] = None):
     """
     Display Gantt chart visualization using Plotly.
-    
+    Shows only studies with actual patient/visit data.
+
     Args:
         gantt_data: DataFrame from build_gantt_data()
         patient_recruitment_data: Dict mapping (Study, Site) -> List of (recruitment_date, patient_number) tuples
-        show_recruitment_overlay: Whether to overlay recruitment progress
-        recruitment_data: Optional recruitment data for overlay
+        visits_df: Optional visits dataframe (for reference)
+        patients_df: Optional patients dataframe (for WCF activity)
     """
     if gantt_data.empty:
         st.info("No Gantt data available to display.")
         return
-    
-    # Filter out rows without dates for visualization (except studies that should show even without dates)
-    # Allow: contracted, in_setup, and active studies to show even without dates
-    gantt_filtered = gantt_data[
-        (gantt_data['StartDate'].notna()) |
-        (gantt_data['Status'].isin(['contracted', 'in_setup', 'active', 'completed']))
-    ].copy()
-    
+
+    # Only show studies with actual date data
+    gantt_filtered = gantt_data[gantt_data['StartDate'].notna()].copy()
+
     if gantt_filtered.empty:
         st.info("No studies with date information available for Gantt chart.")
-        return
-    
-    # Filter out studies with no activity in current financial year
-    from helpers import get_current_financial_year_boundaries
-    fy_start, fy_end = get_current_financial_year_boundaries()
-    
-    # Check each study for activity in current FY
-    studies_with_activity = set()
-    
-    # Check visits_df (predicted visits) for activity in current FY
-    if visits_df is not None and not visits_df.empty and 'Date' in visits_df.columns:
-        visits_df_dates = pd.to_datetime(visits_df['Date'], errors='coerce')
-        fy_visits = visits_df[
-            (visits_df_dates >= pd.Timestamp(fy_start)) & 
-            (visits_df_dates <= pd.Timestamp(fy_end))
-        ]
-        if not fy_visits.empty and 'Study' in fy_visits.columns:
-            studies_with_activity.update(fy_visits['Study'].dropna().unique())
-    
-    # Check patients_df for recruitment in current FY
-    # REFACTOR: Use ScreeningDate (with StartDate fallback for backward compatibility)
-    if patients_df is not None and not patients_df.empty:
-        date_column = None
-        if 'ScreeningDate' in patients_df.columns:
-            date_column = 'ScreeningDate'
-        elif 'StartDate' in patients_df.columns:
-            date_column = 'StartDate'
-
-        if date_column:
-            patients_df_dates = pd.to_datetime(patients_df[date_column], errors='coerce')
-            fy_patients = patients_df[
-                (patients_df_dates >= pd.Timestamp(fy_start)) &
-                (patients_df_dates <= pd.Timestamp(fy_end))
-            ]
-            if not fy_patients.empty and 'Study' in fy_patients.columns:
-                studies_with_activity.update(fy_patients['Study'].dropna().unique())
-    
-    # Filter: Keep studies with activity in current FY, or studies that should always show
-    # Active studies should show even without FY activity (they're live studies)
-    # contracted, in_setup are pipeline studies and should also show
-    gantt_filtered = gantt_filtered[
-        (gantt_filtered['Study'].isin(studies_with_activity)) |
-        (gantt_filtered['Status'].isin(['contracted', 'in_setup', 'active', 'completed']))
-    ].copy()
-    
-    if gantt_filtered.empty:
-        st.info("No studies with activity in the current financial year available for Gantt chart.")
         return
     
     # Sort by Site first (to group same site together), then by StartDate ascending
@@ -516,38 +458,17 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
     siv_marker_x = []
     siv_marker_y = []
     
-    # Collect recruitment overlay data (for annotations)
-    recruitment_annotations = []  # List of (x, y, text) tuples
-    
-    # Check if recruitment overlay is enabled and data is available
-    has_recruitment_overlay = show_recruitment_overlay and recruitment_data is not None
-    recruitment_status_colors = {
-        'at_or_over': '#2ecc71',  # Green
-        'near_target': '#f39c12',  # Yellow/Orange
-        'under_target': '#e74c3c',  # Red
-        'no_target': '#95a5a6'  # Gray
-    }
-    
     # Track previous site for visual grouping and get date range
     prev_site = None
     site_changes = []  # Track where site changes occur for separators
     min_date = None
     max_date = None
     
-    # Add shapes for Gantt bars (split at LPFV if exists)
+    # Add shapes for Gantt bars
     for idx, (_, row) in enumerate(gantt_filtered.iterrows()):
         y_pos = y_position_map[idx]  # Gap-adjusted y position
         start = row['StartDate']
         status = str(row.get('Status', 'active')).lower()
-
-        # Handle studies without dates - use approximate dates based on status
-        if pd.isna(start):
-            if status in ['active', 'contracted', 'in_setup', 'completed']:
-                # Studies without dates - show 1 year bar from today
-                start = date.today()
-                end = start + timedelta(days=365)  # 1 year bar
-            else:
-                continue
 
         end = row['EndDate'] if pd.notna(row['EndDate']) else start + timedelta(days=365)  # Default 1 year if no end
         lpfv_date = row.get('LPFVDate') if 'LPFVDate' in row else None
@@ -559,97 +480,38 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         if max_date is None or end > max_date:
             max_date = end
 
-        # Get base color based on status
+        # Get color based on status
         base_color = get_status_color(status)
         recruitment_color = '#2ecc71'  # Green for recruitment phase
         followup_color = '#9b59b6'  # Purple for follow-up phase
 
-        # Get recruitment overlay info if enabled
-        recruitment_border_color = None
-        recruitment_text = None
-        if has_recruitment_overlay:
-            # Check if recruitment columns exist in the row
-            if 'Target' in row.index and 'Actual' in row.index and 'RecruitmentStatus' in row.index:
-                target = row.get('Target')
-                actual = row.get('Actual', 0)
-                recruitment_status = row.get('RecruitmentStatus', 'no_target')
-
-                # Handle NaN values
-                if pd.isna(actual):
-                    actual = 0
-                else:
-                    actual = int(actual)
-
-                # Format recruitment text
-                if pd.notna(target) and target > 0:
-                    recruitment_text = f"{actual}/{int(target)}"
-                else:
-                    recruitment_text = f"{actual}/No target"
-
-                # Get border color based on recruitment status
-                if pd.notna(recruitment_status):
-                    recruitment_border_color = recruitment_status_colors.get(str(recruitment_status).lower(), '#95a5a6')
-                else:
-                    recruitment_border_color = '#95a5a6'
-
-        # Determine bar drawing logic based on status
-        bar_border_color = recruitment_border_color if (has_recruitment_overlay and recruitment_border_color) else base_color
-        bar_border_width = 2 if (has_recruitment_overlay and recruitment_border_color) else 1
-
-        if status == 'contracted':
+        # Draw bar - split at LPFV if active study has it set
+        if status == 'active' and lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date:
+            recruitment_end = min(lpfv_date, end)
             fig.add_shape(
-                type="rect", x0=start, x1=end,
+                type="rect", x0=start, x1=recruitment_end,
                 y0=y_pos - 0.4, y1=y_pos + 0.4,
-                fillcolor=base_color, opacity=0.7,
-                line=dict(color=bar_border_color, width=bar_border_width),
+                fillcolor=recruitment_color, opacity=0.7,
+                line=dict(color=recruitment_color, width=1),
                 layer="below"
             )
-        elif status == 'active':
-            if lpfv_date and pd.notna(lpfv_date) and start <= lpfv_date:
-                recruitment_end = min(lpfv_date, end)
+            if lpfv_date < today and lpfv_date < end:
                 fig.add_shape(
-                    type="rect", x0=start, x1=recruitment_end,
+                    type="rect", x0=lpfv_date, x1=end,
                     y0=y_pos - 0.4, y1=y_pos + 0.4,
-                    fillcolor=recruitment_color, opacity=0.7,
-                    line=dict(color=bar_border_color, width=bar_border_width),
-                    layer="below"
-                )
-                if lpfv_date < today and lpfv_date < end:
-                    fig.add_shape(
-                        type="rect", x0=lpfv_date, x1=end,
-                        y0=y_pos - 0.4, y1=y_pos + 0.4,
-                        fillcolor=followup_color, opacity=0.7,
-                        line=dict(color=bar_border_color, width=bar_border_width),
-                        layer="below"
-                    )
-            else:
-                fig.add_shape(
-                    type="rect", x0=start, x1=end,
-                    y0=y_pos - 0.4, y1=y_pos + 0.4,
-                    fillcolor=recruitment_color, opacity=0.7,
-                    line=dict(color=bar_border_color, width=bar_border_width),
+                    fillcolor=followup_color, opacity=0.7,
+                    line=dict(color=followup_color, width=1),
                     layer="below"
                 )
         else:
-            # Other statuses (in_setup, completed, etc.)
+            # Single bar for all other cases
             fig.add_shape(
                 type="rect", x0=start, x1=end,
                 y0=y_pos - 0.4, y1=y_pos + 0.4,
                 fillcolor=base_color, opacity=0.7,
-                line=dict(color=bar_border_color, width=bar_border_width),
+                line=dict(color=base_color, width=1),
                 layer="below"
             )
-
-        # Add recruitment text annotation if overlay is enabled
-        if has_recruitment_overlay and recruitment_text:
-            bar_center_x = start + (end - start) / 2
-            bar_center_datetime = datetime.combine(bar_center_x, datetime.min.time()) if isinstance(bar_center_x, date) else bar_center_x
-            recruitment_annotations.append({
-                'x': bar_center_datetime,
-                'y': y_pos,
-                'text': recruitment_text,
-                'color': recruitment_border_color if recruitment_border_color else '#000000'
-            })
 
         # Add SIV marker if exists (only for active/contracted studies)
         if siv_date and pd.notna(siv_date) and status in ['active', 'contracted']:
@@ -756,23 +618,6 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
             showlegend=True
         ))
     
-    # Add recruitment progress text annotations if overlay is enabled
-    if has_recruitment_overlay and recruitment_annotations:
-        for ann in recruitment_annotations:
-            fig.add_annotation(
-                x=ann['x'],
-                y=ann['y'],
-                text=ann['text'],
-                showarrow=False,
-                font=dict(color=ann['color'], size=10, family='Arial Black'),
-                bgcolor='white',
-                bordercolor=ann['color'],
-                borderwidth=1,
-                borderpad=3,
-                xref='x',
-                yref='y'
-            )
-    
     # Update layout
     fig.update_layout(
         title="Gantt Chart: Studies by Site",
@@ -796,56 +641,22 @@ def display_gantt_chart(gantt_data: pd.DataFrame, patient_recruitment_data: Dict
         barmode='overlay'
     )
 
-    # Show legend (moved above chart for better visibility)
-    st.markdown("### Status Legend")
-    if has_recruitment_overlay:
-        # Show recruitment overlay legend
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>●</span> Active (Recruitment)", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"<span style='color: #9b59b6; font-weight: bold;'>●</span> Active (Follow-Up)", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"<span style='color: #3498db; font-weight: bold;'>●</span> Contracted", unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
-        with col5:
-            st.markdown(f"<span style='color: #7f8c8d; font-weight: bold;'>●</span> Completed", unsafe_allow_html=True)
-        with col6:
-            st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
-
-        st.markdown("### Recruitment Overlay Legend")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>■</span> At/Over Target", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>■</span> Near Target (75-99%)", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"<span style='color: #e74c3c; font-weight: bold;'>■</span> Under Target (<75%)", unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"<span style='color: #95a5a6; font-weight: bold;'>■</span> No Target Set", unsafe_allow_html=True)
-        st.caption("Bar border colors indicate recruitment status. Text annotations show 'Actual/Target' (e.g., '15/20').")
-    else:
-        # Standard legend without recruitment overlay
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>●</span> Active (Recruitment)", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"<span style='color: #9b59b6; font-weight: bold;'>●</span> Active (Follow-Up)", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"<span style='color: #3498db; font-weight: bold;'>●</span> Contracted", unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"<span style='color: #f39c12; font-weight: bold;'>●</span> In Setup", unsafe_allow_html=True)
-        with col5:
-            st.markdown(f"<span style='color: #7f8c8d; font-weight: bold;'>●</span> Completed", unsafe_allow_html=True)
-        with col6:
-            st.markdown(f"<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
+    # Legend
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("<span style='color: #2ecc71; font-weight: bold;'>●</span> Active (Recruiting)", unsafe_allow_html=True)
+    with col2:
+        st.markdown("<span style='color: #9b59b6; font-weight: bold;'>●</span> Follow-Up", unsafe_allow_html=True)
+    with col3:
+        st.markdown("<span style='color: #7f8c8d; font-weight: bold;'>●</span> Completed", unsafe_allow_html=True)
+    with col4:
+        st.markdown("<span style='color: #e67e22; font-weight: bold;'>★</span> SIV", unsafe_allow_html=True)
 
     st.plotly_chart(fig, use_container_width=True)
     
-    # Show WCF Activity table (uses unfiltered data so view presets don't affect it)
+    # Show WCF Activity table
     st.markdown("### WCF Activity")
-    _display_wcf_activity(all_gantt_data if all_gantt_data is not None else gantt_filtered, patients_df)
+    _display_wcf_activity(gantt_filtered, patients_df)
 
 
 
